@@ -28,3 +28,9 @@ README.build.md
 .cursor/
 .claude/
 CLAUDE.md
+rust/target/
+rust/**/*.o
+rust/**/*.rs.bk
+Cargo.lock
+scripts/
+*.vsix

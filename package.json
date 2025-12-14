@@ -17,7 +17,15 @@
     "AI",
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:repomixRunner.run",
+    "onCommand:repomixRunner.runOnOpenFiles",
+    "onCommand:repomixRunner.openSettings",
+    "onCommand:repomixRunner.openOutput",
+    "onView:repomixBundles",
+    "onView:repomixRunner.controlPanel",
+    "onStartupFinished"
+  ],
   "contributes": {
     "configuration": [
       {
@@ -461,6 +469,7 @@
     "watch:esbuild": "rimraf dist && node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "rimraf dist && npm run check-types && npm run lint && node esbuild.js --production",
+    "package:vsix": "vsce package",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",

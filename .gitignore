@@ -13,3 +13,6 @@ repomix-logo.svg
 .cursor
 CLAUDE.md
 rust/target/
+assets/bin/*.exe
+assets/bin/
+*.exe
