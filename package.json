@@ -467,7 +467,8 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vscode-test",
-    "clean": "rimraf dist out"
+    "clean": "rimraf dist out",
+    "build:rust": "node scripts/build-rust.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
