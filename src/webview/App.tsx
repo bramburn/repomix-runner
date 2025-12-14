@@ -23,6 +23,11 @@ interface Bundle {
   };
 }
 
+interface DefaultRepomixInfo {
+  outputFileExists: boolean;
+  outputFilePath: string;
+}
+
 interface BundleItemProps {
   bundle: Bundle;
   state: 'idle' | 'queued' | 'running';
@@ -126,10 +131,99 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
   );
 };
 
+interface DefaultRepomixItemProps {
+  state: 'idle' | 'queued' | 'running';
+  info: DefaultRepomixInfo;
+  onRun: () => void;
+  onCancel: () => void;
+  onCopy: () => void;
+}
+
+const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, onRun, onCancel, onCopy }) => {
+  const isRunning = state === 'running';
+  const isQueued = state === 'queued';
+  const disabled = isRunning || isQueued;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 12px',
+        marginBottom: '10px',
+        backgroundColor: 'var(--vscode-button-secondaryBackground)',
+        borderRadius: '4px',
+        border: '1px solid var(--vscode-widget-border)',
+      }}
+    >
+      <div style={{ flexGrow: 1, marginRight: '10px' }}>
+        <Text
+          weight="semibold"
+          style={{
+            display: 'block',
+            color: 'var(--vscode-button-secondaryForeground)'
+          }}
+        >
+          Run Default Repomix
+        </Text>
+        <Text size={200} style={{ opacity: 0.8, color: 'var(--vscode-button-secondaryForeground)' }}>
+          Run on entire repository
+        </Text>
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {info.outputFileExists && !disabled && (
+           <Button
+             appearance="subtle"
+             icon={<CopyRegular />}
+             onClick={onCopy}
+             title="Copy Default Output to Clipboard"
+             style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
+           />
+        )}
+
+        {disabled ? (
+          <Button
+            appearance="secondary"
+            onClick={onCancel}
+            style={{ minWidth: '80px', color: 'var(--vscode-errorForeground)', backgroundColor: 'var(--vscode-editor-background)' }}
+            title="Cancel execution"
+          >
+            Cancel
+          </Button>
+        ) : null}
+
+        <Button
+          appearance="primary"
+          disabled={disabled}
+          onClick={onRun}
+          style={{ minWidth: '100px' }}
+          title="Run Repomix on the entire repository with default settings"
+        >
+          {isRunning ? (
+            <>
+              <Spinner size="tiny" style={{ marginRight: '8px' }} />
+              Running...
+            </>
+          ) : isQueued ? (
+            'Queued...'
+          ) : (
+            'Run'
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 export const App = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
   const [version, setVersion] = useState<string>('');
+
+  // Default Repomix State
+  const [defaultRepomixState, setDefaultRepomixState] = useState<'idle' | 'queued' | 'running'>('idle');
+  const [defaultRepomixInfo, setDefaultRepomixInfo] = useState<DefaultRepomixInfo>({ outputFileExists: false, outputFilePath: '' });
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -138,11 +232,18 @@ export const App = () => {
         case 'updateBundles':
           setBundles(message.bundles);
           break;
+        case 'updateDefaultRepomix':
+           setDefaultRepomixInfo(message.data);
+           break;
         case 'executionStateChange':
-          setBundleStates(prev => ({
-            ...prev,
-            [message.bundleId]: message.status
-          }));
+          if (message.bundleId === '__default__') {
+             setDefaultRepomixState(message.status);
+          } else {
+             setBundleStates(prev => ({
+               ...prev,
+               [message.bundleId]: message.status
+             }));
+          }
           break;
         case 'updateVersion':
           setVersion(message.version);
@@ -172,6 +273,18 @@ export const App = () => {
     vscode.postMessage({ command: 'copyBundleOutput', bundleId: id });
   };
 
+  const handleRunDefault = () => {
+     vscode.postMessage({ command: 'runDefaultRepomix' });
+  };
+
+  const handleCancelDefault = () => {
+     vscode.postMessage({ command: 'cancelDefaultRepomix' });
+  };
+
+  const handleCopyDefault = () => {
+     vscode.postMessage({ command: 'copyDefaultRepomixOutput' });
+  };
+
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
       <div
@@ -187,6 +300,14 @@ export const App = () => {
         <Text size={500} weight="semibold" style={{ marginBottom: '10px' }}>
           Repomix Runner Control Panel
         </Text>
+
+        <DefaultRepomixItem
+            state={defaultRepomixState}
+            info={defaultRepomixInfo}
+            onRun={handleRunDefault}
+            onCancel={handleCancelDefault}
+            onCopy={handleCopyDefault}
+        />
 
         {bundles.length === 0 ? (
           <Text>No bundles found.</Text>
