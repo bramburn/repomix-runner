@@ -25,6 +25,23 @@ if (fs.existsSync(backupPath)) {
 const originalPackageJson = fs.readFileSync(packageJsonPath, 'utf-8');
 const packageData = JSON.parse(originalPackageJson);
 
+const restorePackageJson = () => {
+  try {
+    fs.writeFileSync(packageJsonPath, originalPackageJson);
+    console.log('Restored original package.json');
+  } catch (err) {
+    console.error('Error restoring package.json:', err);
+  }
+};
+
+// Handle signals to ensure cleanup
+['SIGINT', 'SIGTERM'].forEach((signal) => {
+  process.on(signal, () => {
+    console.log(`\nReceived ${signal}. Cleaning up...`);
+    restorePackageJson();
+    process.exit(1);
+  });
+});
 // Create a backup file
 try {
   fs.writeFileSync(backupPath, originalPackageJson);
