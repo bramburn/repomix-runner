@@ -16,3 +16,4 @@ rust/target/
 assets/bin/*.exe
 assets/bin/
 *.exe
+bin/
