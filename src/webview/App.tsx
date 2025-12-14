@@ -17,11 +17,17 @@ interface Bundle {
 
 interface BundleItemProps {
   bundle: Bundle;
-  isRunning: boolean;
+  state: 'idle' | 'queued' | 'running';
   onRun: (id: string) => void;
 }
 
-const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => {
+const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun }) => {
+  // State logic from main
+  const isRunning = state === 'running';
+  const isQueued = state === 'queued';
+  const disabled = isRunning || isQueued;
+
+  // UI/Tooltip logic from improve-bundle-ui
   const fileCount = bundle.files?.length || 0;
 
   const getTooltipContent = () => {
@@ -66,7 +72,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => 
       </div>
       <Button
         appearance="primary"
-        disabled={isRunning}
+        disabled={disabled}
         onClick={() => onRun(bundle.id)}
         style={{ minWidth: '100px' }}
         title={getTooltipContent()}
@@ -76,6 +82,8 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => 
             <Spinner size="tiny" style={{ marginRight: '8px' }} />
             Running...
           </>
+        ) : isQueued ? (
+          'Queued...'
         ) : (
           'Generate'
         )}
@@ -86,7 +94,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => 
 
 export const App = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
-  const [runningBundleId, setRunningBundleId] = useState<string | null>(null);
+  const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -96,11 +104,10 @@ export const App = () => {
           setBundles(message.bundles);
           break;
         case 'executionStateChange':
-          if (message.status === 'running') {
-            setRunningBundleId(message.bundleId);
-          } else {
-            setRunningBundleId(null);
-          }
+          setBundleStates(prev => ({
+            ...prev,
+            [message.bundleId]: message.status
+          }));
           break;
       }
     };
@@ -143,7 +150,7 @@ export const App = () => {
               <BundleItem
                 key={bundle.id}
                 bundle={bundle}
-                isRunning={runningBundleId === bundle.id}
+                state={bundleStates[bundle.id] || 'idle'}
                 onRun={handleRun}
               />
             ))}
