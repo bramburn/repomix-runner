@@ -5,6 +5,8 @@ import { runBundle } from '../commands/runBundle.js';
 export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.controlPanel';
   private _view?: vscode.WebviewView;
+  private _executionQueue: string[] = [];
+  private _isProcessingQueue = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -74,28 +76,61 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Notify start
+    // Add to queue
+    this._executionQueue.push(bundleId);
+
+    // Notify queued
     this._view.webview.postMessage({
       command: 'executionStateChange',
       bundleId,
-      status: 'running',
+      status: 'queued',
     });
 
-    try {
-      await runBundle(this._bundleManager, bundleId);
-    } catch (error) {
-      console.error('Error running bundle from webview:', error);
-      vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
-    } finally {
-      // Notify end
-      if (this._view) {
-        this._view.webview.postMessage({
-          command: 'executionStateChange',
-          bundleId,
-          status: 'idle',
-        });
+    this._processQueue();
+  }
+
+  private async _processQueue() {
+    if (this._isProcessingQueue) {
+      return;
+    }
+
+    this._isProcessingQueue = true;
+
+    while (this._executionQueue.length > 0) {
+      const bundleId = this._executionQueue[0];
+
+      if (!this._view) {
+        break;
+      }
+
+      // Notify running
+      this._view.webview.postMessage({
+        command: 'executionStateChange',
+        bundleId,
+        status: 'running',
+      });
+
+      try {
+        await runBundle(this._bundleManager, bundleId);
+      } catch (error) {
+        console.error('Error running bundle from webview:', error);
+        vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
+      } finally {
+        // Remove from queue
+        this._executionQueue.shift();
+
+        // Notify idle
+        if (this._view) {
+          this._view.webview.postMessage({
+            command: 'executionStateChange',
+            bundleId,
+            status: 'idle',
+          });
+        }
       }
     }
+
+    this._isProcessingQueue = false;
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
