@@ -237,7 +237,7 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "repomix-control-panel",
+          "id": "repomix-sidebar",
           "title": "Repomix Control Panel",
           "icon": "assets/home.svg"
         }
@@ -250,7 +250,7 @@
           "name": "REPOMIX"
         }
       ],
-      "repomix-control-panel": [
+      "repomix-sidebar": [
         {
           "type": "webview",
           "id": "repomixRunner.controlPanel",
