@@ -212,12 +212,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
     if (!userQuery) {return;}
 
-    // 2. Get API Key (Secrets > Config > Prompt)
-    let apiKey = await context.secrets.get('repomix.agent.googleApiKey');
-    if (!apiKey) {
-      // Fallback to config
-      apiKey = vscode.workspace.getConfiguration('repomix.agent').get<string>('googleApiKey');
-    }
+    // 2. Get API Key (Secrets > Prompt)
+    const apiKey = await context.secrets.get('repomix.agent.googleApiKey');
 
     if (!apiKey) {
       const selection = await vscode.window.showErrorMessage(

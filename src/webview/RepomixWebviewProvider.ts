@@ -66,11 +66,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         // NEW COMMANDS
         case 'checkApiKey': {
           const key = await this._secrets.get('repomix.agent.googleApiKey');
-          // Also check legacy config for backward compatibility
-          const configKey = vscode.workspace.getConfiguration('repomix.agent').get('googleApiKey');
           this._view?.webview.postMessage({
             command: 'apiKeyStatus',
-            hasKey: !!(key || configKey)
+            hasKey: !!key
           });
           break;
         }
