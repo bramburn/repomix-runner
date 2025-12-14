@@ -7,6 +7,7 @@ import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { readRepomixFileConfig } from '../config/configLoader.js';
+import { generateOutputFilename } from './generateOutputFilename.js';
 
 export async function runBundle(bundleManager: BundleManager, bundleId: string) {
   const cwd = getCwd();
@@ -21,12 +22,15 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
     overrideConfig = bundleConfig ? bundleConfig : {};
   }
 
-  if (config.runner.useBundleNameAsOutputName) {
-    overrideConfig.output ??= {};
+  // Calculate output filename
+  overrideConfig.output ??= {};
+  const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
 
-    const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
-    overrideConfig.output.filePath = baseFilePath + bundle.name;
-  }
+  overrideConfig.output.filePath = generateOutputFilename(
+    bundle,
+    baseFilePath,
+    config.runner.useBundleNameAsOutputName
+  );
 
   try {
     // Convert file paths to URIs

@@ -4,6 +4,7 @@ export interface Bundle {
   name: string;
   description?: string;
   configPath?: string;
+  output?: string;
   created: string;
   lastUsed: string;
   tags: string[];
