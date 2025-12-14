@@ -46,8 +46,11 @@ jobs:
       - name: Increment Version & Push
         id: version
         run: |
+          git fetch origin main
+          git checkout main
+          git pull origin main
           npm version patch -m "Bump version to %s [skip ci]"
-          git push origin HEAD:main --follow-tags
+          git push origin main --follow-tags
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
