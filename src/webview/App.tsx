@@ -12,6 +12,7 @@ interface Bundle {
   id: string;
   name: string;
   description?: string;
+  files: string[];
 }
 
 interface BundleItemProps {
@@ -21,6 +22,22 @@ interface BundleItemProps {
 }
 
 const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => {
+  const fileCount = bundle.files?.length || 0;
+
+  const getTooltipContent = () => {
+    if (fileCount === 0) return 'No files selected';
+
+    const maxFilesToShow = 10;
+    const filesToShow = bundle.files.slice(0, maxFilesToShow);
+    const remaining = fileCount - maxFilesToShow;
+
+    let content = `Run repomix on ${fileCount} files:\n${filesToShow.join('\n')}`;
+    if (remaining > 0) {
+      content += `\n...and ${remaining} more`;
+    }
+    return content;
+  };
+
   return (
     <div
       style={{
@@ -31,23 +48,28 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, isRunning, onRun }) => 
         borderBottom: '1px solid var(--vscode-widget-border)',
       }}
     >
-      <Text
-        style={{
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          flexGrow: 1,
-          marginRight: '10px',
-        }}
-        title={bundle.name}
-      >
-        {bundle.name}
-      </Text>
+      <div style={{ flexGrow: 1, marginRight: '10px', overflow: 'hidden' }}>
+        <Text
+          style={{
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: 'block'
+          }}
+          title={bundle.name}
+        >
+          {bundle.name}
+        </Text>
+        <Text size={200} style={{ opacity: 0.7 }}>
+          {fileCount} files
+        </Text>
+      </div>
       <Button
         appearance="primary"
         disabled={isRunning}
         onClick={() => onRun(bundle.id)}
         style={{ minWidth: '100px' }}
+        title={getTooltipContent()}
       >
         {isRunning ? (
           <>
