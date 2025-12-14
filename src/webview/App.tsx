@@ -113,7 +113,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           disabled={disabled}
           onClick={() => onRun(bundle.id)}
           style={{ minWidth: '100px' }}
-          title={`${fileCount} files, ${folderCount} folders`}
+          title={getTooltipContent()}
         >
           {isRunning ? (
             <>
@@ -144,6 +144,9 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
   const isQueued = state === 'queued';
   const disabled = isRunning || isQueued;
 
+  // Extract filename for display
+  const outputFileName = info.outputFilePath ? info.outputFilePath.split(/[/\\]/).pop() : '';
+
   return (
     <div
       style={{
@@ -170,6 +173,11 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
         <Text size={200} style={{ opacity: 0.8, color: 'var(--vscode-button-secondaryForeground)' }}>
           Run on entire repository
         </Text>
+        {info.outputFilePath && (
+          <Text size={100} style={{ opacity: 0.6, color: 'var(--vscode-button-secondaryForeground)', display: 'block' }} title={info.outputFilePath}>
+            Output: {outputFileName}
+          </Text>
+        )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         {info.outputFileExists && !disabled && (

@@ -22,6 +22,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _runningBundles: Map<string, AbortController> = new Map();
   private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
   private _defaultRepomixWatcher?: vscode.FileSystemWatcher;
+  private _lastWatchedRepomixOutputPath?: string;
+  private _debounceTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -102,12 +104,20 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       focusSubscription.dispose();
       this._disposeWatchers();
     });
+
+    // Initial state send
+    if (this._view?.visible) {
+        this._sendDefaultRepomixState();
+    }
   }
 
   private _disposeWatchers() {
       this._outputFileWatchers.forEach(w => w.dispose());
       this._outputFileWatchers.clear();
       this._defaultRepomixWatcher?.dispose();
+      if (this._debounceTimer) {
+          clearTimeout(this._debounceTimer);
+      }
   }
 
   private async _resolveDefaultRepomixOutputPath(): Promise<string> {
@@ -118,6 +128,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       return mergedConfig.output.filePath;
   }
 
+  private _debouncedSendDefaultRepomixState() {
+      if (this._debounceTimer) {
+          clearTimeout(this._debounceTimer);
+      }
+      this._debounceTimer = setTimeout(() => {
+          this._sendDefaultRepomixState();
+      }, 500); // Debounce for 500ms
+  }
+
   private async _sendDefaultRepomixState() {
       if (!this._view) {
           return;
@@ -126,17 +145,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           const outputPath = await this._resolveDefaultRepomixOutputPath();
           const exists = fs.existsSync(outputPath);
 
-          // Update watcher if path changed
-          if (this._defaultRepomixWatcher) {
-             // We can't easily check the pattern of existing watcher, so simple recreation might be easiest
-             // Or optimize later.
-             this._defaultRepomixWatcher.dispose();
-          }
+          // Update watcher only if path changed
+          if (outputPath !== this._lastWatchedRepomixOutputPath) {
+              if (this._defaultRepomixWatcher) {
+                 this._defaultRepomixWatcher.dispose();
+              }
 
-          const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath)));
-          watcher.onDidCreate(() => this._sendDefaultRepomixState());
-          watcher.onDidDelete(() => this._sendDefaultRepomixState());
-          this._defaultRepomixWatcher = watcher;
+              const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath)));
+              watcher.onDidCreate(() => this._debouncedSendDefaultRepomixState());
+              watcher.onDidDelete(() => this._debouncedSendDefaultRepomixState());
+              this._defaultRepomixWatcher = watcher;
+              this._lastWatchedRepomixOutputPath = outputPath;
+          }
 
           this._view.webview.postMessage({
               command: 'updateDefaultRepomix',
@@ -158,8 +178,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     const bundleMetadata = await this._bundleManager.getAllBundles();
     const cwd = getCwd();
 
-    // Note: We don't dispose all watchers here because _sendDefaultRepomixState manages its own separately
-    // But for bundles we do recreate them. Ideally we should track them better.
     this._outputFileWatchers.forEach(w => w.dispose());
     this._outputFileWatchers.clear();
 
@@ -233,8 +251,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
 
         await tempDirManager.cleanupFile(tmpFilePath);
-    } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to copy output: ${err.message}`);
+    } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
     }
   }
 
@@ -254,8 +273,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
           await tempDirManager.cleanupFile(tmpFilePath);
 
-      } catch (err: any) {
-          vscode.window.showErrorMessage(`Failed to copy output: ${err.message}`);
+      } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
       }
   }
 
@@ -297,7 +317,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     // Get bundle name for notification
     const bundle = await this._bundleManager.getBundle(bundleId);
-    vscode.window.showInformationMessage(`Bundle "${bundle.name}" queued.`);
+    const bundleName = bundle?.name ?? "Unknown Bundle";
+
+    vscode.window.showInformationMessage(`Bundle "${bundleName}" queued.`);
 
     this._processQueue();
   }
@@ -309,14 +331,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         controller.abort();
         // The _processQueue loop will handle the cleanup and notification via catch/finally
         // But we can notify immediately that cancellation was requested
-        const name = bundleId === DEFAULT_REPOMIX_ID ? "Default Repomix" : (await this._bundleManager.getBundle(bundleId)).name;
+        let name = "Unknown";
+        if (bundleId === DEFAULT_REPOMIX_ID) {
+            name = "Default Repomix";
+        } else {
+            const bundle = await this._bundleManager.getBundle(bundleId);
+            name = bundle?.name ?? "Unknown Bundle";
+        }
         vscode.window.showInformationMessage(`Cancelling "${name}"...`);
         return;
     }
 
     // Case 2: Bundle is in the queue (waiting)
-    // Note: A running bundle is also in the queue (at index 0), but we handled it above.
-    // If it's in the queue but NOT in runningBundles, it's waiting.
     const queueIndex = this._executionQueue.indexOf(bundleId);
     if (queueIndex !== -1) {
       this._executionQueue.splice(queueIndex, 1);
@@ -329,7 +355,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         });
       }
 
-      const name = bundleId === DEFAULT_REPOMIX_ID ? "Default Repomix" : (await this._bundleManager.getBundle(bundleId)).name;
+      let name = "Unknown";
+      if (bundleId === DEFAULT_REPOMIX_ID) {
+          name = "Default Repomix";
+      } else {
+          const bundle = await this._bundleManager.getBundle(bundleId);
+          name = bundle?.name ?? "Unknown Bundle";
+      }
       vscode.window.showInformationMessage(`"${name}" removed from queue.`);
       return;
     }
@@ -360,7 +392,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       let bundleName = "Default Repomix";
       if (!isDefault) {
           const bundle = await this._bundleManager.getBundle(bundleId);
-          bundleName = `Bundle "${bundle.name}"`;
+          bundleName = bundle ? `Bundle "${bundle.name}"` : "Unknown Bundle";
       }
 
       vscode.window.showInformationMessage(`Starting ${bundleName}...`);
@@ -382,12 +414,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
 
         vscode.window.showInformationMessage(`${bundleName} completed successfully.`);
-      } catch (error: any) {
-        if (error.name === 'AbortError' || error.message === 'Aborted') {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage === 'Aborted' || (error instanceof Error && error.name === 'AbortError')) {
             vscode.window.showInformationMessage(`${bundleName} was cancelled.`);
         } else {
             console.error('Error running from webview:', error);
-            vscode.window.showErrorMessage(`Failed to run: ${error}`);
+            vscode.window.showErrorMessage(`Failed to run: ${errorMessage}`);
         }
       } finally {
         // Cleanup
