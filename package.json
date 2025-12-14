@@ -226,11 +226,27 @@
         }
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "repomix-control-panel",
+          "title": "Repomix Control Panel",
+          "icon": "assets/home.svg"
+        }
+      ]
+    },
     "views": {
       "explorer": [
         {
           "id": "repomixBundles",
           "name": "REPOMIX"
+        }
+      ],
+      "repomix-control-panel": [
+        {
+          "type": "webview",
+          "id": "repomixRunner.controlPanel",
+          "name": "Repomix Runner Control Panel"
         }
       ]
     },
@@ -456,6 +472,8 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.22.0",
@@ -472,6 +490,9 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@fluentui/react-components": "^9.72.8",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "zod": "^3.24.1"
   },
   "__metadata": {
