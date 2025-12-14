@@ -11,13 +11,15 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": []
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
     },
     {
       "type": "npm",
       "script": "watch:esbuild",
       "group": "build",
-      "problemMatcher": [],
+      "problemMatcher": "$esbuild-watch",
       "isBackground": true,
       "label": "npm: watch:esbuild",
       "presentation": {
