@@ -469,7 +469,7 @@
     "watch:esbuild": "rimraf dist && node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "rimraf dist && npm run check-types && npm run lint && node esbuild.js --production",
-    "package:vsix": "vsce package --out bin/",
+    "package:vsix": "node scripts/ensure-bin.mjs && vsce package --out bin/",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
@@ -499,7 +499,7 @@
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
     "tiktoken": "^1.0.20",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.3"
   },
   "dependencies": {
     "@fluentui/react-components": "^9.72.8",

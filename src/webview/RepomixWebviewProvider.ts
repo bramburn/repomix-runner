@@ -31,6 +31,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       switch (data.command) {
         case 'webviewLoaded': {
           await this._sendBundles();
+          await this._sendVersion();
           break;
         }
         case 'runBundle': {
@@ -69,6 +70,25 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       command: 'updateBundles',
       bundles,
     });
+  }
+
+  private async _sendVersion() {
+    if (!this._view) {
+      return;
+    }
+    try {
+      const packageJsonPath = vscode.Uri.joinPath(this._extensionUri, 'package.json');
+      const packageJsonData = await vscode.workspace.fs.readFile(packageJsonPath);
+      const packageJson = JSON.parse(Buffer.from(packageJsonData).toString());
+      const version = packageJson.version;
+
+      this._view.webview.postMessage({
+        command: 'updateVersion',
+        version,
+      });
+    } catch (error) {
+      console.error('Failed to get version:', error);
+    }
   }
 
   private async _handleRunBundle(bundleId: string) {
