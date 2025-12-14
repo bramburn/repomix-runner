@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
-  const provider = new RepomixWebviewProvider(context.extensionUri);
+  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager);
 
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
