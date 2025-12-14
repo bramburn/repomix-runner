@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
-import { runRepomix } from '../commands/runRepomix.js';
+import { runRepomix, defaultRunRepomixDeps } from '../commands/runRepomix.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
 import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileStats.js';
 import { getCwd } from '../config/getCwd.js';
@@ -22,15 +22,11 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _runningBundles: Map<string, AbortController> = new Map();
   private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
   private _defaultRepomixWatcher?: vscode.FileSystemWatcher;
-  private _secrets: vscode.SecretStorage;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _bundleManager: BundleManager,
-    private readonly _context: vscode.ExtensionContext
-  ) {
-    this._secrets = _context.secrets;
-  }
+    private readonly _bundleManager: BundleManager
+  ) {}
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -79,28 +75,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
         case 'copyDefaultRepomixOutput': {
           await this._handleCopyDefaultRepomixOutput();
-          break;
-        }
-        // NEW COMMANDS
-        case 'checkApiKey': {
-          const key = await this._secrets.get('repomix.agent.googleApiKey');
-          // Also check legacy config for backward compatibility
-          const configKey = vscode.workspace.getConfiguration('repomix.agent').get('googleApiKey');
-          this._view?.webview.postMessage({
-            command: 'apiKeyStatus',
-            hasKey: !!(key || configKey)
-          });
-          break;
-        }
-        case 'saveApiKey': {
-          await this._secrets.store('repomix.agent.googleApiKey', data.apiKey);
-          vscode.window.showInformationMessage('Repomix: API Key saved securely.');
-          this._view?.webview.postMessage({ command: 'apiKeyStatus', hasKey: true });
-          break;
-        }
-        case 'runSmartAgent': {
-          // Trigger the command we created in extension.ts, passing the query
-          vscode.commands.executeCommand('repomixRunner.smartRun', data.query);
           break;
         }
       }
@@ -396,7 +370,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
       try {
         if (isDefault) {
-            await runRepomix({ signal: controller.signal } as any);
+            await runRepomix({
+              ...defaultRunRepomixDeps,
+              signal: controller.signal,
+            });
             this._sendDefaultRepomixState();
         } else {
             await runBundle(this._bundleManager, bundleId, controller.signal);
