@@ -477,7 +477,8 @@
     "lint": "eslint src",
     "test": "vscode-test",
     "clean": "rimraf dist out",
-    "build:rust": "node scripts/build-rust.mjs"
+    "build:rust": "node scripts/build-rust.mjs",
+    "package:local": "node scripts/package-local.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
