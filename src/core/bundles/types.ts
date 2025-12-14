@@ -22,3 +22,15 @@ export type BundleTreeItem = vscode.TreeItem & {
   readonly type: 'bundle' | 'file';
   readonly filePath?: string;
 };
+
+// Interface for data sent to the Webview
+export interface WebviewBundle extends Bundle {
+  id: string;
+  outputFilePath?: string;
+  outputFileExists?: boolean;
+  stats?: {
+    files: number;
+    folders: number;
+    totalSize: number;
+  };
+}
