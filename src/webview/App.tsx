@@ -95,6 +95,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun }) => {
 export const App = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
+  const [version, setVersion] = useState<string>('');
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -108,6 +109,9 @@ export const App = () => {
             ...prev,
             [message.bundleId]: message.status
           }));
+          break;
+        case 'updateVersion':
+          setVersion(message.version);
           break;
       }
     };
@@ -154,6 +158,27 @@ export const App = () => {
                 onRun={handleRun}
               />
             ))}
+          </div>
+        )}
+
+        {version && (
+          <div
+            style={{
+              marginTop: 'auto',
+              alignSelf: 'center',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+              backgroundColor: 'var(--vscode-editor-background)',
+              border: '1px solid var(--vscode-widget-border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text size={100} style={{ opacity: 0.7 }}>
+              v{version}
+            </Text>
           </div>
         )}
       </div>
