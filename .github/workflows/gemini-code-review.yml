@@ -1,7 +1,8 @@
 name: "Code Review by Gemini AI"
 
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 jobs:
   review:
@@ -11,22 +12,28 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - name: "Get diff of the pull request"
         id: get_diff
         shell: bash
-        env:
-          PULL_REQUEST_HEAD_REF: "${{ github.event.pull_request.head.ref }}"
-          PULL_REQUEST_BASE_REF: "${{ github.event.pull_request.base.ref }}"
         run: |-
-          git fetch origin "${{ env.PULL_REQUEST_HEAD_REF }}"
-          git fetch origin "${{ env.PULL_REQUEST_BASE_REF }}"
-          git checkout "${{ env.PULL_REQUEST_HEAD_REF }}"
-          git diff "origin/${{ env.PULL_REQUEST_BASE_REF }}" > "diff.txt"
+          # Fetch the PR merge ref to ensure we have the commits
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-head
+
+          # Diff between the PR base ref (on origin) and the fetched PR head
+          git diff "origin/${{ github.event.pull_request.base.ref }}...pr-head" > "diff.txt"
+
+          # Generate a random delimiter
+          delimiter="$(openssl rand -hex 8)"
+
           {
-            echo "pull_request_diff<<EOF";
-            cat "diff.txt";
-            echo 'EOF';
+            echo "pull_request_diff<<${delimiter}"
+            cat "diff.txt"
+            echo "${delimiter}"
           } >> $GITHUB_OUTPUT
+
       - uses: rubensflinco/gemini-code-review-action@1.0.5
         name: "Code Review by Gemini AI"
         id: review
