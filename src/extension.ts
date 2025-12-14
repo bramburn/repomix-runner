@@ -19,6 +19,7 @@ import {
 } from './commands/mutateActiveBundle.js';
 import { editBundle } from './commands/editBundle.js';
 import { goToConfigFile } from './commands/goToConfigFile.js';
+import { RepomixWebviewProvider } from './webview/RepomixWebviewProvider.js';
 
 export function activate(context: vscode.ExtensionContext) {
   const cwd = getCwd();
@@ -37,6 +38,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
+
+  const provider = new RepomixWebviewProvider(context.extensionUri);
+
+  const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
+    RepomixWebviewProvider.viewType,
+    provider
+  );
 
   const addSelectedFilesToNewBundleCommand = vscode.commands.registerCommand(
     'repomixRunner.addSelectedFilesToNewBundle',
@@ -195,6 +203,7 @@ export function activate(context: vscode.ExtensionContext) {
     selectActiveBundleCommand,
     createBundleCommand,
     decorationProviderSubscription,
+    webviewViewSubscription,
     bundleTreeView,
     addSelectedFilesToActiveBundleCommand,
     addSelectedFilesToNewBundleCommand,
