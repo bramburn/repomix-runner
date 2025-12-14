@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
+import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
+import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileStats.js';
+import { getCwd } from '../config/getCwd.js';
+import { WebviewBundle } from '../core/bundles/types.js';
+import { copyToClipboard } from '../core/files/copyToClipboard.js';
+import { tempDirManager } from '../core/files/tempDirManager.js';
 
 export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.controlPanel';
@@ -8,6 +16,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _executionQueue: string[] = [];
   private _isProcessingQueue = false;
   private _runningBundles: Map<string, AbortController> = new Map();
+  private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -45,22 +54,40 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCancelBundle(bundleId);
           break;
         }
+        case 'copyBundleOutput': {
+          const { bundleId } = data;
+          await this._handleCopyBundleOutput(bundleId);
+          break;
+        }
       }
     });
 
     // Listen for bundle changes
     const changeSubscription = this._bundleManager.onDidChangeBundles.event(() => {
+      invalidateStatsCache(); // Invalidate stats when bundles change
       if (this._view?.visible) {
         this._sendBundles();
       }
     });
 
+    // Listen for window focus to re-check file existence
+    const focusSubscription = vscode.window.onDidChangeWindowState((e) => {
+       if (e.focused && this._view?.visible) {
+         this._sendBundles();
+       }
+    });
+
     // Clean up subscription when webview is disposed
     webviewView.onDidDispose(() => {
       changeSubscription.dispose();
-      // Cancel all running bundles on dispose?
-      // Maybe not, the user might close the view but expect the job to continue.
+      focusSubscription.dispose();
+      this._disposeWatchers();
     });
+  }
+
+  private _disposeWatchers() {
+      this._outputFileWatchers.forEach(w => w.dispose());
+      this._outputFileWatchers.clear();
   }
 
   private async _sendBundles() {
@@ -68,15 +95,38 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const bundleMetadata = await this._bundleManager.getAllBundles();
-    // Convert object to array for easier frontend handling
-    const bundles = Object.entries(bundleMetadata.bundles).map(([id, bundle]) => ({
-      id,
-      ...bundle,
-    }));
+    const cwd = getCwd();
+
+    this._disposeWatchers();
+
+    const webviewBundles: WebviewBundle[] = await Promise.all(
+        Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
+            const outputPath = await resolveBundleOutputPath(bundle);
+            const exists = fs.existsSync(outputPath);
+
+            // Watch for changes on this file
+            const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath)));
+            watcher.onDidCreate(() => this._sendBundles());
+            watcher.onDidDelete(() => this._sendBundles());
+            // watcher.onDidChange(() => this._sendBundles()); // Maybe overkill?
+            this._outputFileWatchers.set(id, watcher);
+
+            // Calculate stats
+            const stats = await calculateBundleStats(cwd, id, bundle.files);
+
+            return {
+                id,
+                ...bundle,
+                outputFilePath: outputPath,
+                outputFileExists: exists,
+                stats
+            };
+        })
+    );
 
     this._view.webview.postMessage({
       command: 'updateBundles',
-      bundles,
+      bundles: webviewBundles,
     });
   }
 
@@ -96,6 +146,32 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       });
     } catch (error) {
       console.error('Failed to get version:', error);
+    }
+  }
+
+  private async _handleCopyBundleOutput(bundleId: string) {
+    const bundle = await this._bundleManager.getBundle(bundleId);
+    if (!bundle) {return;}
+
+    try {
+        const outputPath = await resolveBundleOutputPath(bundle);
+        if (!fs.existsSync(outputPath)) {
+            vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+            return;
+        }
+
+        const tmpFilePath = path.join(
+            tempDirManager.getTempDir(),
+            `${Date.now().toString().slice(-3)}_${path.basename(outputPath)}`
+        );
+
+        await copyToClipboard(outputPath, tmpFilePath);
+        vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
+
+        // Cleanup handled by tempDirManager mostly, but we can explicit delete
+        await tempDirManager.cleanupFile(tmpFilePath);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to copy output: ${err.message}`);
     }
   }
 
@@ -183,6 +259,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
       try {
         await runBundle(this._bundleManager, bundleId, controller.signal);
+
+        // Refresh bundles to update "exists" status for the newly generated file
+        this._sendBundles();
+
         vscode.window.showInformationMessage(`Bundle "${bundle.name}" completed successfully.`);
       } catch (error: any) {
         if (error.name === 'AbortError' || error.message === 'Aborted') {

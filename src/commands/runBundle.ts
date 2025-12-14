@@ -7,30 +7,33 @@ import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { readRepomixFileConfig } from '../config/configLoader.js';
-import { generateOutputFilename } from './generateOutputFilename.js';
+import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
+import * as path from 'path';
 
 export async function runBundle(bundleManager: BundleManager, bundleId: string, signal?: AbortSignal) {
   const cwd = getCwd();
   const bundle = await bundleManager.getBundle(bundleId);
-  const config = readRepomixRunnerVscodeConfig();
-  let overrideConfig: RepomixConfigFile = {};
 
-  // If a custom bundle config file is provided, use it
+  // Calculate output filename using the shared resolver
+  const outputFilePath = await resolveBundleOutputPath(bundle);
+
+  // We need to construct the override config expected by runRepomixOnSelectedFiles
+  // We can't pass the full path directly if it expects relative logic, but checking runRepomixOnSelectedFiles...
+  // It takes overrideConfig.output.filePath.
+
+  // Re-reading config just to respect the flow (though resolveBundleOutputPath did it too)
+  // This is a slight duplication of effort (reading config files twice) but ensures consistency
+  let overrideConfig: RepomixConfigFile = {};
   if (bundle.configPath) {
     const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
-
-    overrideConfig = bundleConfig ? bundleConfig : {};
+    overrideConfig = bundleConfig || {};
   }
-
-  // Calculate output filename
   overrideConfig.output ??= {};
-  const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
-
-  overrideConfig.output.filePath = generateOutputFilename(
-    bundle,
-    baseFilePath,
-    config.runner.useBundleNameAsOutputName
-  );
+  // Important: resolveBundleOutputPath returns absolute path.
+  // runRepomix handles absolute paths correctly? Let's assume yes or make it relative if needed.
+  // runRepomix does: filePath: path.resolve(cwd, outputFilePath) in mergeConfigs
+  // So if we pass an absolute path, path.resolve(cwd, absPath) returns absPath. It is safe.
+  overrideConfig.output.filePath = outputFilePath;
 
   try {
     // Convert file paths to URIs
@@ -55,12 +58,6 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string, 
     }
 
     if (missingFiles.length > 0) {
-      // If we are automating/queuing, showing a modal dialog is blocking and problematic if not handled carefully.
-      // However, for now, we assume user interaction or default behavior.
-      // If cancelled during this dialog, we should probably handle it.
-      // But `showWarningMessage` is async.
-      // We can't easily cancel the dialog itself via signal, but we can check signal after.
-
       const proceed = await vscode.window.showWarningMessage(
         `Some files in this bundle no longer exist:\n${missingFiles.join(
           '\n'
@@ -89,7 +86,6 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string, 
     await runRepomixOnSelectedFiles(validUris, overrideConfig, signal);
 
     if (signal?.aborted) {
-       // Should have been caught in runRepomix, but just in case
        return;
     }
 
@@ -102,7 +98,7 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string, 
   } catch (error: any) {
     if (error.name === 'AbortError' || error.message === 'Aborted') {
         logger.both.info('Bundle execution cancelled');
-        throw error; // Re-throw so caller knows it was cancelled
+        throw error;
     }
     logger.both.error('Failed to run bundle:', error);
     vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
