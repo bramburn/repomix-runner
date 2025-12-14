@@ -3,12 +3,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
+import { runRepomix, defaultRunRepomixDeps } from '../commands/runRepomix.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
 import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileStats.js';
 import { getCwd } from '../config/getCwd.js';
 import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
+import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
+
+const DEFAULT_REPOMIX_ID = '__default__';
 
 export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.controlPanel';
@@ -17,15 +21,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _isProcessingQueue = false;
   private _runningBundles: Map<string, AbortController> = new Map();
   private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
-  private _secrets: vscode.SecretStorage;
+  private _defaultRepomixWatcher?: vscode.FileSystemWatcher;
+  private _lastWatchedRepomixOutputPath?: string;
+  private _debounceTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _bundleManager: BundleManager,
-    private readonly _context: vscode.ExtensionContext
-  ) {
-    this._secrets = _context.secrets;
-  }
+    private readonly _bundleManager: BundleManager
+  ) {}
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -45,6 +48,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       switch (data.command) {
         case 'webviewLoaded': {
           await this._sendBundles();
+          await this._sendDefaultRepomixState();
           await this._sendVersion();
           break;
         }
@@ -63,26 +67,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCopyBundleOutput(bundleId);
           break;
         }
-        // NEW COMMANDS
-        case 'checkApiKey': {
-          const key = await this._secrets.get('repomix.agent.googleApiKey');
-          // Also check legacy config for backward compatibility
-          const configKey = vscode.workspace.getConfiguration('repomix.agent').get('googleApiKey');
-          this._view?.webview.postMessage({
-            command: 'apiKeyStatus',
-            hasKey: !!(key || configKey)
-          });
+        case 'runDefaultRepomix': {
+          await this._handleRunDefaultRepomix();
           break;
         }
-        case 'saveApiKey': {
-          await this._secrets.store('repomix.agent.googleApiKey', data.apiKey);
-          vscode.window.showInformationMessage('Repomix: API Key saved securely.');
-          this._view?.webview.postMessage({ command: 'apiKeyStatus', hasKey: true });
+        case 'cancelDefaultRepomix': {
+          await this._handleCancelDefaultRepomix();
           break;
         }
-        case 'runSmartAgent': {
-          // Trigger the command we created in extension.ts, passing the query
-          vscode.commands.executeCommand('repomixRunner.smartRun', data.query);
+        case 'copyDefaultRepomixOutput': {
+          await this._handleCopyDefaultRepomixOutput();
           break;
         }
       }
@@ -100,6 +94,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     const focusSubscription = vscode.window.onDidChangeWindowState((e) => {
        if (e.focused && this._view?.visible) {
          this._sendBundles();
+         this._sendDefaultRepomixState();
        }
     });
 
@@ -109,11 +104,71 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       focusSubscription.dispose();
       this._disposeWatchers();
     });
+
+    // Initial state send
+    if (this._view?.visible) {
+        this._sendDefaultRepomixState();
+    }
   }
 
   private _disposeWatchers() {
       this._outputFileWatchers.forEach(w => w.dispose());
       this._outputFileWatchers.clear();
+      this._defaultRepomixWatcher?.dispose();
+      if (this._debounceTimer) {
+          clearTimeout(this._debounceTimer);
+      }
+  }
+
+  private async _resolveDefaultRepomixOutputPath(): Promise<string> {
+      const cwd = getCwd();
+      const vscodeConfig = readRepomixRunnerVscodeConfig();
+      const configFile = await readRepomixFileConfig(cwd);
+      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null);
+      return mergedConfig.output.filePath;
+  }
+
+  private _debouncedSendDefaultRepomixState() {
+      if (this._debounceTimer) {
+          clearTimeout(this._debounceTimer);
+      }
+      this._debounceTimer = setTimeout(() => {
+          this._sendDefaultRepomixState();
+      }, 500); // Debounce for 500ms
+  }
+
+  private async _sendDefaultRepomixState() {
+      if (!this._view) {
+          return;
+      }
+      try {
+          const outputPath = await this._resolveDefaultRepomixOutputPath();
+          const exists = fs.existsSync(outputPath);
+
+          // Update watcher only if path changed
+          if (outputPath !== this._lastWatchedRepomixOutputPath) {
+              if (this._defaultRepomixWatcher) {
+                 this._defaultRepomixWatcher.dispose();
+              }
+
+              const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath)));
+              watcher.onDidCreate(() => this._debouncedSendDefaultRepomixState());
+              watcher.onDidDelete(() => this._debouncedSendDefaultRepomixState());
+              this._defaultRepomixWatcher = watcher;
+              this._lastWatchedRepomixOutputPath = outputPath;
+          }
+
+          this._view.webview.postMessage({
+              command: 'updateDefaultRepomix',
+              data: {
+                  outputFileExists: exists,
+                  outputFilePath: outputPath
+              }
+          });
+
+      } catch (e) {
+          console.error('Failed to send default repomix state:', e);
+      }
   }
 
   private async _sendBundles() {
@@ -123,7 +178,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     const bundleMetadata = await this._bundleManager.getAllBundles();
     const cwd = getCwd();
 
-    this._disposeWatchers();
+    this._outputFileWatchers.forEach(w => w.dispose());
+    this._outputFileWatchers.clear();
 
     const webviewBundles: WebviewBundle[] = await Promise.all(
         Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
@@ -194,11 +250,54 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         await copyToClipboard(outputPath, tmpFilePath);
         vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
 
-        // Cleanup handled by tempDirManager mostly, but we can explicit delete
         await tempDirManager.cleanupFile(tmpFilePath);
-    } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to copy output: ${err.message}`);
+    } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
     }
+  }
+
+  private async _handleCopyDefaultRepomixOutput() {
+      try {
+          const outputPath = await this._resolveDefaultRepomixOutputPath();
+          if (!fs.existsSync(outputPath)) {
+              vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+              return;
+          }
+          const tmpFilePath = path.join(
+            tempDirManager.getTempDir(),
+            `${Date.now().toString().slice(-3)}_${path.basename(outputPath)}`
+          );
+
+          await copyToClipboard(outputPath, tmpFilePath);
+          vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
+          await tempDirManager.cleanupFile(tmpFilePath);
+
+      } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
+      }
+  }
+
+  private async _handleRunDefaultRepomix() {
+      if (!this._view) { return; }
+
+      // Add to queue
+      this._executionQueue.push(DEFAULT_REPOMIX_ID);
+
+      // Notify queued
+      this._view.webview.postMessage({
+        command: 'executionStateChange',
+        bundleId: DEFAULT_REPOMIX_ID,
+        status: 'queued',
+      });
+
+      vscode.window.showInformationMessage(`Default Repomix run queued.`);
+      this._processQueue();
+  }
+
+  private async _handleCancelDefaultRepomix() {
+     await this._handleCancelBundle(DEFAULT_REPOMIX_ID);
   }
 
   private async _handleRunBundle(bundleId: string) {
@@ -218,7 +317,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     // Get bundle name for notification
     const bundle = await this._bundleManager.getBundle(bundleId);
-    vscode.window.showInformationMessage(`Bundle "${bundle.name}" queued.`);
+    const bundleName = bundle?.name ?? "Unknown Bundle";
+
+    vscode.window.showInformationMessage(`Bundle "${bundleName}" queued.`);
 
     this._processQueue();
   }
@@ -230,14 +331,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         controller.abort();
         // The _processQueue loop will handle the cleanup and notification via catch/finally
         // But we can notify immediately that cancellation was requested
-        const bundle = await this._bundleManager.getBundle(bundleId);
-        vscode.window.showInformationMessage(`Cancelling bundle "${bundle.name}"...`);
+        let name = "Unknown";
+        if (bundleId === DEFAULT_REPOMIX_ID) {
+            name = "Default Repomix";
+        } else {
+            const bundle = await this._bundleManager.getBundle(bundleId);
+            name = bundle?.name ?? "Unknown Bundle";
+        }
+        vscode.window.showInformationMessage(`Cancelling "${name}"...`);
         return;
     }
 
     // Case 2: Bundle is in the queue (waiting)
-    // Note: A running bundle is also in the queue (at index 0), but we handled it above.
-    // If it's in the queue but NOT in runningBundles, it's waiting.
     const queueIndex = this._executionQueue.indexOf(bundleId);
     if (queueIndex !== -1) {
       this._executionQueue.splice(queueIndex, 1);
@@ -250,8 +355,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         });
       }
 
-      const bundle = await this._bundleManager.getBundle(bundleId);
-      vscode.window.showInformationMessage(`Bundle "${bundle.name}" removed from queue.`);
+      let name = "Unknown";
+      if (bundleId === DEFAULT_REPOMIX_ID) {
+          name = "Default Repomix";
+      } else {
+          const bundle = await this._bundleManager.getBundle(bundleId);
+          name = bundle?.name ?? "Unknown Bundle";
+      }
+      vscode.window.showInformationMessage(`"${name}" removed from queue.`);
       return;
     }
   }
@@ -277,25 +388,39 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         status: 'running',
       });
 
-      const bundle = await this._bundleManager.getBundle(bundleId);
-      vscode.window.showInformationMessage(`Starting bundle "${bundle.name}"...`);
+      const isDefault = bundleId === DEFAULT_REPOMIX_ID;
+      let bundleName = "Default Repomix";
+      if (!isDefault) {
+          const bundle = await this._bundleManager.getBundle(bundleId);
+          bundleName = bundle ? `Bundle "${bundle.name}"` : "Unknown Bundle";
+      }
+
+      vscode.window.showInformationMessage(`Starting ${bundleName}...`);
 
       const controller = new AbortController();
       this._runningBundles.set(bundleId, controller);
 
       try {
-        await runBundle(this._bundleManager, bundleId, controller.signal);
-
-        // Refresh bundles to update "exists" status for the newly generated file
-        this._sendBundles();
-
-        vscode.window.showInformationMessage(`Bundle "${bundle.name}" completed successfully.`);
-      } catch (error: any) {
-        if (error.name === 'AbortError' || error.message === 'Aborted') {
-            vscode.window.showInformationMessage(`Bundle "${bundle.name}" was cancelled.`);
+        if (isDefault) {
+            await runRepomix({
+              ...defaultRunRepomixDeps,
+              signal: controller.signal,
+            });
+            this._sendDefaultRepomixState();
         } else {
-            console.error('Error running bundle from webview:', error);
-            vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
+            await runBundle(this._bundleManager, bundleId, controller.signal);
+            // Refresh bundles to update "exists" status for the newly generated file
+            this._sendBundles();
+        }
+
+        vscode.window.showInformationMessage(`${bundleName} completed successfully.`);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage === 'Aborted' || (error instanceof Error && error.name === 'AbortError')) {
+            vscode.window.showInformationMessage(`${bundleName} was cancelled.`);
+        } else {
+            console.error('Error running from webview:', error);
+            vscode.window.showErrorMessage(`Failed to run: ${errorMessage}`);
         }
       } finally {
         // Cleanup

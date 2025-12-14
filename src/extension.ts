@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
-  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context);
+  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager);
 
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
@@ -191,7 +191,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const smartRunCommand = vscode.commands.registerCommand('repomixRunner.smartRun', async (queryArg?: string) => {
+  const smartRunCommand = vscode.commands.registerCommand('repomixRunner.smartRun', async () => {
+    // 1. Get the Workspace Root
     let workspaceRoot: string;
     try {
       workspaceRoot = getCwd();
@@ -201,72 +202,77 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    // 1. Get Query (Argument or Input Box)
-    let userQuery = queryArg;
+    // 2. Capture User Query
+    const userQuery = await vscode.window.showInputBox({
+      title: "Smart Repomix Agent",
+      prompt: "Describe what you want to package",
+      placeHolder: "e.g., 'All authentication logic excluding tests'",
+      ignoreFocusOut: true
+    });
+
     if (!userQuery) {
-      userQuery = await vscode.window.showInputBox({
-        title: "Smart Repomix Agent",
-        prompt: "Describe what you want to package",
-        placeHolder: "e.g., 'All authentication logic excluding tests'",
-      });
-    }
-    if (!userQuery) {return;}
-
-    // 2. Get API Key (Secrets > Config > Prompt)
-    let apiKey = await context.secrets.get('repomix.agent.googleApiKey');
-    if (!apiKey) {
-      // Fallback to config
-      apiKey = vscode.workspace.getConfiguration('repomix.agent').get<string>('googleApiKey');
+      return; // User cancelled
     }
 
-    if (!apiKey) {
-      const selection = await vscode.window.showErrorMessage(
-        "Google API Key missing. Please set it in the 'Smart Agent' tab.",
-        "Open Panel"
-      );
-      if (selection === "Open Panel") {
-        vscode.commands.executeCommand('repomixRunner.controlPanel.focus');
-      }
-      return;
-    }
-
-    // 3. Run Agent
+    // 3. Run the Agent with Progress Indication
     vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       title: "Repomix Agent",
       cancellable: true
     }, async (progress, token) => {
-      // Send "running" status to Webview
-      provider['_view']?.webview.postMessage({ command: 'agentStateChange', status: 'running' });
+      progress.report({ message: "Initializing agent..." });
 
       try {
+        // Initialize the Graph
         const app = createSmartRepomixGraph();
+
+        // Prepare Initial State
         const inputs = {
           userQuery: userQuery,
           workspaceRoot: workspaceRoot,
-          apiKey: apiKey, // Pass key to state
           allFilePaths: [],
           candidateFiles: [],
           confirmedFiles: [],
+          contextFilePath: "",
           finalCommand: ""
         };
 
+        // Run the Graph
+        // We pass a dummy thread_id required by LangGraph checkpointers (even if in-memory)
         const config = { configurable: { thread_id: "1" } };
 
-        progress.report({ message: "Thinking..." });
+        // Invoke the agent
+        progress.report({ message: "Thinking & Filtering files..." });
+
         const finalState = await app.invoke(inputs, config);
 
-        const count = finalState.confirmedFiles.length;
-        if (count > 0) {
-          vscode.window.showInformationMessage(`Agent packaged ${count} files.`);
+        // Success Message
+        const fileCount = finalState.confirmedFiles.length;
+        if (fileCount > 0) {
+          vscode.window.showInformationMessage(
+            `Agent run complete! Packaged ${fileCount} files based on: "${userQuery}"`
+          );
         } else {
-          vscode.window.showWarningMessage("No relevant files found.");
+          vscode.window.showWarningMessage(
+            `No relevant files found for: "${userQuery}"`
+          );
         }
+
       } catch (error: any) {
-        logger.both.error("Agent Failed:", error);
-        vscode.window.showErrorMessage("Agent failed: " + error.message);
-      } finally {
-        provider['_view']?.webview.postMessage({ command: 'agentStateChange', status: 'idle' });
+        logger.both.error("Smart Agent Failed:", error);
+
+        // specific error handling for missing API key
+        if (error.message.includes("Google API Key")) {
+          const selection = await vscode.window.showErrorMessage(
+            "Google API Key missing.",
+            "Open Settings"
+          );
+          if (selection === "Open Settings") {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'repomix.agent.googleApiKey');
+          }
+        } else {
+          vscode.window.showErrorMessage(`Agent failed: ${error.message}`);
+        }
       }
     });
   });
