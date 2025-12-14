@@ -13,7 +13,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       // Allow scripts in the webview
       enableScripts: true,
-      localResourceRoots: [this._extensionUri],
+      localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist')],
     };
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
