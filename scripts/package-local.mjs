@@ -10,6 +10,24 @@ const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
 const originalPackageJson = fs.readFileSync(packageJsonPath, 'utf-8');
 const packageData = JSON.parse(originalPackageJson);
 
+const restorePackageJson = () => {
+  try {
+    fs.writeFileSync(packageJsonPath, originalPackageJson);
+    console.log('Restored original package.json');
+  } catch (err) {
+    console.error('Error restoring package.json:', err);
+  }
+};
+
+// Handle signals to ensure cleanup
+['SIGINT', 'SIGTERM'].forEach((signal) => {
+  process.on(signal, () => {
+    console.log(`\nReceived ${signal}. Cleaning up...`);
+    restorePackageJson();
+    process.exit(1);
+  });
+});
+
 try {
   const timestamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14); // YYYYMMDDHHMMSS
   const originalVersion = packageData.version;
@@ -24,9 +42,7 @@ try {
   console.log('Packaging complete.');
 } catch (error) {
   console.error('Error packaging local version:', error);
-  process.exit(1);
+  process.exitCode = 1;
 } finally {
-  // Restore original package.json
-  fs.writeFileSync(packageJsonPath, originalPackageJson);
-  console.log('Restored original package.json');
+  restorePackageJson();
 }
