@@ -26,8 +26,6 @@ README.build.md
 .github
 .cursorignore
 .cursor/
-.claude/
-CLAUDE.md
 rust/target/
 rust/**/*.o
 rust/**/*.rs.bk
