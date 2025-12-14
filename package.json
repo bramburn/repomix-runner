@@ -231,7 +231,7 @@
         {
           "id": "repomix-control-panel",
           "title": "Repomix Control Panel",
-          "icon": "$(home)"
+          "icon": "assets/home.svg"
         }
       ]
     },
