@@ -7,6 +7,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _executionQueue: string[] = [];
   private _isProcessingQueue = false;
+  private _runningBundles: Map<string, AbortController> = new Map();
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -39,6 +40,11 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleRunBundle(bundleId);
           break;
         }
+        case 'cancelBundle': {
+          const { bundleId } = data;
+          await this._handleCancelBundle(bundleId);
+          break;
+        }
       }
     });
 
@@ -52,6 +58,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     // Clean up subscription when webview is disposed
     webviewView.onDidDispose(() => {
       changeSubscription.dispose();
+      // Cancel all running bundles on dispose?
+      // Maybe not, the user might close the view but expect the job to continue.
     });
   }
 
@@ -106,7 +114,44 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       status: 'queued',
     });
 
+    // Get bundle name for notification
+    const bundle = await this._bundleManager.getBundle(bundleId);
+    vscode.window.showInformationMessage(`Bundle "${bundle.name}" queued.`);
+
     this._processQueue();
+  }
+
+  private async _handleCancelBundle(bundleId: string) {
+    // Case 1: Bundle is currently running
+    const controller = this._runningBundles.get(bundleId);
+    if (controller) {
+        controller.abort();
+        // The _processQueue loop will handle the cleanup and notification via catch/finally
+        // But we can notify immediately that cancellation was requested
+        const bundle = await this._bundleManager.getBundle(bundleId);
+        vscode.window.showInformationMessage(`Cancelling bundle "${bundle.name}"...`);
+        return;
+    }
+
+    // Case 2: Bundle is in the queue (waiting)
+    // Note: A running bundle is also in the queue (at index 0), but we handled it above.
+    // If it's in the queue but NOT in runningBundles, it's waiting.
+    const queueIndex = this._executionQueue.indexOf(bundleId);
+    if (queueIndex !== -1) {
+      this._executionQueue.splice(queueIndex, 1);
+
+      if (this._view) {
+        this._view.webview.postMessage({
+            command: 'executionStateChange',
+            bundleId,
+            status: 'idle',
+        });
+      }
+
+      const bundle = await this._bundleManager.getBundle(bundleId);
+      vscode.window.showInformationMessage(`Bundle "${bundle.name}" removed from queue.`);
+      return;
+    }
   }
 
   private async _processQueue() {
@@ -130,14 +175,30 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         status: 'running',
       });
 
+      const bundle = await this._bundleManager.getBundle(bundleId);
+      vscode.window.showInformationMessage(`Starting bundle "${bundle.name}"...`);
+
+      const controller = new AbortController();
+      this._runningBundles.set(bundleId, controller);
+
       try {
-        await runBundle(this._bundleManager, bundleId);
-      } catch (error) {
-        console.error('Error running bundle from webview:', error);
-        vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
+        await runBundle(this._bundleManager, bundleId, controller.signal);
+        vscode.window.showInformationMessage(`Bundle "${bundle.name}" completed successfully.`);
+      } catch (error: any) {
+        if (error.name === 'AbortError' || error.message === 'Aborted') {
+            vscode.window.showInformationMessage(`Bundle "${bundle.name}" was cancelled.`);
+        } else {
+            console.error('Error running bundle from webview:', error);
+            vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
+        }
       } finally {
-        // Remove from queue
-        this._executionQueue.shift();
+        // Cleanup
+        this._runningBundles.delete(bundleId);
+
+        // Remove from queue - ONLY if it's still the head (safe check)
+        if (this._executionQueue.length > 0 && this._executionQueue[0] === bundleId) {
+             this._executionQueue.shift();
+        }
 
         // Notify idle
         if (this._view) {

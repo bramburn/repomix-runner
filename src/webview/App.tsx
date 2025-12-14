@@ -19,9 +19,10 @@ interface BundleItemProps {
   bundle: Bundle;
   state: 'idle' | 'queued' | 'running';
   onRun: (id: string) => void;
+  onCancel: (id: string) => void;
 }
 
-const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun }) => {
+const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel }) => {
   // State logic from main
   const isRunning = state === 'running';
   const isQueued = state === 'queued';
@@ -70,24 +71,37 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun }) => {
           {fileCount} files
         </Text>
       </div>
-      <Button
-        appearance="primary"
-        disabled={disabled}
-        onClick={() => onRun(bundle.id)}
-        style={{ minWidth: '100px' }}
-        title={getTooltipContent()}
-      >
-        {isRunning ? (
-          <>
-            <Spinner size="tiny" style={{ marginRight: '8px' }} />
-            Running...
-          </>
-        ) : isQueued ? (
-          'Queued...'
-        ) : (
-          'Generate'
-        )}
-      </Button>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {disabled ? (
+          <Button
+            appearance="secondary"
+            onClick={() => onCancel(bundle.id)}
+            style={{ minWidth: '80px', color: 'var(--vscode-errorForeground)' }}
+            title="Cancel execution"
+          >
+            Cancel
+          </Button>
+        ) : null}
+
+        <Button
+          appearance="primary"
+          disabled={disabled}
+          onClick={() => onRun(bundle.id)}
+          style={{ minWidth: '100px' }}
+          title={getTooltipContent()}
+        >
+          {isRunning ? (
+            <>
+              <Spinner size="tiny" style={{ marginRight: '8px' }} />
+              Running...
+            </>
+          ) : isQueued ? (
+            'Queued...'
+          ) : (
+            'Generate'
+          )}
+        </Button>
+      </div>
     </div>
   );
 };
@@ -130,6 +144,10 @@ export const App = () => {
     vscode.postMessage({ command: 'runBundle', bundleId: id });
   };
 
+  const handleCancel = (id: string) => {
+    vscode.postMessage({ command: 'cancelBundle', bundleId: id });
+  };
+
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
       <div
@@ -156,6 +174,7 @@ export const App = () => {
                 bundle={bundle}
                 state={bundleStates[bundle.id] || 'idle'}
                 onRun={handleRun}
+                onCancel={handleCancel}
               />
             ))}
           </div>
