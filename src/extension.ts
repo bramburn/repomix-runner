@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
-  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager);
+  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context);
 
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
@@ -233,7 +233,6 @@ export function activate(context: vscode.ExtensionContext) {
           allFilePaths: [],
           candidateFiles: [],
           confirmedFiles: [],
-          contextFilePath: "",
           finalCommand: ""
         };
 

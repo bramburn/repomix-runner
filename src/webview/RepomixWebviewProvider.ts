@@ -27,7 +27,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _bundleManager: BundleManager
+    private readonly _bundleManager: BundleManager,
+    private readonly _context: vscode.ExtensionContext
   ) {}
 
   public resolveWebviewView(
@@ -77,6 +78,26 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
         case 'copyDefaultRepomixOutput': {
           await this._handleCopyDefaultRepomixOutput();
+          break;
+        }
+        case 'checkApiKey': {
+          const hasKey = await this._handleCheckApiKey();
+          if (this._view) {
+            this._view.webview.postMessage({
+              command: 'apiKeyStatus',
+              hasKey
+            });
+          }
+          break;
+        }
+        case 'saveApiKey': {
+          const { apiKey } = data;
+          await this._handleSaveApiKey(apiKey);
+          break;
+        }
+        case 'runSmartAgent': {
+          const { query } = data;
+          await this._handleRunSmartAgent(query);
           break;
         }
       }
@@ -443,6 +464,70 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     this._isProcessingQueue = false;
+  }
+
+  private async _handleCheckApiKey(): Promise<boolean> {
+    const apiKey = await this._context.secrets.get('repomix.agent.googleApiKey');
+    return !!apiKey;
+  }
+
+  private async _handleSaveApiKey(apiKey: string) {
+    if (apiKey) {
+      await this._context.secrets.store('repomix.agent.googleApiKey', apiKey);
+      vscode.window.showInformationMessage('API Key saved successfully!');
+    }
+  }
+
+  private async _handleRunSmartAgent(query: string) {
+    const workspaceRoot = getCwd();
+
+    // Check for API key first
+    let apiKey = await this._context.secrets.get('repomix.agent.googleApiKey');
+    if (!apiKey) {
+      // Fallback to config
+      apiKey = vscode.workspace.getConfiguration('repomix.agent').get<string>('googleApiKey');
+    }
+
+    if (!apiKey) {
+      vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
+      return;
+    }
+
+    // Notify webview that agent is running
+    if (this._view) {
+      this._view.webview.postMessage({ command: 'agentStateChange', status: 'running' });
+    }
+
+    try {
+      const { createSmartRepomixGraph } = await import('../agent/graph.js');
+      const app = createSmartRepomixGraph();
+
+      const inputs = {
+        userQuery: query,
+        workspaceRoot: workspaceRoot,
+        allFilePaths: [],
+        candidateFiles: [],
+        confirmedFiles: [],
+        finalCommand: ""
+      };
+
+      const config = { configurable: { thread_id: "1" } };
+      const finalState = await app.invoke(inputs, config);
+
+      const count = finalState.confirmedFiles.length;
+      if (count > 0) {
+        vscode.window.showInformationMessage(`Agent packaged ${count} files.`);
+      } else {
+        vscode.window.showWarningMessage("No relevant files found.");
+      }
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Agent failed: ${error.message}`);
+    } finally {
+      // Notify webview that agent is done
+      if (this._view) {
+        this._view.webview.postMessage({ command: 'agentStateChange', status: 'idle' });
+      }
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {

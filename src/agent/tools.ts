@@ -1,101 +1,102 @@
-import * as fs from 'fs/promises';
+import * as vscode from 'vscode';
 import * as path from 'path';
-import { XMLParser } from 'fast-xml-parser';
-import { execPromisify } from '../shared/execPromisify';
 import { logger } from '../shared/logger';
 
-// Initialize XML Parser
-// We don't ignore attributes because we need the 'path' attribute from <file path="...">
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "@_",
-});
-
 /**
- * Step 1 Tool: Generates the compressed context file.
- * Runs `repomix --compress --style xml` to create a lightweight representation of the repo.
+ * Retrieve all files in the workspace using VS Code's native API.
+ * Excludes common ignore patterns and node_modules.
  */
-export async function runRepomixCompress(cwd: string): Promise<string> {
-  // We use a unique temp name for the context file
-  const contextFileName = `repomix-agent-context-${Date.now()}.xml`;
-
-  // --compress: extracts only signatures/interfaces (saves tokens)
-  // --style xml: easier to machine-parse than markdown
-  // --no-file-summary: we only want the file list and content
-  const cmd = `npx repomix --compress --style xml --no-file-summary --output "${contextFileName}"`;
-
-  logger.both.info(`Agent: Generating context with command: ${cmd}`);
-
-  // Execute in the user's workspace root
-  await execPromisify(cmd, { cwd });
-
-  return path.join(cwd, contextFileName);
-}
-
-/**
- * Step 2 Tool: Extracts the directory structure (list of files).
- * Reads the XML output and returns a flat array of file paths.
- */
-export async function parseDirectoryStructure(contextFilePath: string): Promise<string[]> {
+export async function getWorkspaceFiles(workspaceRoot: string): Promise<string[]> {
   try {
-    const xmlContent = await fs.readFile(contextFilePath, 'utf-8');
-    const parsed = parser.parse(xmlContent);
+    // Define patterns to exclude
+    const excludePattern = '**/{node_modules,git,dist,build,out,coverage,.next,.vscode,.idea}/**';
 
-    // Repomix XML structure: <files><file path="...">...</file></files>
-    const fileNodes = parsed?.files?.file;
+    // Use VS Code's findFiles API with a relative pattern
+    const relativePattern = new vscode.RelativePattern(
+      workspaceRoot,
+      '**/*'
+    );
 
-    if (!fileNodes) {
-        logger.both.warn("Agent: No files found in context XML.");
-        return [];
-    }
+    // Find all files matching the pattern
+    const uris = await vscode.workspace.findFiles(relativePattern, excludePattern);
 
-    // fast-xml-parser returns an object if there's only one child, or an array if multiple.
-    const filesArray = Array.isArray(fileNodes) ? fileNodes : [fileNodes];
+    // Convert URIs to relative paths
+    const filePaths = uris
+      .map(uri => vscode.workspace.asRelativePath(uri, false))
+      .filter(filePath => filePath); // Filter out empty paths
 
-    // Extract the 'path' attribute (prefixed with @_ due to parser config)
-    const paths = filesArray
-      .map((node: any) => node['@_path'])
-      .filter((p: string) => !!p);
-
-    return paths;
+    logger.both.info(`Found ${filePaths.length} files in workspace`);
+    return filePaths;
   } catch (error) {
-    logger.both.error("Agent: Failed to parse directory structure", error);
+    logger.both.error('Failed to get workspace files:', error);
     return [];
   }
 }
 
 /**
- * Step 4 Tool: Content Retrieval.
- * Fetches the compressed content of specific files from the Context XML.
- * This avoids feeding the entire codebase to the LLM.
+ * Read the content of specific files using VS Code's native API.
+ * Returns a Map of file paths to their content.
  */
-export async function extractFileContents(contextFilePath: string, targetPaths: string[]): Promise<Map<string, string>> {
-  const results = new Map<string, string>();
+export async function getFileContents(
+  workspaceRoot: string,
+  filePaths: string[]
+): Promise<Map<string, string>> {
+  const contentMap = new Map<string, string>();
 
-  try {
-    const xmlContent = await fs.readFile(contextFilePath, 'utf-8');
-    const parsed = parser.parse(xmlContent);
+  for (const filePath of filePaths) {
+    try {
+      // Convert relative path to absolute URI
+      const absolutePath = path.resolve(workspaceRoot, filePath);
+      const uri = vscode.Uri.file(absolutePath);
 
-    const fileNodes = parsed?.files?.file;
-    if (!fileNodes) {return results;}
-
-    const filesArray = Array.isArray(fileNodes) ? fileNodes : [fileNodes];
-
-    // Create a lookup set for O(1) access
-    const targets = new Set(targetPaths);
-
-    for (const node of filesArray) {
-      const path = node['@_path'];
-      if (targets.has(path)) {
-        // The text content of the node is the file content
-        // fast-xml-parser puts text content in '#text' if there are attributes
-        const content = node['#text'] || "";
-        results.set(path, content);
+      // Check if file exists and is not a directory
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (stat.type === vscode.FileType.Directory) {
+        continue; // Skip directories
       }
+
+      // Read file content
+      const content = Buffer.from(
+        await vscode.workspace.fs.readFile(uri)
+      ).toString('utf-8');
+
+      contentMap.set(filePath, content);
+    } catch (error) {
+      logger.both.warn(`Failed to read file ${filePath}:`, error);
+      // Continue with other files even if one fails
     }
-  } catch (error) {
-    logger.both.error("Agent: Failed to extract file contents", error);
   }
 
-  return results;
+  return contentMap;
+}
+
+/**
+ * Check if a file exists using VS Code's native API.
+ */
+export async function fileExists(workspaceRoot: string, filePath: string): Promise<boolean> {
+  try {
+    const absolutePath = path.resolve(workspaceRoot, filePath);
+    const uri = vscode.Uri.file(absolutePath);
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get file statistics (size, type) using VS Code's native API.
+ */
+export async function getFileStats(
+  workspaceRoot: string,
+  filePath: string
+): Promise<{ type: vscode.FileType; size?: number } | null> {
+  try {
+    const absolutePath = path.resolve(workspaceRoot, filePath);
+    const uri = vscode.Uri.file(absolutePath);
+    const stat = await vscode.workspace.fs.stat(uri);
+    return { type: stat.type, size: stat.size };
+  } catch {
+    return null;
+  }
 }

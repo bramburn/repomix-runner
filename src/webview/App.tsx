@@ -5,9 +5,17 @@ import {
   Button,
   Text,
   Spinner,
+  TabList,
+  Tab,
+  Textarea,
+  Input,
+  Label,
+  Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { CopyRegular } from '@fluentui/react-icons';
+import { CopyRegular, PlayRegular, SaveRegular } from '@fluentui/react-icons';
+
+// --- Interfaces ---
 
 interface Bundle {
   id: string;
@@ -35,6 +43,93 @@ interface BundleItemProps {
   onCancel: (id: string) => void;
   onCopy: (id: string) => void;
 }
+
+interface DefaultRepomixItemProps {
+  state: 'idle' | 'queued' | 'running';
+  info: DefaultRepomixInfo;
+  onRun: () => void;
+  onCancel: () => void;
+  onCopy: () => void;
+}
+
+// --- Components ---
+
+const AgentView = () => {
+  const [query, setQuery] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+
+  useEffect(() => {
+    // Check if we have a key saved
+    const handler = (event: MessageEvent) => {
+      if (event.data.command === 'apiKeyStatus') {
+        setHasKey(event.data.hasKey);
+      }
+      if (event.data.command === 'agentStateChange') {
+        setIsRunning(event.data.status === 'running');
+      }
+    };
+    window.addEventListener('message', handler);
+    vscode.postMessage({ command: 'checkApiKey' });
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const handleRun = () => {
+    if (!query) return;
+    vscode.postMessage({ command: 'runSmartAgent', query });
+  };
+
+  const handleSaveKey = () => {
+    vscode.postMessage({ command: 'saveApiKey', apiKey });
+    setApiKey(''); // Clear input for security
+    setHasKey(true);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '10px 0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Label weight="semibold">Ask the Agent</Label>
+        <Textarea
+          placeholder="e.g., 'Package all auth logic excluding tests'"
+          value={query}
+          onChange={(e, data) => setQuery(data.value)}
+          rows={4}
+        />
+        <Button
+          appearance="primary"
+          icon={isRunning ? <Spinner size="tiny"/> : <PlayRegular />}
+          disabled={isRunning || !query}
+          onClick={handleRun}
+        >
+          {isRunning ? 'Agent Working...' : 'Run Agent'}
+        </Button>
+      </div>
+
+      <Divider />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
+        <Label weight="semibold">Configuration</Label>
+        <Text size={200}>
+           Status: {hasKey ? "✅ API Key Saved" : "⚠️ API Key Missing"}
+        </Text>
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <Input
+            type="password"
+            placeholder="Paste Gemini API Key"
+            value={apiKey}
+            onChange={(e, data) => setApiKey(data.value)}
+            style={{ flexGrow: 1 }}
+          />
+          <Button icon={<SaveRegular />} onClick={handleSaveKey}>Save</Button>
+        </div>
+        <Text size={100} style={{opacity: 0.7}}>
+          Key is stored securely in VS Code Secrets.
+        </Text>
+      </div>
+    </div>
+  );
+};
 
 const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel, onCopy }) => {
   // State logic from main
@@ -224,7 +319,10 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
   );
 };
 
+// --- MAIN APP ---
+
 export const App = () => {
+  const [selectedTab, setSelectedTab] = useState<string>('bundles');
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
   const [version, setVersion] = useState<string>('');
@@ -260,8 +358,6 @@ export const App = () => {
     };
 
     window.addEventListener('message', handleMessage);
-
-    // Request initial data
     vscode.postMessage({ command: 'webviewLoaded' });
 
     return () => {
@@ -297,61 +393,74 @@ export const App = () => {
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
       <div
         style={{
-          padding: '20px',
+          padding: '10px', // Reduced padding slightly to save space
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
           height: '100vh',
           boxSizing: 'border-box',
         }}
       >
         <Text size={500} weight="semibold" style={{ marginBottom: '10px' }}>
-          Repomix Runner Control Panel
+          Repomix Runner
         </Text>
 
-        <DefaultRepomixItem
-            state={defaultRepomixState}
-            info={defaultRepomixInfo}
-            onRun={handleRunDefault}
-            onCancel={handleCancelDefault}
-            onCopy={handleCopyDefault}
-        />
+        {/* TAB HEADER */}
+        <TabList
+          selectedValue={selectedTab}
+          onTabSelect={(_, data) => setSelectedTab(data.value as string)}
+          style={{ marginBottom: '15px' }}
+        >
+          <Tab value="bundles">Bundles</Tab>
+          <Tab value="agent">Smart Agent</Tab>
+        </TabList>
 
-        {bundles.length === 0 ? (
-          <Text>No bundles found.</Text>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {bundles.map((bundle) => (
-              <BundleItem
-                key={bundle.id}
-                bundle={bundle}
-                state={bundleStates[bundle.id] || 'idle'}
-                onRun={handleRun}
-                onCancel={handleCancel}
-                onCopy={handleCopy}
-              />
-            ))}
-          </div>
-        )}
+        {/* TAB CONTENT */}
+        <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {selectedTab === 'bundles' ? (
+             <>
+                <DefaultRepomixItem
+                    state={defaultRepomixState}
+                    info={defaultRepomixInfo}
+                    onRun={handleRunDefault}
+                    onCancel={handleCancelDefault}
+                    onCopy={handleCopyDefault}
+                />
 
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <Text weight="semibold">Your Bundles</Text>
+                  {bundles.length === 0 ? (
+                    <Text style={{ opacity: 0.7 }}>No bundles found.</Text>
+                  ) : (
+                    bundles.map((bundle) => (
+                      <BundleItem
+                        key={bundle.id}
+                        bundle={bundle}
+                        state={bundleStates[bundle.id] || 'idle'}
+                        onRun={handleRun}
+                        onCancel={handleCancel}
+                        onCopy={handleCopy}
+                      />
+                    ))
+                  )}
+                </div>
+             </>
+          ) : (
+            <AgentView />
+          )}
+        </div>
+
+        {/* FOOTER */}
         {version && (
           <div
             style={{
-              marginTop: 'auto',
+              marginTop: '10px',
               alignSelf: 'center',
-              padding: '4px 8px',
+              padding: '2px 6px',
               borderRadius: '4px',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-              backgroundColor: 'var(--vscode-editor-background)',
-              border: '1px solid var(--vscode-widget-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              opacity: 0.5
             }}
           >
-            <Text size={100} style={{ opacity: 0.7 }}>
-              v{version}
-            </Text>
+            <Text size={100}>v{version}</Text>
           </div>
         )}
       </div>
