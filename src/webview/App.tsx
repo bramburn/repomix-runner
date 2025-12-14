@@ -5,9 +5,15 @@ import {
   Button,
   Text,
   Spinner,
+  TabList,
+  Tab,
+  Textarea,
+  Input,
+  Label,
+  Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { CopyRegular } from '@fluentui/react-icons';
+import { CopyRegular, PlayRegular, SaveRegular } from '@fluentui/react-icons';
 
 interface Bundle {
   id: string;
@@ -37,12 +43,10 @@ interface BundleItemProps {
 }
 
 const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel, onCopy }) => {
-  // State logic from main
   const isRunning = state === 'running';
   const isQueued = state === 'queued';
   const disabled = isRunning || isQueued;
 
-  // UI/Tooltip logic
   const fileCount = bundle.stats?.files || 0;
   const folderCount = bundle.stats?.folders || 0;
 
@@ -53,55 +57,59 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
     const filesToShow = (bundle.files || []).slice(0, maxFilesToShow);
     const remaining = (bundle.files?.length || 0) - maxFilesToShow;
 
-    let content = `Run repomix on:\n${filesToShow.join('\n')}`;
-    if (remaining > 0) {
-      content += `\n...and ${remaining} more`;
-    }
-    return content;
+    return (
+      <div style={{ maxWidth: '300px' }}>
+        <div>{fileCount} files, {folderCount} folders</div>
+        <div style={{ marginTop: '5px', fontSize: '12px', opacity: 0.8 }}>
+          {filesToShow.map((file, index) => (
+            <div key={index}>• {file}</div>
+          ))}
+          {remaining > 0 && <div>... and {remaining} more</div>}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div
       style={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '8px 0',
-        borderBottom: '1px solid var(--vscode-widget-border)',
+        flexDirection: 'column',
+        gap: '10px',
+        padding: '10px',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: '4px',
       }}
     >
-      <div style={{ flexGrow: 1, marginRight: '10px', overflow: 'hidden' }}>
-        <Text
-          style={{
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: 'block'
-          }}
-          title={bundle.name}
-        >
-          {bundle.name}
-        </Text>
-        <Text size={200} style={{ opacity: 0.7 }}>
-          {fileCount} files, {folderCount} folders
-        </Text>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <Text weight="semibold">{bundle.name}</Text>
+          {bundle.description && (
+            <Text size={200} style={{ opacity: 0.8, display: 'block', marginTop: '4px' }}>
+              {bundle.description}
+            </Text>
+          )}
+          <Text size={200} style={{ opacity: 0.6, display: 'block', marginTop: '4px' }}>
+            {fileCount} files, {folderCount} folders
+          </Text>
+        </div>
+        <Button
+          appearance="subtle"
+          size="small"
+          icon={<CopyRegular />}
+          disabled={disabled || !bundle.outputFileExists}
+          onClick={() => onCopy(bundle.id)}
+          title="Copy output to clipboard"
+        />
       </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        {bundle.outputFileExists && !disabled && (
-           <Button
-             appearance="subtle"
-             icon={<CopyRegular />}
-             onClick={() => onCopy(bundle.id)}
-             title="Copy Output File to Clipboard"
-             style={{ minWidth: '32px' }}
-           />
-        )}
 
-        {disabled ? (
+      <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
+        {isRunning || isQueued ? (
           <Button
             appearance="secondary"
+            disabled={!isRunning}
             onClick={() => onCancel(bundle.id)}
-            style={{ minWidth: '80px', color: 'var(--vscode-errorForeground)' }}
+            size="small"
             title="Cancel execution"
           >
             Cancel
@@ -216,7 +224,84 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
   );
 };
 
+const AgentView = () => {
+  const [query, setQuery] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data.command === 'apiKeyStatus') {
+        setHasKey(event.data.hasKey);
+      }
+      if (event.data.command === 'agentStateChange') {
+        setIsRunning(event.data.status === 'running');
+      }
+    };
+    window.addEventListener('message', handler);
+    vscode.postMessage({ command: 'checkApiKey' });
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const handleRun = () => {
+    if (!query) return;
+    vscode.postMessage({ command: 'runSmartAgent', query });
+  };
+
+  const handleSaveKey = () => {
+    vscode.postMessage({ command: 'saveApiKey', apiKey });
+    setApiKey(''); // Clear input for security
+    setHasKey(true);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '10px 0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Label weight="semibold">Ask the Agent</Label>
+        <Textarea
+          placeholder="e.g., 'Package all auth logic excluding tests'"
+          value={query}
+          onChange={(e, data) => setQuery(data.value)}
+          rows={4}
+        />
+        <Button
+          appearance="primary"
+          icon={isRunning ? <Spinner size="tiny" /> : <PlayRegular />}
+          disabled={isRunning || !query}
+          onClick={handleRun}
+        >
+          {isRunning ? 'Agent Working...' : 'Run Agent'}
+        </Button>
+      </div>
+
+      <Divider />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
+        <Label weight="semibold">Configuration</Label>
+        <Text size={200}>
+          Status: {hasKey ? "✅ API Key Saved" : "⚠️ API Key Missing"}
+        </Text>
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <Input
+            type="password"
+            placeholder="Paste Gemini API Key"
+            value={apiKey}
+            onChange={(e, data) => setApiKey(data.value)}
+            style={{ flexGrow: 1 }}
+          />
+          <Button icon={<SaveRegular />} onClick={handleSaveKey}>Save</Button>
+        </div>
+        <Text size={100} style={{ opacity: 0.7 }}>
+          Key is stored securely in VS Code Secrets.
+        </Text>
+      </div>
+    </div>
+  );
+};
+
 export const App = () => {
+  const [selectedTab, setSelectedTab] = useState<string>('bundles');
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
   const [version, setVersion] = useState<string>('');
@@ -287,65 +372,51 @@ export const App = () => {
 
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
-      <div
-        style={{
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          height: '100vh',
-          boxSizing: 'border-box',
-        }}
-      >
-        <Text size={500} weight="semibold" style={{ marginBottom: '10px' }}>
-          Repomix Runner Control Panel
-        </Text>
+      <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', height: '100vh', boxSizing: 'border-box' }}>
 
-        <DefaultRepomixItem
-            state={defaultRepomixState}
-            info={defaultRepomixInfo}
-            onRun={handleRunDefault}
-            onCancel={handleCancelDefault}
-            onCopy={handleCopyDefault}
-        />
+        {/* TAB HEADER */}
+        <TabList
+          selectedValue={selectedTab}
+          onTabSelect={(_, data) => setSelectedTab(data.value as string)}
+          style={{ marginBottom: '10px' }}
+        >
+          <Tab value="bundles">Bundles</Tab>
+          <Tab value="agent">Smart Agent</Tab>
+        </TabList>
 
-        {bundles.length === 0 ? (
-          <Text>No bundles found.</Text>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {bundles.map((bundle) => (
-              <BundleItem
-                key={bundle.id}
-                bundle={bundle}
-                state={bundleStates[bundle.id] || 'idle'}
-                onRun={handleRun}
-                onCancel={handleCancel}
-                onCopy={handleCopy}
+        {/* TAB CONTENT */}
+        <div style={{ flexGrow: 1, overflowY: 'auto' }}>
+          {selectedTab === 'bundles' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <DefaultRepomixItem
+                state={defaultRepomixState}
+                info={defaultRepomixInfo}
+                onRun={handleRunDefault}
+                onCancel={handleCancelDefault}
+                onCopy={handleCopyDefault}
               />
-            ))}
-          </div>
-        )}
+              {bundles.length === 0 ? <Text>No bundles found.</Text> : (
+                bundles.map((bundle) => (
+                  <BundleItem
+                    key={bundle.id}
+                    bundle={bundle}
+                    state={bundleStates[bundle.id] || 'idle'}
+                    onRun={handleRun}
+                    onCancel={handleCancel}
+                    onCopy={handleCopy}
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            <AgentView />
+          )}
+        </div>
 
-        {version && (
-          <div
-            style={{
-              marginTop: 'auto',
-              alignSelf: 'center',
-              padding: '4px 8px',
-              borderRadius: '4px',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-              backgroundColor: 'var(--vscode-editor-background)',
-              border: '1px solid var(--vscode-widget-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text size={100} style={{ opacity: 0.7 }}>
-              v{version}
-            </Text>
-          </div>
-        )}
+        {/* FOOTER */}
+        <Text size={100} style={{ opacity: 0.5, textAlign: 'center', marginTop: '10px' }}>
+          v{version}
+        </Text>
       </div>
     </FluentProvider>
   );
