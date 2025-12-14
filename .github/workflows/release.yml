@@ -54,6 +54,9 @@ jobs:
       - name: Build Rust binary
         run: npm run build:rust
 
+      - name: Verify Rust binary
+        run: ls -l assets/bin/repomix-clipboard.exe
+
       - name: Package Extension
         run: npx vsce package --out ./repomix-runner.vsix
 

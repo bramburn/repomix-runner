@@ -32,3 +32,5 @@ rust/**/*.rs.bk
 Cargo.lock
 scripts/
 *.vsix
+!assets/bin/
+!assets/bin/*.exe
