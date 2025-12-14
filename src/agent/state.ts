@@ -4,6 +4,9 @@ import { Annotation } from "@langchain/langgraph";
  * Defines the shared memory of the agent as it moves through the graph.
  */
 export const AgentState = Annotation.Root({
+  // The API key for the LLM
+  apiKey: Annotation<string>,
+
   // The original request from the user (e.g., "Package authentication logic")
   userQuery: Annotation<string>,
 
