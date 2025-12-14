@@ -9,7 +9,8 @@ import { RepomixConfigFile } from '../config/configSchema.js';
 
 export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
-  overrideConfig: RepomixConfigFile = {}
+  overrideConfig: RepomixConfigFile = {},
+  signal?: AbortSignal
 ) {
   const cwd = getCwd();
 
@@ -62,5 +63,6 @@ export async function runRepomixOnSelectedFiles(
   await runRepomix({
     ...defaultRunRepomixDeps,
     mergeConfigOverride: finalOverrideConfig,
+    signal,
   });
 }

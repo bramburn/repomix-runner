@@ -9,7 +9,7 @@ import { BundleManager } from '../core/bundles/bundleManager.js';
 import { readRepomixFileConfig } from '../config/configLoader.js';
 import { generateOutputFilename } from './generateOutputFilename.js';
 
-export async function runBundle(bundleManager: BundleManager, bundleId: string) {
+export async function runBundle(bundleManager: BundleManager, bundleId: string, signal?: AbortSignal) {
   const cwd = getCwd();
   const bundle = await bundleManager.getBundle(bundleId);
   const config = readRepomixRunnerVscodeConfig();
@@ -44,6 +44,9 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
     // Validate that all files still exist
     const missingFiles: string[] = [];
     for (const uri of uris) {
+      if (signal?.aborted) {
+        throw new Error('Aborted');
+      }
       try {
         await vscode.workspace.fs.stat(uri);
       } catch {
@@ -52,6 +55,12 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
     }
 
     if (missingFiles.length > 0) {
+      // If we are automating/queuing, showing a modal dialog is blocking and problematic if not handled carefully.
+      // However, for now, we assume user interaction or default behavior.
+      // If cancelled during this dialog, we should probably handle it.
+      // But `showWarningMessage` is async.
+      // We can't easily cancel the dialog itself via signal, but we can check signal after.
+
       const proceed = await vscode.window.showWarningMessage(
         `Some files in this bundle no longer exist:\n${missingFiles.join(
           '\n'
@@ -64,6 +73,10 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
       }
     }
 
+    if (signal?.aborted) {
+        throw new Error('Aborted');
+    }
+
     // Filter out missing files
     const validUris = uris.filter(uri => !missingFiles.includes(uri.fsPath));
 
@@ -73,7 +86,12 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
     }
 
     // Run Repomix on the bundle files
-    await runRepomixOnSelectedFiles(validUris, overrideConfig);
+    await runRepomixOnSelectedFiles(validUris, overrideConfig, signal);
+
+    if (signal?.aborted) {
+       // Should have been caught in runRepomix, but just in case
+       return;
+    }
 
     const updatedBundle = {
       ...bundle,
@@ -81,7 +99,11 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string) 
     };
 
     await bundleManager.saveBundle(bundleId, updatedBundle);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'AbortError' || error.message === 'Aborted') {
+        logger.both.info('Bundle execution cancelled');
+        throw error; // Re-throw so caller knows it was cancelled
+    }
     logger.both.error('Failed to run bundle:', error);
     vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);
   }
