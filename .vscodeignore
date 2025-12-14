@@ -34,3 +34,4 @@ scripts/
 *.vsix
 !assets/bin/
 !assets/bin/*.exe
+repomix-output.xml

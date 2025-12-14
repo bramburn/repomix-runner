@@ -77,7 +77,7 @@ export async function extractFileContents(contextFilePath: string, targetPaths: 
     const parsed = parser.parse(xmlContent);
 
     const fileNodes = parsed?.files?.file;
-    if (!fileNodes) return results;
+    if (!fileNodes) {return results;}
 
     const filesArray = Array.isArray(fileNodes) ? fileNodes : [fileNodes];
 
