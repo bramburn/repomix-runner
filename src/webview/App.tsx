@@ -113,7 +113,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           disabled={disabled}
           onClick={() => onRun(bundle.id)}
           style={{ minWidth: '100px' }}
-          title={getTooltipContent()}
+          title={`${fileCount} files, ${folderCount} folders`}
         >
           {isRunning ? (
             <>

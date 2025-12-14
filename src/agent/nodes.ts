@@ -2,23 +2,16 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
 import { AgentState } from "./state";
 import * as tools from "./tools";
-import * as fs from 'fs/promises';
 import { logger } from "../shared/logger";
 import * as vscode from 'vscode';
 import { execPromisify } from '../shared/execPromisify';
 
-// Helper to initialize the model dynamically (allows setting key later)
-function getModel() {
-  // Read the API key from VS Code configuration
-  const config = vscode.workspace.getConfiguration('repomix.agent');
-  const apiKey = config.get<string>('googleApiKey');
-
+function getModel(apiKey: string) {
   if (!apiKey) {
-    throw new Error("Google API Key not configured. Please set 'repomix.agent.googleApiKey' in settings.");
+    throw new Error("Google API Key not found in state. Please ensure the API key is configured.");
   }
-
   return new ChatGoogleGenerativeAI({
-    model: "gemini-2.5-flash-lite", // Use the latest available model
+    model: "gemini-2.5-flash-lite",
     temperature: 0,
     apiKey: apiKey
   });
@@ -26,32 +19,30 @@ function getModel() {
 
 // Node 1: Indexing
 export async function initialIndexing(state: typeof AgentState.State) {
-  logger.both.info("Agent: Step 1 - Indexing repository...");
-  // Run repomix --compress to get the map of the repo
-  const contextPath = await tools.runRepomixCompress(state.workspaceRoot);
-  return { contextFilePath: contextPath };
+  logger.both.info("Agent: Step 1 - Indexing repository via VS Code API...");
+
+  // Use native VS Code API
+  const files = await tools.getWorkspaceFiles(state.workspaceRoot);
+
+  logger.both.info(`Agent: Found ${files.length} files.`);
+  return { allFilePaths: files };
 }
 
-// Node 2: Structure Extraction
+// Node 2: Structure Extraction (Pass-through)
+// Since getWorkspaceFiles already returns a clean string array, we don't need XML parsing.
 export async function structureExtraction(state: typeof AgentState.State) {
-  logger.both.info("Agent: Step 2 - Extracting file list...");
-  // Parse the XML to get a clean list of all file paths
-  const files = await tools.parseDirectoryStructure(state.contextFilePath);
-  logger.both.info(`Agent: Found ${files.length} files in repository.`);
-  return { allFilePaths: files };
+  return { allFilePaths: state.allFilePaths };
 }
 
 // Node 3: Initial Filtering (Fast Pass)
 export async function initialFiltering(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 3 - Filtering candidate files...");
 
-  const model = getModel();
+  const model = getModel(state.apiKey);
   const structureContext = state.allFilePaths.join('\n');
 
   const prompt = `
     You are an expert software engineer assistant.
-    The user wants to package specific parts of a codebase into a single file.
-
     User Query: "${state.userQuery}"
 
     Below is the list of all files in the repository:
@@ -59,25 +50,20 @@ export async function initialFiltering(state: typeof AgentState.State) {
     ${structureContext}
     ---
 
-    Task: Select all file paths that appear relevant to the user's query based on their names and directory location.
-    Be generous in this step; include any file that MIGHT be relevant.
-    Do not hallucinate paths. Only select from the provided list.
+    Task: Select all file paths that appear relevant to the user's query.
+    Be generous. If the user asks for "lesson structure" or "markdown", include ALL .md files.
+    Do not hallucinate paths. Only select from the list.
   `;
 
-  // Define the structured output schema
-  const schema = z.object({
-    candidates: z.array(z.string()).describe("List of relevant file paths found in the repository")
-  });
-
+  const schema = z.object({ candidates: z.array(z.string()) });
   const structuredLlm = model.withStructuredOutput(schema);
 
   try {
     const result = await structuredLlm.invoke(prompt);
-    logger.both.info(`Agent: Selected ${result.candidates.length} candidate files for deep analysis.`);
+    logger.both.info(`Agent: Selected ${result.candidates.length} candidate files.`);
     return { candidateFiles: result.candidates };
   } catch (error) {
     logger.both.error("Agent: Filtering failed", error);
-    // Fallback: If LLM fails, return empty or all (risk management)
     return { candidateFiles: [] };
   }
 }
@@ -87,108 +73,83 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
   const count = state.candidateFiles.length;
   logger.both.info(`Agent: Step 4 - Analyzing content of ${count} files...`);
 
-  if (count === 0) {
-    return { confirmedFiles: [] };
-  }
+  if (count === 0) {return { confirmedFiles: [] };}
 
-  // 1. Bulk fetch content using our optimized tool
-  const contentMap = await tools.extractFileContents(state.contextFilePath, state.candidateFiles);
-
-  const model = getModel();
+  const model = getModel(state.apiKey);
   const confirmed: string[] = [];
-
-  // Define schema for the boolean check
-  const checkSchema = z.object({
-    isRelevant: z.boolean().describe("True if the file is necessary to answer the user query")
-  });
+  const checkSchema = z.object({ isRelevant: z.boolean() });
   const checkLlm = model.withStructuredOutput(checkSchema);
 
-  // 2. Iterate and check (Sequential for simplicity, can be parallelized)
+  // Iterate through candidates and check content
   for (const filePath of state.candidateFiles) {
-    const content = contentMap.get(filePath);
+    // Call the new tool to get content directly
+    const content = await tools.getFileContent(state.workspaceRoot, filePath);
 
     if (!content) {
-      logger.both.warn(`Agent: Could not find content for ${filePath}`);
-      continue;
+        logger.both.debug(`Agent: Skipping ${filePath} (empty/unreadable)`);
+        continue;
     }
 
-    // Truncate huge files to fit context window if necessary,
-    // though Gemini Flash has a large window.
-    const snippet = content.slice(0, 30000);
+    const snippet = content.slice(0, 30000); // Token limit protection
 
     const prompt = `
       User Query: "${state.userQuery}"
       File Path: "${filePath}"
-
-      File Content (Snippet):
+      Content:
       ---
       ${snippet}
       ---
-
-      Based on the content, is this file strictly necessary to fulfill the user's request?
-      Return true only if it contains logic, definitions, or data relevant to "${state.userQuery}".
+      Is this file relevant?
+      - If it is documentation, markdown, or text related to the query -> TRUE.
+      - If it is code related to the query -> TRUE.
+      - If it contains configs for the query -> TRUE.
     `;
 
     try {
       const result = await checkLlm.invoke(prompt);
-      if (result.isRelevant) {
-        confirmed.push(filePath);
-      }
+      if (result.isRelevant) {confirmed.push(filePath);}
     } catch (e) {
       logger.both.error(`Agent: Error checking ${filePath}`, e);
     }
   }
 
-  logger.both.info(`Agent: Confirmed ${confirmed.length} files as strictly relevant.`);
+  logger.both.info(`Agent: Confirmed ${confirmed.length} files.`);
+
+  // FAILSAFE: If deep check rejected all files but we had candidates, return candidates.
+  if (confirmed.length === 0 && state.candidateFiles.length > 0) {
+    logger.both.warn("Agent: Deep check rejected all files. Falling back to initial candidates.");
+    return { confirmedFiles: state.candidateFiles };
+  }
+
   return { confirmedFiles: confirmed };
 }
 
 // Node 5: Command Generation
 export async function commandGeneration(state: typeof AgentState.State) {
-  logger.both.info("Agent: Step 5 - Generating final command...");
+  logger.both.info("Agent: Step 5 - Generating command...");
+  if (state.confirmedFiles.length === 0) {return { finalCommand: "" };}
 
-  if (state.confirmedFiles.length === 0) {
-    logger.both.warn("Agent: No relevant files found. Skipping execution.");
-    return { finalCommand: "" };
-  }
+  const includeFlag = state.confirmedFiles.map(f => `"${f}"`).join(",");
 
-  // Escape paths for safety (basic quoting)
-  const includeFlag = state.confirmedFiles
-    .map(f => `"${f}"`)
-    .join(",");
-
-  // Construct the CLI command
-  // We use the --include flag to specify exactly which files to package
-  const command = `npx repomix --include ${includeFlag}`;
-
-  return { finalCommand: command };
+  // We return the raw command string
+  return { finalCommand: `npx repomix --include ${includeFlag}` };
 }
 
-// Node 6: Final Execution (Cleanup & Run)
+// Node 6: Final Execution
 export async function finalExecution(state: typeof AgentState.State) {
-  logger.both.info("Agent: Step 6 - Executing final run...");
-
-  // 1. Cleanup the temp context file
-  try {
-    await fs.unlink(state.contextFilePath);
-    logger.both.debug("Agent: Cleaned up context file.");
-  } catch (e) {
-    // Ignore cleanup errors
-  }
+  logger.both.info("Agent: Step 6 - Executing...");
 
   if (!state.finalCommand) {
-    vscode.window.showWarningMessage("Repomix Agent: No relevant files found for your query.");
+    vscode.window.showWarningMessage("No files found.");
     return {};
   }
 
-  // 2. Execute the final command using the existing runner infrastructure
   try {
+    // Run the generated command using the existing CLI wrapper
     await execPromisify(state.finalCommand, { cwd: state.workspaceRoot });
-    vscode.window.showInformationMessage(`Agent successfully packaged ${state.confirmedFiles.length} files!`);
-  } catch (error) {
-    logger.both.error("Agent: Failed to execute final command", error);
-    vscode.window.showErrorMessage(`Repomix Agent failed to execute: ${error}`);
+    vscode.window.showInformationMessage(`Packaged ${state.confirmedFiles.length} files!`);
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Failed: ${error.message}`);
   }
-
   return {};
 }
