@@ -11,12 +11,31 @@ export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
   overrideConfig: RepomixConfigFile = {}
 ) {
-  const cwd = getCwd();
+  let cwd = getCwd();
 
   if (!uris || uris.length === 0) {
     logger.both.info('No files selected');
     showTempNotification('No files selected to run this command! :)');
     return;
+  }
+
+  const workspaceFolders = uris
+    .map(uri => vscode.workspace.getWorkspaceFolder(uri))
+    .filter((wf): wf is vscode.WorkspaceFolder => wf !== undefined);
+
+  if (workspaceFolders.length > 0) {
+    const firstFolder = workspaceFolders[0];
+    const allSame = workspaceFolders.every(
+      f => f.uri.toString() === firstFolder.uri.toString()
+    );
+
+    if (!allSame) {
+      vscode.window.showErrorMessage(
+        'Multi-root selection is not supported. Please select files from a single workspace root.'
+      );
+      return;
+    }
+    cwd = firstFolder.uri.fsPath;
   }
 
   const selectedFiles = uris.map(uri => path.relative(cwd, uri.fsPath));
@@ -31,6 +50,7 @@ export async function runRepomixOnSelectedFiles(
 
   await runRepomix({
     ...defaultRunRepomixDeps,
+    getCwd: () => cwd,
     mergeConfigOverride: finalOverrideConfig,
   });
 }
