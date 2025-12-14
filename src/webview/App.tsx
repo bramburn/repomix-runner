@@ -7,12 +7,20 @@ import {
   Spinner,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
+import { CopyRegular } from '@fluentui/react-icons';
 
 interface Bundle {
   id: string;
   name: string;
   description?: string;
   files: string[];
+  outputFileExists?: boolean;
+  outputFilePath?: string;
+  stats?: {
+    files: number;
+    folders: number;
+    totalSize: number;
+  };
 }
 
 interface BundleItemProps {
@@ -20,25 +28,27 @@ interface BundleItemProps {
   state: 'idle' | 'queued' | 'running';
   onRun: (id: string) => void;
   onCancel: (id: string) => void;
+  onCopy: (id: string) => void;
 }
 
-const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel }) => {
+const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel, onCopy }) => {
   // State logic from main
   const isRunning = state === 'running';
   const isQueued = state === 'queued';
   const disabled = isRunning || isQueued;
 
-  // UI/Tooltip logic from improve-bundle-ui
-  const fileCount = bundle.files?.length || 0;
+  // UI/Tooltip logic
+  const fileCount = bundle.stats?.files || 0;
+  const folderCount = bundle.stats?.folders || 0;
 
   const getTooltipContent = () => {
-    if (fileCount === 0) return 'No files selected';
+    if ((bundle.files?.length || 0) === 0) return 'No files selected';
 
     const maxFilesToShow = 10;
-    const filesToShow = bundle.files.slice(0, maxFilesToShow);
-    const remaining = fileCount - maxFilesToShow;
+    const filesToShow = (bundle.files || []).slice(0, maxFilesToShow);
+    const remaining = (bundle.files?.length || 0) - maxFilesToShow;
 
-    let content = `Run repomix on ${fileCount} files:\n${filesToShow.join('\n')}`;
+    let content = `Run repomix on:\n${filesToShow.join('\n')}`;
     if (remaining > 0) {
       content += `\n...and ${remaining} more`;
     }
@@ -68,10 +78,20 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel 
           {bundle.name}
         </Text>
         <Text size={200} style={{ opacity: 0.7 }}>
-          {fileCount} files
+          {fileCount} files, {folderCount} folders
         </Text>
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
+        {bundle.outputFileExists && !disabled && (
+           <Button
+             appearance="subtle"
+             icon={<CopyRegular />}
+             onClick={() => onCopy(bundle.id)}
+             title="Copy Output File to Clipboard"
+             style={{ minWidth: '32px' }}
+           />
+        )}
+
         {disabled ? (
           <Button
             appearance="secondary"
@@ -148,6 +168,10 @@ export const App = () => {
     vscode.postMessage({ command: 'cancelBundle', bundleId: id });
   };
 
+  const handleCopy = (id: string) => {
+    vscode.postMessage({ command: 'copyBundleOutput', bundleId: id });
+  };
+
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
       <div
@@ -175,6 +199,7 @@ export const App = () => {
                 state={bundleStates[bundle.id] || 'idle'}
                 onRun={handleRun}
                 onCancel={handleCancel}
+                onCopy={handleCopy}
               />
             ))}
           </div>
