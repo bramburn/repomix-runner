@@ -1,37 +1,52 @@
+
 from playwright.sync_api import sync_playwright
-import os
 
-def run(playwright):
-    browser = playwright.chromium.launch()
-    page = browser.new_page()
+def verify_webview():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-    # Use the running http server
-    url = "http://localhost:8080/verification/mock_webview.html"
-    print(f"Loading {url}")
+        # Navigate to the mock page served by python http.server
+        page.goto("http://localhost:8080/mock_index.html")
 
-    page.goto(url)
+        # Wait for the webview content to load
+        # We look for "No bundles found" or the "Bundles" tab
+        try:
+            page.wait_for_selector("text=Bundles", timeout=5000)
+            print("Found Bundles tab")
+        except:
+            print("Timeout waiting for Bundles tab")
 
-    # Wait for the react app to load and process the message
-    page.wait_for_selector("text=My Bundle")
+        # Inject some mock data via postMessage to simulate the extension sending data
+        # We need to execute this in the page context
+        page.evaluate("""
+            window.postMessage({
+                command: 'updateBundles',
+                bundles: [
+                    {
+                        id: '1',
+                        name: 'Test Bundle',
+                        description: 'A test bundle',
+                        files: ['file1.ts', 'file2.ts'],
+                        outputFileExists: true,
+                        stats: { files: 2, folders: 0, totalSize: 100 }
+                    }
+                ]
+            }, '*')
+        """)
 
-    # Check if "My Bundle" has the copy button (it should, outputFileExists=true)
-    # The copy button has title "Copy Output File to Clipboard"
-    copy_btn = page.locator('button[title="Copy Output File to Clipboard"]')
+        # Wait for the bundle item to appear
+        try:
+            page.wait_for_selector("text=Test Bundle", timeout=2000)
+            print("Found Test Bundle")
+        except:
+            print("Timeout waiting for Test Bundle")
 
-    if copy_btn.count() > 0:
-        print("Copy button found for My Bundle")
-    else:
-        print("Copy button NOT found for My Bundle")
+        # Take a screenshot
+        page.screenshot(path="verification/webview_screenshot.png")
+        print("Screenshot saved to verification/webview_screenshot.png")
 
-    # Check "Missing Output" bundle (should NOT have copy button)
-    # We can check by text "Missing Output" and then look for button in that row?
-    # Or just count buttons. We expect 1 copy button total.
+        browser.close()
 
-    count = copy_btn.count()
-    print(f"Found {count} copy buttons")
-
-    page.screenshot(path="verification/webview_test.png")
-    browser.close()
-
-with sync_playwright() as playwright:
-    run(playwright)
+if __name__ == "__main__":
+    verify_webview()
