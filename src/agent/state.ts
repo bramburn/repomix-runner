@@ -24,4 +24,7 @@ export const AgentState = Annotation.Root({
 
   // The final repomix CLI command to execute
   finalCommand: Annotation<string>,
+
+  // Add API Key to state
+  apiKey: Annotation<string>,
 });
