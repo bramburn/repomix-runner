@@ -22,6 +22,7 @@
     "onCommand:repomixRunner.runOnOpenFiles",
     "onCommand:repomixRunner.openSettings",
     "onCommand:repomixRunner.openOutput",
+    "onCommand:repomixRunner.smartRun",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
     "onStartupFinished"
@@ -232,6 +233,19 @@
             "description": "🔢 \n Token count encoding"
           }
         }
+      },
+      {
+        "title": "Smart Agent",
+        "order": 7,
+        "type": "object",
+        "properties": {
+          "repomix.agent.googleApiKey": {
+            "type": "string",
+            "default": "",
+            "description": "Google Gemini API Key for the Smart Repomix Agent",
+            "scope": "application"
+          }
+        }
       }
     ],
     "viewsContainers": {
@@ -347,6 +361,12 @@
         "command": "repomixRunner.removeFileFromBundle",
         "title": "Remove from Bundle",
         "icon": "$(trash)"
+      },
+      {
+        "command": "repomixRunner.smartRun",
+        "title": "Repomix: Smart Agent Run",
+        "description": "Use AI to intelligently select and package files based on a natural language query",
+        "icon": "$(sparkle)"
       }
     ],
     "menus": {
@@ -503,9 +523,13 @@
   },
   "dependencies": {
     "@fluentui/react-components": "^9.72.8",
+    "@langchain/core": "^1.1.5",
+    "@langchain/google-genai": "^2.1.0",
+    "@langchain/langgraph": "^1.0.4",
+    "fast-xml-parser": "^5.3.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "zod": "^3.24.1"
+    "zod": "^3.25.76"
   },
   "__metadata": {
     "size": 944254177
