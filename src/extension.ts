@@ -210,7 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
         placeHolder: "e.g., 'All authentication logic excluding tests'",
       });
     }
-    if (!userQuery) return;
+    if (!userQuery) {return;}
 
     // 2. Get API Key (Secrets > Config > Prompt)
     let apiKey = await context.secrets.get('repomix.agent.googleApiKey');
@@ -248,7 +248,6 @@ export function activate(context: vscode.ExtensionContext) {
           allFilePaths: [],
           candidateFiles: [],
           confirmedFiles: [],
-          contextFilePath: "",
           finalCommand: ""
         };
 
