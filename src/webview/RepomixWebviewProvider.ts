@@ -11,6 +11,7 @@ import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
+import { WebviewMessageSchema } from './messageSchemas.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -51,7 +52,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
-      switch (data.command) {
+      let message;
+      try {
+        message = WebviewMessageSchema.parse(data);
+      } catch (error) {
+        console.error('Invalid webview message:', error);
+        return;
+      }
+
+      switch (message.command) {
         case 'webviewLoaded': {
           await this._sendBundles();
           await this._sendDefaultRepomixState();
@@ -59,22 +68,22 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'runBundle': {
-          const { bundleId, compress } = data;
+          const { bundleId, compress } = message;
           await this._handleRunBundle(bundleId, compress);
           break;
         }
         case 'cancelBundle': {
-          const { bundleId } = data;
+          const { bundleId } = message;
           await this._handleCancelBundle(bundleId);
           break;
         }
         case 'copyBundleOutput': {
-          const { bundleId } = data;
+          const { bundleId } = message;
           await this._handleCopyBundleOutput(bundleId);
           break;
         }
         case 'runDefaultRepomix': {
-          const { compress } = data;
+          const { compress } = message;
           await this._handleRunDefaultRepomix(compress);
           break;
         }
@@ -95,12 +104,12 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'saveApiKey': {
-          const { apiKey } = data;
+          const { apiKey } = message;
           await this._handleSaveApiKey(apiKey);
           break;
         }
         case 'runSmartAgent': {
-          const { query } = data;
+          const { query } = message;
           await this._handleRunSmartAgent(query);
           break;
         }
