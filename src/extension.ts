@@ -203,21 +203,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // 2. Capture User Query
-    let userQuery = await vscode.window.showInputBox({
-      title: "Smart Repomix Agent",
-      prompt: "Describe what you want to package",
-      placeHolder: "e.g., 'All authentication logic excluding tests'",
-      ignoreFocusOut: true
-    });
-
-    if (!userQuery) {
+  let userQuery: string | undefined;
+    while (!userQuery) {
       userQuery = await vscode.window.showInputBox({
         title: "Smart Repomix Agent",
         prompt: "Describe what you want to package",
         placeHolder: "e.g., 'All authentication logic excluding tests'",
+        ignoreFocusOut: true
       });
+      if (userQuery === undefined) {
+        return;
+      }
     }
-    if (!userQuery) {return;}
 
     // 2. Get API Key (Secrets > Prompt)
     const apiKey = await context.secrets.get('repomix.agent.googleApiKey');
@@ -265,11 +262,13 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
 
-      } catch (error: any) {
+      } catch (error) {
         logger.both.error("Smart Agent Failed:", error);
 
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
         // specific error handling for missing API key
-        if (error.message.includes("Google API Key")) {
+        if (errorMessage.includes("Google API Key")) {
           const selection = await vscode.window.showErrorMessage(
             "Google API Key missing.",
             "Open Settings"
@@ -278,7 +277,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.commands.executeCommand('workbench.action.openSettings', 'repomix.agent.googleApiKey');
           }
         } else {
-          vscode.window.showErrorMessage(`Agent failed: ${error.message}`);
+          vscode.window.showErrorMessage(`Agent failed: ${errorMessage}`);
         }
       }
     });
