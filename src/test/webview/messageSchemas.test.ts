@@ -56,12 +56,29 @@ suite('Webview Message Schemas', () => {
   });
 
   test('Valid saveApiKey message', () => {
-      const data = {
-          command: 'saveApiKey',
-          apiKey: 'AIza' + 'a'.repeat(30)
-      };
-      const result = WebviewMessageSchema.safeParse(data);
-      assert.strictEqual(result.success, true);
+    const data = {
+        command: 'saveApiKey',
+        apiKey: 'AIza' + 'a'.repeat(30)
+    };
+    const result = WebviewMessageSchema.safeParse(data);
+    assert.strictEqual(result.success, true);
+  });
+
+  test('Invalid saveApiKey message (missing apiKey)', () => {
+    const data = {
+      command: 'saveApiKey'
+    };
+    const result = WebviewMessageSchema.safeParse(data);
+    assert.strictEqual(result.success, false);
+  });
+
+  test('Invalid saveApiKey message (invalid apiKey type)', () => {
+    const data = {
+      command: 'saveApiKey',
+      apiKey: 12345
+    };
+    const result = WebviewMessageSchema.safeParse(data);
+    assert.strictEqual(result.success, false);
   });
 
   test('Invalid saveApiKey message (invalid format)', () => {
