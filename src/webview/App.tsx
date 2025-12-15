@@ -129,6 +129,23 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     clearTimers();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === ' ' || e.key === 'Enter') {
+      if (e.repeat) return;
+      e.preventDefault();
+      handleMouseDown();
+    }
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      handleMouseUp();
+    }
+  };
+
   return (
     <Button
       appearance={appearance}
@@ -136,6 +153,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      onBlur={handleMouseLeave}
       // Touch support
       onTouchStart={handleMouseDown}
       onTouchEnd={(e) => {
@@ -151,6 +171,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
         // Ensure z-index allows overlay
       }}
       title={title}
+      aria-label={title || "Long press button"}
     >
       {/* Progress Overlay */}
       {isHolding && (
