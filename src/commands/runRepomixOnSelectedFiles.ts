@@ -9,9 +9,10 @@ import { RepomixConfigFile } from '../config/configSchema.js';
 
 export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
-  overrideConfig: RepomixConfigFile = {}
+  overrideConfig: RepomixConfigFile = {},
+  signal?: AbortSignal
 ) {
-  let cwd = getCwd();
+  const cwd = getCwd();
 
   if (!uris || uris.length === 0) {
     logger.both.info('No files selected');
@@ -19,38 +20,49 @@ export async function runRepomixOnSelectedFiles(
     return;
   }
 
-  const workspaceFolders = uris
-    .map(uri => vscode.workspace.getWorkspaceFolder(uri))
-    .filter((wf): wf is vscode.WorkspaceFolder => wf !== undefined);
+  const includePatterns: string[] = [];
+  const overrideIncludes = overrideConfig.include || [];
 
-  if (workspaceFolders.length > 0) {
-    const firstFolder = workspaceFolders[0];
-    const allSame = workspaceFolders.every(
-      f => f.uri.toString() === firstFolder.uri.toString()
-    );
+  for (const uri of uris) {
+    const relativePath = path.relative(cwd, uri.fsPath).replace(/\\/g, '/');
+    let isDir = false;
 
-    if (!allSame) {
-      vscode.window.showErrorMessage(
-        'Multi-root selection is not supported. Please select files from a single workspace root.'
-      );
-      return;
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      isDir = stat.type === vscode.FileType.Directory;
+    } catch (e) {
+      // If we can't stat, assume it's a file or let it be handled later?
+      // But we need to know if it's a dir to apply patterns.
+      // If it doesn't exist, repomix might fail or ignore it.
+      // We'll treat it as a file/exact path if we can't tell.
+      logger.both.warn(`Could not stat ${relativePath}, assuming file.`);
     }
-    cwd = firstFolder.uri.fsPath;
+
+    if (isDir && overrideIncludes.length > 0) {
+      // If it's a directory and we have override patterns, apply them to this directory
+      for (const pattern of overrideIncludes) {
+        // pattern usually comes from config, e.g. "**/*.php"
+        // We want "src/**/*.php"
+        // Ensure we handle potential leading ./ or / in pattern if present, though glob patterns usually relative
+        includePatterns.push(path.posix.join(relativePath, pattern));
+      }
+    } else {
+      // It's a file, or no patterns specified. Include the path directly.
+      includePatterns.push(relativePath);
+    }
   }
 
-  const selectedFiles = uris.map(uri => path.relative(cwd, uri.fsPath));
-
-  logger.both.info(`Running repomix on selected files: ${selectedFiles.join(', ')}`);
+  logger.both.info(`Running repomix with calculated include patterns: ${includePatterns.join(', ')}`);
 
   // TODO add test for config merging
   const finalOverrideConfig = {
     ...overrideConfig,
-    ...{ include: selectedFiles },
+    include: includePatterns,
   };
 
   await runRepomix({
     ...defaultRunRepomixDeps,
-    getCwd: () => cwd,
     mergeConfigOverride: finalOverrideConfig,
+    signal,
   });
 }
