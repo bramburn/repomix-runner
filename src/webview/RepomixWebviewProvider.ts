@@ -27,10 +27,12 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _executionQueue: QueueItem[] = [];
   private _isProcessingQueue = false;
   private _runningBundles: Map<string, AbortController> = new Map();
-  private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+  // Map bundleId -> { watcher, currentPath } to track active watchers smarty
+  private _outputFileWatchers: Map<string, { watcher: vscode.FileSystemWatcher, path: string }> = new Map();
   private _defaultRepomixWatcher?: vscode.FileSystemWatcher;
   private _lastWatchedRepomixOutputPath?: string;
   private _debounceTimer?: NodeJS.Timeout;
+  private _bundlesDebounceTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -121,14 +123,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     const changeSubscription = this._bundleManager.onDidChangeBundles.event(() => {
       invalidateStatsCache(); // Invalidate stats when bundles change
       if (this._view?.visible) {
-        this._sendBundles();
+        this._debouncedSendBundles();
       }
     });
 
     // Listen for window focus to re-check file existence
     const focusSubscription = vscode.window.onDidChangeWindowState((e) => {
        if (e.focused && this._view?.visible) {
-         this._sendBundles();
+         this._debouncedSendBundles();
          this._sendDefaultRepomixState();
        }
     });
@@ -147,11 +149,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private _disposeWatchers() {
-      this._outputFileWatchers.forEach(w => w.dispose());
+      this._outputFileWatchers.forEach(item => item.watcher.dispose());
       this._outputFileWatchers.clear();
       this._defaultRepomixWatcher?.dispose();
       if (this._debounceTimer) {
           clearTimeout(this._debounceTimer);
+      }
+      if (this._bundlesDebounceTimer) {
+          clearTimeout(this._bundlesDebounceTimer);
       }
   }
 
@@ -206,27 +211,57 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       }
   }
 
+  private _debouncedSendBundles() {
+    if (this._bundlesDebounceTimer) {
+        clearTimeout(this._bundlesDebounceTimer);
+    }
+    this._bundlesDebounceTimer = setTimeout(() => {
+        this._sendBundles();
+    }, 300);
+  }
+
   private async _sendBundles() {
     if (!this._view) {
       return;
     }
     const bundleMetadata = await this._bundleManager.getAllBundles();
     const cwd = getCwd();
+    const activeBundleIds = new Set(Object.keys(bundleMetadata.bundles));
 
-    this._outputFileWatchers.forEach(w => w.dispose());
-    this._outputFileWatchers.clear();
+    // Cleanup watchers for removed bundles
+    for (const [id, item] of this._outputFileWatchers) {
+        if (!activeBundleIds.has(id)) {
+            item.watcher.dispose();
+            this._outputFileWatchers.delete(id);
+        }
+    }
 
     const webviewBundles: WebviewBundle[] = await Promise.all(
         Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
             const outputPath = await resolveBundleOutputPath(bundle);
             const exists = fs.existsSync(outputPath);
 
-            // Watch for changes on this file
-            const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath)));
-            watcher.onDidCreate(() => this._sendBundles());
-            watcher.onDidDelete(() => this._sendBundles());
-            // watcher.onDidChange(() => this._sendBundles()); // Maybe overkill?
-            this._outputFileWatchers.set(id, watcher);
+            // Smart Watcher Management:
+            // Only recreate watcher if it doesn't exist OR the path has changed
+            const existingWatcher = this._outputFileWatchers.get(id);
+
+            if (!existingWatcher || existingWatcher.path !== outputPath) {
+                // Dispose old if exists (path changed)
+                if (existingWatcher) {
+                    existingWatcher.watcher.dispose();
+                }
+
+                // Create new watcher
+                const watcher = vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath))
+                );
+
+                // Use debounced update to avoid spamming
+                watcher.onDidCreate(() => this._debouncedSendBundles());
+                watcher.onDidDelete(() => this._debouncedSendBundles());
+                
+                this._outputFileWatchers.set(id, { watcher, path: outputPath });
+            }
 
             // Calculate stats
             const stats = await calculateBundleStats(cwd, id, bundle.files);
