@@ -265,11 +265,13 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
 
-      } catch (error: any) {
+      } catch (error) {
         logger.both.error("Smart Agent Failed:", error);
 
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
         // specific error handling for missing API key
-        if (error.message.includes("Google API Key")) {
+        if (errorMessage.includes("Google API Key")) {
           const selection = await vscode.window.showErrorMessage(
             "Google API Key missing.",
             "Open Settings"
@@ -278,7 +280,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.commands.executeCommand('workbench.action.openSettings', 'repomix.agent.googleApiKey');
           }
         } else {
-          vscode.window.showErrorMessage(`Agent failed: ${error.message}`);
+          vscode.window.showErrorMessage(`Agent failed: ${errorMessage}`);
         }
       }
     });
