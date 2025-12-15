@@ -39,7 +39,7 @@ export const CheckApiKeySchema = z.object({
 
 export const SaveApiKeySchema = z.object({
   command: z.literal('saveApiKey'),
-  apiKey: z.string().min(1),
+  apiKey: z.string().startsWith('AIza', "API Key must start with 'AIza'").min(30, "API Key is too short"),
 });
 
 export const RunSmartAgentSchema = z.object({
