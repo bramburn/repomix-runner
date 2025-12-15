@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   FluentProvider,
   webDarkTheme,
@@ -36,23 +36,145 @@ interface DefaultRepomixInfo {
   outputFilePath: string;
 }
 
-interface BundleItemProps {
-  bundle: Bundle;
-  state: 'idle' | 'queued' | 'running';
-  onRun: (id: string) => void;
-  onCancel: (id: string) => void;
-  onCopy: (id: string) => void;
-}
-
-interface DefaultRepomixItemProps {
-  state: 'idle' | 'queued' | 'running';
-  info: DefaultRepomixInfo;
-  onRun: () => void;
-  onCancel: () => void;
-  onCopy: () => void;
-}
-
 // --- Components ---
+
+interface LongPressButtonProps {
+  onClick: () => void;
+  onLongPress: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+  appearance?: 'primary' | 'secondary' | 'subtle' | 'outline' | 'transparent';
+  style?: React.CSSProperties;
+  title?: string;
+  holdDuration?: number; // Total duration to trigger long press (default 3000ms)
+  bufferDuration?: number; // Time before progress starts (default 500ms)
+}
+
+const LongPressButton: React.FC<LongPressButtonProps> = ({
+  onClick,
+  onLongPress,
+  disabled,
+  children,
+  appearance = 'primary',
+  style,
+  title,
+  holdDuration = 3000,
+  bufferDuration = 500
+}) => {
+  const [isHolding, setIsHolding] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const bufferTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressRequestRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+
+  const clearTimers = () => {
+    if (bufferTimerRef.current) {
+      clearTimeout(bufferTimerRef.current);
+      bufferTimerRef.current = null;
+    }
+    if (progressRequestRef.current) {
+      cancelAnimationFrame(progressRequestRef.current);
+      progressRequestRef.current = null;
+    }
+    setIsHolding(false);
+    setProgress(0);
+  };
+
+  const handleMouseDown = () => {
+    if (disabled) return;
+
+    // Start buffer timer
+    bufferTimerRef.current = setTimeout(() => {
+      setIsHolding(true);
+      startTimeRef.current = Date.now();
+
+      const animate = () => {
+        const elapsed = Date.now() - startTimeRef.current;
+        const totalProgressDuration = holdDuration - bufferDuration;
+        const p = Math.min((elapsed / totalProgressDuration) * 100, 100);
+
+        setProgress(p);
+
+        if (p < 100) {
+          progressRequestRef.current = requestAnimationFrame(animate);
+        } else {
+          // Trigger Action
+          clearTimers();
+          onLongPress();
+        }
+      };
+
+      progressRequestRef.current = requestAnimationFrame(animate);
+    }, bufferDuration);
+  };
+
+  const handleMouseUp = () => {
+    if (disabled) return;
+
+    if (isHolding) {
+      // If we were holding but released before completion
+      clearTimers();
+    } else {
+      // Normal click
+      if (bufferTimerRef.current) {
+        clearTimers();
+        onClick();
+      }
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (disabled) return;
+    clearTimers();
+  };
+
+  return (
+    <Button
+      appearance={appearance}
+      disabled={disabled}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      // Touch support
+      onTouchStart={handleMouseDown}
+      onTouchEnd={(e) => {
+        e.preventDefault(); // Prevent ghost click
+        handleMouseUp();
+      }}
+      style={{
+        ...style,
+        position: 'relative',
+        overflow: 'hidden',
+        // If holding, we force text color to be black/dark for contrast against yellow
+        color: isHolding ? 'black' : style?.color,
+        // Ensure z-index allows overlay
+      }}
+      title={title}
+    >
+      {/* Progress Overlay */}
+      {isHolding && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: `${progress}%`,
+            backgroundColor: '#ecff00',
+            zIndex: 0,
+            transition: 'width 100ms linear', // Smooth out frame updates slightly
+          }}
+        />
+      )}
+
+      {/* Content */}
+      <span style={{ position: 'relative', zIndex: 1 }}>
+        {isHolding ? "Hold to compress..." : children}
+      </span>
+    </Button>
+  );
+};
 
 const AgentView = () => {
   const [query, setQuery] = useState('');
@@ -131,6 +253,14 @@ const AgentView = () => {
   );
 };
 
+interface BundleItemProps {
+  bundle: Bundle;
+  state: 'idle' | 'queued' | 'running';
+  onRun: (id: string, compress?: boolean) => void;
+  onCancel: (id: string) => void;
+  onCopy: (id: string) => void;
+}
+
 const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel, onCopy }) => {
   // State logic from main
   const isRunning = state === 'running';
@@ -152,6 +282,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
     if (remaining > 0) {
       content += `\n...and ${remaining} more`;
     }
+    content += '\n(Hold to compress)';
     return content;
   };
 
@@ -203,10 +334,11 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           </Button>
         ) : null}
 
-        <Button
+        <LongPressButton
           appearance="primary"
           disabled={disabled}
-          onClick={() => onRun(bundle.id)}
+          onClick={() => onRun(bundle.id, false)}
+          onLongPress={() => onRun(bundle.id, true)}
           style={{ minWidth: '100px' }}
           title={getTooltipContent()}
         >
@@ -220,7 +352,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           ) : (
             'Generate'
           )}
-        </Button>
+        </LongPressButton>
       </div>
     </div>
   );
@@ -229,7 +361,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
 interface DefaultRepomixItemProps {
   state: 'idle' | 'queued' | 'running';
   info: DefaultRepomixInfo;
-  onRun: () => void;
+  onRun: (compress?: boolean) => void;
   onCancel: () => void;
   onCopy: () => void;
 }
@@ -296,12 +428,13 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
           </Button>
         ) : null}
 
-        <Button
+        <LongPressButton
           appearance="primary"
           disabled={disabled}
-          onClick={onRun}
+          onClick={() => onRun(false)}
+          onLongPress={() => onRun(true)}
           style={{ minWidth: '100px' }}
-          title="Run Repomix on the entire repository with default settings"
+          title="Run Repomix on the entire repository with default settings (Hold to compress)"
         >
           {isRunning ? (
             <>
@@ -313,7 +446,7 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
           ) : (
             'Run'
           )}
-        </Button>
+        </LongPressButton>
       </div>
     </div>
   );
@@ -365,8 +498,8 @@ export const App = () => {
     };
   }, []);
 
-  const handleRun = (id: string) => {
-    vscode.postMessage({ command: 'runBundle', bundleId: id });
+  const handleRun = (id: string, compress = false) => {
+    vscode.postMessage({ command: 'runBundle', bundleId: id, compress });
   };
 
   const handleCancel = (id: string) => {
@@ -377,8 +510,8 @@ export const App = () => {
     vscode.postMessage({ command: 'copyBundleOutput', bundleId: id });
   };
 
-  const handleRunDefault = () => {
-     vscode.postMessage({ command: 'runDefaultRepomix' });
+  const handleRunDefault = (compress = false) => {
+     vscode.postMessage({ command: 'runDefaultRepomix', compress });
   };
 
   const handleCancelDefault = () => {
