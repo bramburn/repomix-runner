@@ -8,8 +8,8 @@ import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../config/
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { generateOutputFilename } from './generateOutputFilename.js';
-import { deepMerge } from '../utils/deepMerge.js';
-import { validateOutputFilePath } from '../utils/pathValidation.js';
+import { deepMerge } from '../utils/deepMerge.js'; // Added from main
+import { validateOutputFilePath } from '../utils/pathValidation.js'; // Added from main
 
 export async function runBundle(
   bundleManager: BundleManager,
@@ -76,6 +76,7 @@ export async function runBundle(
 
   // Enforce the calculated path in the config used for execution
   overrideConfig.output.filePath = finalOutputFilePath;
+
 
   try {
     // Convert file paths to URIs

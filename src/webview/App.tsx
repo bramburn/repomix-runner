@@ -331,6 +331,10 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
     return content;
   };
 
+  const sanitizedDescription = bundle.description
+    ? bundle.description.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    : undefined;
+
   return (
     <div
       style={{
@@ -363,7 +367,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
               overflow: 'hidden',
               textOverflow: 'ellipsis'
             }}
-            title={bundle.description}
+            title={sanitizedDescription}
           >
             {bundle.description}
           </Text>
