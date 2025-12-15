@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
 import { runRepomix, defaultRunRepomixDeps } from '../commands/runRepomix.js';
@@ -27,7 +26,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _executionQueue: QueueItem[] = [];
   private _isProcessingQueue = false;
-  private _runningBundles: Map<string, { controller: AbortController; executionId: string }> = new Map();
+  private _runningBundles: Map<string, AbortController> = new Map();
   private _outputFileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
   private _defaultRepomixWatcher?: vscode.FileSystemWatcher;
   private _lastWatchedRepomixOutputPath?: string;
@@ -75,8 +74,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'cancelBundle': {
-          const { bundleId, executionId } = message;
-          await this._handleCancelBundle(bundleId, executionId);
+          const { bundleId } = message;
+          await this._handleCancelBundle(bundleId);
           break;
         }
         case 'copyBundleOutput': {
@@ -318,16 +317,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private async _handleRunDefaultRepomix(compress?: boolean) {
       if (!this._view) { return; }
 
-      const executionId = randomUUID();
       // Add to queue
-      this._executionQueue.push({ executionId, bundleId: DEFAULT_REPOMIX_ID, compress });
+      this._executionQueue.push({ bundleId: DEFAULT_REPOMIX_ID, compress, executionId: '' });
 
       // Notify queued
       this._view.webview.postMessage({
         command: 'executionStateChange',
         bundleId: DEFAULT_REPOMIX_ID,
-        status: 'queued',
-        executionId
+        status: 'queued'
       });
 
       vscode.window.showInformationMessage(`Default Repomix run queued${compress ? ' (compressed)' : ''}.`);
@@ -343,16 +340,14 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const executionId = randomUUID();
     // Add to queue
-    this._executionQueue.push({ executionId, bundleId, compress });
+    this._executionQueue.push({ bundleId, compress, executionId: '' });
 
     // Notify queued
     this._view.webview.postMessage({
       command: 'executionStateChange',
       bundleId,
-      status: 'queued',
-      executionId
+      status: 'queued'
     });
 
     // Get bundle name for notification
@@ -364,14 +359,12 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     this._processQueue();
   }
 
-  private async _handleCancelBundle(bundleId: string, executionId?: string) {
+  private async _handleCancelBundle(bundleId: string) {
     // Case 1: Bundle is currently running
-    const running = this._runningBundles.get(bundleId);
+    const controller = this._runningBundles.get(bundleId);
 
-    // If executionId is provided, only cancel if it matches the running executionId
-    // If executionId is NOT provided, cancel whatever is running for this bundleId
-    if (running && (!executionId || running.executionId === executionId)) {
-        running.controller.abort();
+    if (controller) {
+        controller.abort();
         // The _processQueue loop will handle the cleanup and notification via catch/finally
         // But we can notify immediately that cancellation was requested
         let name = "Unknown";
@@ -386,21 +379,12 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     // Case 2: Bundle is in the queue (waiting)
-    if (executionId) {
-      const queueIndex = this._executionQueue.findIndex(item => item.executionId === executionId);
-      if (queueIndex !== -1) {
-        this._executionQueue.splice(queueIndex, 1);
-        this._notifyCancel(bundleId);
-        return;
-      }
-    } else {
-      // If executionId is NOT provided, find the first occurrence of this bundleId
-      const queueIndex = this._executionQueue.findIndex(item => item.bundleId === bundleId);
-      if (queueIndex !== -1) {
-        this._executionQueue.splice(queueIndex, 1);
-        this._notifyCancel(bundleId);
-        return;
-      }
+    // Find the first occurrence of this bundleId in the queue
+    const queueIndex = this._executionQueue.findIndex(item => item.bundleId === bundleId);
+    if (queueIndex !== -1) {
+      this._executionQueue.splice(queueIndex, 1);
+      this._notifyCancel(bundleId);
+      return;
     }
   }
 
@@ -432,7 +416,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     while (this._executionQueue.length > 0) {
       const queueItem = this._executionQueue[0];
-      const { bundleId, compress, executionId } = queueItem;
+      const { bundleId, compress } = queueItem;
 
       if (!this._view) {
         break;
@@ -442,8 +426,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage({
         command: 'executionStateChange',
         bundleId,
-        status: 'running',
-        executionId
+        status: 'running'
       });
 
       const isDefault = bundleId === DEFAULT_REPOMIX_ID;
@@ -456,7 +439,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       vscode.window.showInformationMessage(`Starting ${bundleName}${compress ? ' (compressed)' : ''}...`);
 
       const controller = new AbortController();
-      this._runningBundles.set(bundleId, { controller, executionId });
+      this._runningBundles.set(bundleId, controller);
 
       try {
         if (isDefault) {
@@ -487,8 +470,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         // Cleanup
         this._runningBundles.delete(bundleId);
 
-        // Remove from queue - ONLY if it's still the head AND matches executionId (robust check)
-        if (this._executionQueue.length > 0 && this._executionQueue[0].executionId === executionId) {
+        // Remove from queue - ONLY if it's still the head AND matches bundleId (robust check)
+        if (this._executionQueue.length > 0 && this._executionQueue[0].bundleId === bundleId) {
              this._executionQueue.shift();
         }
 
@@ -497,8 +480,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           this._view.webview.postMessage({
             command: 'executionStateChange',
             bundleId,
-            status: 'idle',
-            executionId
+            status: 'idle'
           });
         }
       }
