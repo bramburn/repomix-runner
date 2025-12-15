@@ -35,7 +35,7 @@ export async function runBundle(
 
   // Validate and merge additional overrides
   if (additionalOverrides) {
-    // Security Check 1: Validate overridden output path if present
+    // Security Check 1: Validate overridden output path if present before deep merging
     if (additionalOverrides.output?.filePath) {
       try {
         validateOutputFilePath(additionalOverrides.output.filePath, cwd);
@@ -51,7 +51,6 @@ export async function runBundle(
   }
 
   // Calculate final output path
-  // We mirror the logic from resolveBundleOutputPath but using our merged config
   const config = readRepomixRunnerVscodeConfig();
   overrideConfig.output ??= {}; // Ensure output object exists
 
