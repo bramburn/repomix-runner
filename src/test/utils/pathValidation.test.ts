@@ -1,67 +1,56 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { validateOutputFilePath } from '../../utils/pathValidation.js';
+import { validateOutputFilePath } from '../../utils/pathValidation';
 
-suite('Path Validation', () => {
-    const rootDir = '/root';
+// Standardize the workspace root for testing
+const workspaceRoot = path.resolve('/test/workspace');
 
-    test('Valid relative file path', () => {
-        // file.txt in /root -> PASS
-        assert.doesNotThrow(() => validateOutputFilePath('file.txt', rootDir));
+suite('validateOutputFilePath Security Checks', () => {
+
+    test('should pass for simple relative path', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('output.txt', workspaceRoot));
     });
 
-    test('Valid deep relative path', () => {
-        // a/b/c/file.txt in /root -> PASS
-        assert.doesNotThrow(() => validateOutputFilePath('a/b/c/file.txt', rootDir));
+    test('should pass for relative path in subdirectory', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('subdir/output.txt', workspaceRoot));
     });
 
-    test('Valid absolute path inside root', () => {
-        // /root/file.txt in /root -> PASS
-        const absolutePath = path.join(rootDir, 'file.txt');
-        assert.doesNotThrow(() => validateOutputFilePath(absolutePath, rootDir));
+    test('should pass for path that resolves to the root directory itself (dot)', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('.', workspaceRoot));
     });
 
-    test('Valid path with similar prefix (partial match edge case handled)', () => {
-        // /root/..foo is valid file inside /root
-        // Note: '..foo' is a valid filename.
-        // path.resolve('/root', '..foo') -> /root/..foo.
-        // path.relative('/root', '/root/..foo') -> '..foo'.
-        // It should pass.
-        assert.doesNotThrow(() => validateOutputFilePath('..foo', rootDir));
+    test('should pass for path that is the absolute root directory itself', () => {
+        assert.doesNotThrow(() => validateOutputFilePath(workspaceRoot, workspaceRoot));
     });
 
-    test('Attack Vector: Parent directory traversal', () => {
-        // ../file.txt -> THROW
-        assert.throws(() => validateOutputFilePath('../file.txt', rootDir), /Invalid output path/);
+    test('should pass for absolute path inside workspace', () => {
+        const absPath = path.join(workspaceRoot, 'output.txt');
+        assert.doesNotThrow(() => validateOutputFilePath(absPath, workspaceRoot));
     });
 
-    test('Attack Vector: Deep traversal', () => {
-        // ../../../../etc/passwd -> THROW
-        assert.throws(() => validateOutputFilePath('../../../../etc/passwd', rootDir), /Invalid output path/);
+    test('should pass for path with ".." as part of a valid filename', () => {
+        // This confirms that '..foo' is not incorrectly flagged as traversal.
+        assert.doesNotThrow(() => validateOutputFilePath('..foo/valid.txt', workspaceRoot));
+    });
+    
+    // --- Traversal and Security Failure Cases ---
+
+    test('should throw for path traversing out of workspace (simple ../)', () => {
+        assert.throws(() => validateOutputFilePath('../output.txt', workspaceRoot), /Security/);
     });
 
-    test('Attack Vector: Absolute path outside root', () => {
-        // /etc/passwd -> THROW
-        // Using /etc/passwd as example of absolute path outside /root
-        const outsidePath = '/etc/passwd';
-        assert.throws(() => validateOutputFilePath(outsidePath, rootDir), /Invalid output path/);
+    test('should throw for deep traversal out of workspace (subdir/../../)', () => {
+        assert.throws(() => validateOutputFilePath('subdir/../../output.txt', workspaceRoot), /Security/);
     });
 
-    test('Attack Vector: Partial match prefix', () => {
-        // /root_secret/file when root is /root -> THROW
-        // This validates that startsWith check (if used) correctly handles directory boundaries.
-        // /root_secret is a sibling of /root, not a child.
-        const partialMatchPath = '/root_secret/file';
-        assert.throws(() => validateOutputFilePath(partialMatchPath, rootDir), /Invalid output path/);
+    test('should throw for absolute path outside workspace', () => {
+        const absPath = '/etc/passwd';
+        assert.throws(() => validateOutputFilePath(absPath, workspaceRoot), /Security/);
     });
 
-    test('Attack Vector: Root itself as output (if meant to be file)', () => {
-        // If user tries to write to '.', it resolves to rootDir.
-        // The prompt doesn't explicitly say fail, but usually we output to a file.
-        // However, technically '.' is 'inside' root.
-        // My implementation allows it (relative === '').
-        // If I should fail, I'd need to change implementation.
-        // But for now, let's just test that it doesn't throw a traversal error.
-        assert.doesNotThrow(() => validateOutputFilePath('.', rootDir));
+    test('should throw for sibling directory with similar prefix (partial path match)', () => {
+        // e.g. /test/workspace_secret vs /test/workspace
+        const siblingPath = workspaceRoot + '_secret/file.txt';
+        assert.throws(() => validateOutputFilePath(siblingPath, workspaceRoot), /Security/);
     });
 });

@@ -1,31 +1,25 @@
 import * as path from 'path';
 
 /**
- * Validates that the output file path is safe and contained within the workspace root.
- * Throws an error if the path is invalid or attempts traversal outside the root.
- *
- * @param filePath The path to the output file (relative or absolute)
- * @param rootDir The root directory of the workspace
+ * Validates that the output file path is within the workspace root to prevent path traversal.
+ * @param outputFilePath The potential output path (relative or absolute).
+ * @param workspaceRoot The root directory of the workspace.
+ * @throws Error if the path attempts to traverse outside the workspace root.
  */
-export function validateOutputFilePath(filePath: string, rootDir: string): void {
-  // Normalize the root directory path
-  const normalizedRoot = path.resolve(rootDir);
+export function validateOutputFilePath(outputFilePath: string, workspaceRoot: string): void {
+  // 1. Resolve the full, absolute path of the output file
+  const resolvedPath = path.resolve(workspaceRoot, outputFilePath);
 
-  // Resolve the full path of the output file
-  const resolvedPath = path.resolve(normalizedRoot, filePath);
+  // 2. Determine the path from the workspace root to the resolved path.
+  // path.relative is the most reliable way to check for path containment.
+  const relative = path.relative(workspaceRoot, resolvedPath);
 
-  // Calculate the relative path from the root to the resolved path
-  const relative = path.relative(normalizedRoot, resolvedPath);
+  // 3. Security Check: Check for path traversal or paths on a different Windows drive.
+  // - A relative path starting with '..' means it has traversed out of the root.
+  // - path.isAbsolute(relative) is true on Windows if the path is on a different drive (e.g., C:\ to D:\).
+  const isOutside = relative.startsWith('..') || path.isAbsolute(relative);
 
-  // Check if the path attempts to go outside the root
-  // We check for:
-  // 1. Starts with '..' (traversal up)
-  // 2. Is absolute (on Windows, relative path across drives returns absolute path)
-  // We also ensure that we don't accidentally flag '..foo' as invalid traversal,
-  // so we check if it is exactly '..' or starts with '..' + separator.
-  const isTraversal = relative === '..' || relative.startsWith('..' + path.sep);
-
-  if (isTraversal || path.isAbsolute(relative)) {
-    throw new Error(`Invalid output path: ${filePath}. Output file must be within the workspace root.`);
+  if (isOutside) {
+    throw new Error(`Security Violation: Output path '${outputFilePath}' resolves to '${resolvedPath}', which is outside the workspace root.`);
   }
 }
