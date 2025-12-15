@@ -330,6 +330,21 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
         >
           {bundle.name}
         </Text>
+        {bundle.description && (
+          <Text
+            size={200}
+            style={{
+              opacity: 0.7,
+              display: 'block',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+            title={bundle.description}
+          >
+            {bundle.description}
+          </Text>
+        )}
         <Text size={200} style={{ opacity: 0.7 }}>
           {fileCount} files, {folderCount} folders
         </Text>
