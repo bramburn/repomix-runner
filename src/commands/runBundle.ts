@@ -10,7 +10,12 @@ import { readRepomixFileConfig } from '../config/configLoader.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
 import * as path from 'path';
 
-export async function runBundle(bundleManager: BundleManager, bundleId: string, signal?: AbortSignal) {
+export async function runBundle(
+  bundleManager: BundleManager,
+  bundleId: string,
+  signal?: AbortSignal,
+  additionalOverrides?: RepomixConfigFile
+) {
   const cwd = getCwd();
   const bundle = await bundleManager.getBundle(bundleId);
 
@@ -28,6 +33,20 @@ export async function runBundle(bundleManager: BundleManager, bundleId: string, 
     const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
     overrideConfig = bundleConfig || {};
   }
+
+  // Apply additional overrides (e.g., compress flag)
+  if (additionalOverrides) {
+    overrideConfig = {
+      ...overrideConfig,
+      ...additionalOverrides,
+      output: {
+        ...overrideConfig.output,
+        ...additionalOverrides.output,
+      },
+      // Merge other nested objects if necessary, currently mainly output is used
+    };
+  }
+
   overrideConfig.output ??= {};
   // Important: resolveBundleOutputPath returns absolute path.
   // runRepomix handles absolute paths correctly? Let's assume yes or make it relative if needed.
