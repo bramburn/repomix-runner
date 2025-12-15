@@ -65,9 +65,15 @@ fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>>
         buffer.write_u16::<LittleEndian>(char_code)?;
     }
 
-    // Set clipboard
-    // CF_HDROP is standard format 15
-    // Use formats::RawData to set raw bytes for a specific format
+    // Set clipboard data for both CF_HDROP and CF_UNICODETEXT
+    // CF_HDROP (format 15) for file drop operations
     set_clipboard(formats::RawData(CF_HDROP), buffer.as_slice())
-        .map_err(|e| format!("Clipboard error code: {}", e).into())
-}
+        .map_err(|e| format!("Clipboard error code: {}", e).into())?;
+
+    // CF_UNICODETEXT (format 13) for plain text path
+    // Convert path to UTF-16 little-endian bytes for Windows
+    let text_path: Vec<u16> = abs_path.as_os_str().encode_wide().collect();
+    set_clipboard(formats::RawData(13), unsafe {
+        std::slice::from_raw_parts(text_path.as_ptr() as *const u8, text_path.len() * 2)
+    })
+    .map_err(|e| format!("Clipboard error code: {}", e).into())

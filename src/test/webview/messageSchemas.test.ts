@@ -57,8 +57,8 @@ suite('Webview Message Schemas', () => {
 
   test('Valid saveApiKey message', () => {
     const data = {
-      command: 'saveApiKey',
-      apiKey: 'some-key'
+        command: 'saveApiKey',
+        apiKey: 'AIza' + 'a'.repeat(30)
     };
     const result = WebviewMessageSchema.safeParse(data);
     assert.strictEqual(result.success, true);
@@ -80,4 +80,13 @@ suite('Webview Message Schemas', () => {
     const result = WebviewMessageSchema.safeParse(data);
     assert.strictEqual(result.success, false);
   });
+
+  test('Invalid saveApiKey message (invalid format)', () => {
+    const data = {
+        command: 'saveApiKey',
+        apiKey: 'some-key'
+    };
+    const result = WebviewMessageSchema.safeParse(data);
+    assert.strictEqual(result.success, false);
+});
 });
