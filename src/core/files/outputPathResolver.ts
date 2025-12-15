@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { Bundle } from '../bundles/types.js';
 import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../../config/configLoader.js';
-import { generateOutputFilename } from '../../commands/generateOutputFilename.js';
+import { generateOutputFilename } from '../../utils/generateOutputFilename.js';
 import { getCwd } from '../../config/getCwd.js';
 import { RepomixConfigFile } from '../../config/configSchema.js';
 

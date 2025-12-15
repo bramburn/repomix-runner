@@ -6,6 +6,8 @@
     "jsx": "react-jsx",
     "sourceMap": true,
     "rootDir": "src",
+/* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
+    "skipLibCheck": true,
     "strict": true, /* enable all strict type-checking options */
     "skipLibCheck": true,
     /* Additional Checks */
