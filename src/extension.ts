@@ -203,13 +203,20 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // 2. Capture User Query
-    const userQuery = await vscode.window.showInputBox({
+    let userQuery = await vscode.window.showInputBox({
       title: "Smart Repomix Agent",
       prompt: "Describe what you want to package",
       placeHolder: "e.g., 'All authentication logic excluding tests'",
       ignoreFocusOut: true
     });
 
+    if (!userQuery) {
+      userQuery = await vscode.window.showInputBox({
+        title: "Smart Repomix Agent",
+        prompt: "Describe what you want to package",
+        placeHolder: "e.g., 'All authentication logic excluding tests'",
+      });
+    }
     if (!userQuery) {return;}
 
     // 2. Get API Key (Secrets > Prompt)
