@@ -15,7 +15,8 @@ import { WebviewMessageSchema } from './messageSchemas.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
-interface QueueItem {
+export interface QueueItem {
+  executionId: string;
   bundleId: string;
   compress?: boolean;
 }
@@ -317,13 +318,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       if (!this._view) { return; }
 
       // Add to queue
-      this._executionQueue.push({ bundleId: DEFAULT_REPOMIX_ID, compress });
+      this._executionQueue.push({ bundleId: DEFAULT_REPOMIX_ID, compress, executionId: '' });
 
       // Notify queued
       this._view.webview.postMessage({
         command: 'executionStateChange',
         bundleId: DEFAULT_REPOMIX_ID,
-        status: 'queued',
+        status: 'queued'
       });
 
       vscode.window.showInformationMessage(`Default Repomix run queued${compress ? ' (compressed)' : ''}.`);
@@ -340,13 +341,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     // Add to queue
-    this._executionQueue.push({ bundleId, compress });
+    this._executionQueue.push({ bundleId, compress, executionId: '' });
 
     // Notify queued
     this._view.webview.postMessage({
       command: 'executionStateChange',
       bundleId,
-      status: 'queued',
+      status: 'queued'
     });
 
     // Get bundle name for notification
@@ -361,6 +362,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private async _handleCancelBundle(bundleId: string) {
     // Case 1: Bundle is currently running
     const controller = this._runningBundles.get(bundleId);
+
     if (controller) {
         controller.abort();
         // The _processQueue loop will handle the cleanup and notification via catch/finally
@@ -377,10 +379,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     // Case 2: Bundle is in the queue (waiting)
+    // Find the first occurrence of this bundleId in the queue
     const queueIndex = this._executionQueue.findIndex(item => item.bundleId === bundleId);
     if (queueIndex !== -1) {
       this._executionQueue.splice(queueIndex, 1);
+      this._notifyCancel(bundleId);
+      return;
+    }
+  }
 
+  private async _notifyCancel(bundleId: string) {
       if (this._view) {
         this._view.webview.postMessage({
             command: 'executionStateChange',
@@ -397,8 +405,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           name = bundle?.name ?? "Unknown Bundle";
       }
       vscode.window.showInformationMessage(`"${name}" removed from queue.`);
-      return;
-    }
   }
 
   private async _processQueue() {
@@ -420,7 +426,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage({
         command: 'executionStateChange',
         bundleId,
-        status: 'running',
+        status: 'running'
       });
 
       const isDefault = bundleId === DEFAULT_REPOMIX_ID;
@@ -464,9 +470,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         // Cleanup
         this._runningBundles.delete(bundleId);
 
-        // Remove from queue - ONLY if it's still the head (safe check)
-        // Note: queueItem is the object ref, but check index 0 just to be safe
-        if (this._executionQueue.length > 0 && this._executionQueue[0] === queueItem) {
+        // Remove from queue - ONLY if it's still the head AND matches bundleId (robust check)
+        if (this._executionQueue.length > 0 && this._executionQueue[0].bundleId === bundleId) {
              this._executionQueue.shift();
         }
 
@@ -475,7 +480,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           this._view.webview.postMessage({
             command: 'executionStateChange',
             bundleId,
-            status: 'idle',
+            status: 'idle'
           });
         }
       }

@@ -372,15 +372,14 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
         </Text>
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        {bundle.outputFileExists && !disabled && (
-           <Button
-             appearance="subtle"
-             icon={<CopyRegular />}
-             onClick={() => onCopy(bundle.id)}
-             title="Copy Output File to Clipboard"
-             style={{ minWidth: '32px' }}
-           />
-        )}
+        <Button
+          appearance="subtle"
+          icon={<CopyRegular />}
+          onClick={() => onCopy(bundle.id)}
+          disabled={disabled || !bundle.outputFileExists}
+          title={bundle.outputFileExists ? "Copy Output File to Clipboard" : "Generate bundle to enable copying"}
+          style={{ minWidth: '32px' }}
+        />
 
         {disabled ? (
           <Button
@@ -466,15 +465,14 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
         )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        {info.outputFileExists && !disabled && (
-           <Button
-             appearance="subtle"
-             icon={<CopyRegular />}
-             onClick={onCopy}
-             title="Copy Default Output to Clipboard"
-             style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
-           />
-        )}
+        <Button
+          appearance="subtle"
+          icon={<CopyRegular />}
+          onClick={onCopy}
+          disabled={disabled || !info.outputFileExists}
+          title={info.outputFileExists ? "Copy Default Output to Clipboard" : "Run Repomix to enable copying"}
+          style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
+        />
 
         {disabled ? (
           <Button

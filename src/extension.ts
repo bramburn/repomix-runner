@@ -203,7 +203,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // 2. Capture User Query
-    let userQuery: string | undefined;
+  let userQuery: string | undefined;
     while (!userQuery) {
       userQuery = await vscode.window.showInputBox({
         title: "Smart Repomix Agent",
