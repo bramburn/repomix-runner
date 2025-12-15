@@ -234,7 +234,6 @@ const AgentView = () => {
       <Divider />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-<<<<<<< HEAD
         <Label weight="semibold">Smart Agent Configuration</Label>
 
         {hasKey ? (
@@ -252,25 +251,6 @@ const AgentView = () => {
            </div>
         )}
 
-=======
-        <Label weight="semibold">Smart Agent Configuration</Label>
-
-        {hasKey ? (
-           <Text size={200} style={{ color: '#4caf50' }}>
-             ✅ API Key Configured
-           </Text>
-        ) : (
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-             <Text size={200} style={{ color: '#ffb74d' }}>
-               ⚠️ API Key Missing
-             </Text>
-             <Text size={100} style={{ opacity: 0.8 }}>
-               Please configure your Google API Key below to use the Smart Agent.
-             </Text>
-           </div>
-        )}
-
->>>>>>> origin/api-key-security-enhancement-2036651117042398085
         <div style={{ display: 'flex', gap: '5px' }}>
           <Input
             type="password"
