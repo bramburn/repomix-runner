@@ -30,4 +30,10 @@ export const AgentState = Annotation.Root({
 
   // Output path for the generated file
   outputPath: Annotation<string | undefined>,
+
+  // Total tokens used across all LLM calls
+  totalTokens: Annotation<number>({
+    reducer: (x, y) => x + y, // Adds new usage to existing total
+    default: () => 0,
+  }),
 });

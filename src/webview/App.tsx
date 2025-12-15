@@ -232,6 +232,7 @@ const AgentView = () => {
     lastOutputPath: undefined as string | undefined,
     lastFileCount: undefined as number | undefined,
     lastQuery: undefined as string | undefined,
+    lastTokens: undefined as number | undefined,
     runFailed: false
   });
 
@@ -249,6 +250,7 @@ const AgentView = () => {
           lastOutputPath: event.data.outputPath,
           lastFileCount: event.data.fileCount,
           lastQuery: event.data.query,
+          lastTokens: event.data.tokens,
           runFailed: false
         });
       }
@@ -355,14 +357,35 @@ const AgentView = () => {
       {/* Success/Failure Message */}
       {agentState.lastOutputPath && !isRunning && (
         <div style={{
-          padding: '8px',
+          padding: '12px',
           backgroundColor: 'var(--vscode-inputValidation-infoBackground)',
           borderRadius: '4px',
           border: '1px solid var(--vscode-inputValidation-infoBorder)'
         }}>
-          <Text size={100} style={{ color: 'var(--vscode-foreground)' }}>
-            ✓ Successfully packaged {agentState.lastFileCount} files for: "{agentState.lastQuery}"
-          </Text>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <Text size={100} style={{ color: 'var(--vscode-foreground)' }}>
+              ✓ Successfully packaged {agentState.lastFileCount} files for: "{agentState.lastQuery}"
+            </Text>
+
+            {/* Token Usage Badge */}
+            {agentState.lastTokens && agentState.lastTokens > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                background: 'var(--vscode-badge-background)',
+                color: 'var(--vscode-badge-foreground)',
+                padding: '2px 8px',
+                borderRadius: '10px',
+                opacity: 0.9,
+                flexShrink: 0
+              }} title="Total Gemini tokens used for this request">
+                <span>⚡</span>
+                <span>{agentState.lastTokens.toLocaleString()} tokens</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -758,8 +781,8 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           appearance="subtle"
           icon={<CopyRegular />}
           onClick={() => onCopy(bundle.id)}
-          disabled={disabled || !bundle.outputFileExists}
-          title={bundle.outputFileExists ? "Copy Output File to Clipboard" : "Generate bundle to enable copying"}
+          disabled={disabled}
+          title="Copy Output File to Clipboard"
           style={{ minWidth: '32px' }}
         />
 
@@ -851,8 +874,8 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
           appearance="subtle"
           icon={<CopyRegular />}
           onClick={onCopy}
-          disabled={disabled || !info.outputFileExists}
-          title={info.outputFileExists ? "Copy Default Output to Clipboard" : "Run Repomix to enable copying"}
+          disabled={disabled}
+          title="Copy Default Output to Clipboard"
           style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
         />
 

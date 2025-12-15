@@ -68,10 +68,13 @@ export async function initialFiltering(state: typeof AgentState.State) {
     candidates: z.array(z.string()).describe("List of relevant file paths found in the repository")
   });
 
-  const structuredLlm = model.withStructuredOutput(schema);
+  const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
 
   try {
-    const result = await structuredLlm.invoke(prompt);
+    const response = await structuredLlm.invoke(prompt);
+    const result = response.parsed as { candidates: string[] };
+    const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+
     logger.both.info(`Agent: Selected ${result.candidates.length} candidate files for deep analysis.`);
 
     // Ensure we don't return empty candidates if there are files available
@@ -85,20 +88,24 @@ export async function initialFiltering(state: typeof AgentState.State) {
         file.match(/\.(ts|js|tsx|jsx|py|java|cs|cpp|c|go|rs|php)$/)
       ).slice(0, 20);
 
-      return { candidateFiles: fallbackCandidates };
+      return { candidateFiles: fallbackCandidates, totalTokens: tokens };
     }
 
-    return { candidateFiles: result.candidates };
+    return { candidateFiles: result.candidates, totalTokens: tokens };
   } catch (error) {
     logger.both.error("Agent: Filtering failed", error);
+
+    // Show warning to user so they know AI filtering failed and fallback is used
+    vscode.window.showWarningMessage(`Agent filtering failed (${error instanceof Error ? error.message : 'Unknown'}), using fallback file list.`);
+
     // Fallback: If LLM fails, return empty or apply failsafe
     if (state.allFilePaths.length > 0) {
       const fallbackCandidates = state.allFilePaths.filter(file =>
         file.match(/\.(ts|js|tsx|jsx|py|java|cs|cpp|c|go|rs|php)$/)
       ).slice(0, 20);
-      return { candidateFiles: fallbackCandidates };
+      return { candidateFiles: fallbackCandidates, totalTokens: 0 };
     }
-    return { candidateFiles: [] };
+    return { candidateFiles: [], totalTokens: 0 };
   }
 }
 
@@ -121,7 +128,9 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
   const checkSchema = z.object({
     isRelevant: z.boolean().describe("True if the file is necessary to answer the user query")
   });
-  const checkLlm = model.withStructuredOutput(checkSchema);
+  const checkLlm = model.withStructuredOutput(checkSchema, { includeRaw: true });
+
+  let stepTokens = 0; // Track tokens for this loop
 
   // Iterate and check (can be parallelized, but keeping sequential for reliability)
   for (const filePath of state.candidateFiles) {
@@ -149,7 +158,10 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
     `;
 
     try {
-      const result = await checkLlm.invoke(prompt);
+      const response = await checkLlm.invoke(prompt);
+      const result = response.parsed as { isRelevant: boolean };
+      stepTokens += (response.raw as any)?.usage_metadata?.total_tokens || 0; // Accumulate
+
       if (result.isRelevant) {
         confirmed.push(filePath);
       }
@@ -161,14 +173,18 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
   // Failsafe: ensure we have at least some files if candidates existed
   if (confirmed.length === 0 && state.candidateFiles.length > 0) {
     logger.both.warn("Agent: No files confirmed as relevant, applying failsafe");
+
+    // Show warning to user that relevance check failed and fallback is being used
+    vscode.window.showWarningMessage(`Agent relevance check failed for all candidate files, using fallback selection of first ${Math.min(5, state.candidateFiles.length)} files.`);
+
     // Return first few candidates as a fallback
     const fallbackFiles = state.candidateFiles.slice(0, 5);
     logger.both.info(`Agent: Fallback selected ${fallbackFiles.length} files`);
-    return { confirmedFiles: fallbackFiles };
+    return { confirmedFiles: fallbackFiles, totalTokens: stepTokens };
   }
 
   logger.both.info(`Agent: Confirmed ${confirmed.length} files as strictly relevant.`);
-  return { confirmedFiles: confirmed };
+  return { confirmedFiles: confirmed, totalTokens: stepTokens };
 }
 
 // Node 5: Command Generation

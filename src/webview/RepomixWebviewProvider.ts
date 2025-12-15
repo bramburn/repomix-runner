@@ -609,69 +609,129 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage({ command: 'agentStateChange', status: 'running' });
     }
 
-    try {
-      const { createSmartRepomixGraph } = await import('../agent/graph.js');
-      const app = createSmartRepomixGraph(this._databaseService);
+    // Wrap execution in withProgress to show visible progress in VS Code
+    await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: "Repomix Agent",
+      cancellable: true
+    }, async (progress, token) => {
+      try {
+        progress.report({ message: "Initializing...", increment: 0 });
 
-      const inputs = {
-        apiKey: apiKey,
-        userQuery: query,
-        workspaceRoot: workspaceRoot,
-        allFilePaths: [],
-        candidateFiles: [],
-        confirmedFiles: [],
-        finalCommand: "",
-        queryId: queryId,
-        outputPath: undefined
-      };
+        const { createSmartRepomixGraph } = await import('../agent/graph.js');
+        const app = createSmartRepomixGraph(this._databaseService);
 
-      const config = { configurable: { thread_id: `agent_${Date.now()}` } };
-      const finalState = await app.invoke(inputs, config);
+        const inputs = {
+          apiKey: apiKey,
+          userQuery: query,
+          workspaceRoot: workspaceRoot,
+          allFilePaths: [],
+          candidateFiles: [],
+          confirmedFiles: [],
+          finalCommand: "",
+          queryId: queryId,
+          outputPath: undefined
+        };
 
-      const fileCount = finalState.confirmedFiles.length;
-      const outputPath = finalState.outputPath;
+        const config = { configurable: { thread_id: `agent_${Date.now()}` } };
 
-      if (fileCount > 0 && outputPath) {
-        // Success - notify webview with output path
-        this._view?.webview.postMessage({
-          command: 'agentRunComplete',
-          outputPath: outputPath,
-          fileCount: fileCount,
-          query: query
-        });
+        // We use stream() instead of invoke() to get updates from the graph nodes
+        // We accumulate the state manually to have the 'finalState' at the end
+        let finalState: any = { ...inputs };
+        const stream = await app.stream(inputs, config);
 
-        vscode.window.showInformationMessage(`Agent successfully packaged ${fileCount} files!`);
-      } else {
-        // No files found
-        this._view?.webview.postMessage({ command: 'agentRunFailed' });
-        vscode.window.showWarningMessage(`No relevant files found for: "${query}"`);
-      }
-    } catch (error: any) {
-      this._view?.webview.postMessage({ command: 'agentRunFailed' });
+        for await (const chunk of stream) {
+          if (token.isCancellationRequested) {
+            throw new Error("Operation cancelled by user");
+          }
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
+          // The chunk object keys are the node names (e.g., { filtering: { ... } })
+          const nodeName = Object.keys(chunk)[0];
+          const update = (chunk as any)[nodeName];
 
-      // Specific error handling for missing API key
-      if (errorMessage.includes('Google API Key')) {
-        const selection = await vscode.window.showErrorMessage(
-          'Google API Key missing.',
-          'Open Settings'
-        );
-        if (selection === 'Open Settings') {
-          vscode.commands.executeCommand(
-            'workbench.action.openSettings',
-            'repomix.agent.googleApiKey'
-          );
+          // Merge updates into final state
+          finalState = { ...finalState, ...update };
+
+          // Extract current total tokens
+          const currentTokens = finalState.totalTokens || 0;
+
+          // Update the VS Code notification based on the active node
+          switch (nodeName) {
+            case 'indexing':
+              progress.report({ message: "Scanning workspace files...", increment: 10 });
+              break;
+            case 'structureExtraction':
+              progress.report({ message: "Analyzing project structure...", increment: 10 });
+              break;
+            case 'filtering':
+              const candidates = update.candidateFiles?.length || 0;
+              progress.report({ message: `Filtering: found ${candidates} potential files...`, increment: 20 });
+              break;
+            case 'relevanceCheck':
+              const confirmed = update.confirmedFiles?.length || 0;
+              progress.report({
+                message: `Deep analysis: confirmed ${confirmed} relevant files (${currentTokens.toLocaleString()} tokens)...`,
+                increment: 30
+              });
+              break;
+            case 'commandGeneration':
+              progress.report({ message: "Generating Repomix command...", increment: 10 });
+              break;
+            case 'execution':
+              progress.report({ message: "Running Repomix CLI...", increment: 20 });
+              break;
+          }
         }
-      } else {
-        vscode.window.showErrorMessage(`Agent failed: ${errorMessage}`);
+
+        const fileCount = finalState.confirmedFiles.length;
+        const outputPath = finalState.outputPath;
+        const totalTokens = finalState.totalTokens || 0;
+
+        if (fileCount > 0 && outputPath) {
+          // Success - notify webview with output path
+          this._view?.webview.postMessage({
+            command: 'agentRunComplete',
+            outputPath: outputPath,
+            fileCount: fileCount,
+            query: query,
+            tokens: totalTokens
+          });
+
+          vscode.window.showInformationMessage(`Agent successfully packaged ${fileCount} files! (Used ${totalTokens.toLocaleString()} tokens)`);
+        } else {
+          // No files found
+          this._view?.webview.postMessage({ command: 'agentRunFailed' });
+          vscode.window.showWarningMessage(`No relevant files found for: "${query}"`);
+        }
+      } catch (error: any) {
+        this._view?.webview.postMessage({ command: 'agentRunFailed' });
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Specific error handling for missing API key
+        if (errorMessage.includes('Google API Key')) {
+          const selection = await vscode.window.showErrorMessage(
+            'Google API Key missing.',
+            'Open Settings'
+          );
+          if (selection === 'Open Settings') {
+            vscode.commands.executeCommand(
+              'workbench.action.openSettings',
+              'repomix.agent.googleApiKey'
+            );
+          }
+        } else if (errorMessage.includes('cancelled')) {
+           vscode.window.showInformationMessage("Agent run cancelled.");
+        } else {
+          vscode.window.showErrorMessage(`Agent failed: ${errorMessage}`);
+        }
+      } finally {
+        // Notify webview that agent is done
+        if (this._view) {
+          this._view.webview.postMessage({ command: 'agentStateChange', status: 'idle' });
+        }
       }
-    } finally {
-      // Notify webview that agent is done
-      if (this._view) {
-        this._view.webview.postMessage({ command: 'agentStateChange', status: 'idle' });
-      }
-    }
+    });
   }
 
   private async _handleGetAgentHistory(): Promise<void> {
