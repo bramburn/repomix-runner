@@ -9,7 +9,6 @@ repomix-logo.svg
 .repomixignore
 .repomix
 .DS_Store
-.claude
 .cursor
 CLAUDE.md
 
@@ -26,3 +25,5 @@ Cargo.lock
 *.rlib
 repomix-output.xml
 bin/
+assets/bin/*.exe
+assets/bin/
