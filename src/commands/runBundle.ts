@@ -8,6 +8,7 @@ import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { readRepomixFileConfig } from '../config/configLoader.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
+import { validateOutputFilePath } from '../utils/pathValidation.js';
 import * as path from 'path';
 
 export async function runBundle(
@@ -21,6 +22,16 @@ export async function runBundle(
 
   // Calculate output filename using the shared resolver
   const outputFilePath = await resolveBundleOutputPath(bundle);
+
+  try {
+    // Validate the FINAL resolved path to catch issues from any source (bundle config, global config, or overrides)
+    validateOutputFilePath(outputFilePath, cwd);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.both.error('Security validation failed for final output path:', errorMessage);
+    vscode.window.showErrorMessage(`Security error: ${errorMessage}`);
+    return; // Stop execution immediately
+  }
 
   // We need to construct the override config expected by runRepomixOnSelectedFiles
   // We can't pass the full path directly if it expects relative logic, but checking runRepomixOnSelectedFiles...
