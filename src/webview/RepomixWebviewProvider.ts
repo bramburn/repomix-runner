@@ -52,14 +52,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
-      const validationResult = WebviewMessageSchema.safeParse(data);
-
-      if (!validationResult.success) {
-        console.error('Invalid webview message:', validationResult.error);
+      let message;
+      try {
+        message = WebviewMessageSchema.parse(data);
+      } catch (error) {
+        console.error('Invalid webview message:', error);
         return;
       }
-
-      const message = validationResult.data;
 
       switch (message.command) {
         case 'webviewLoaded': {

@@ -46,7 +46,7 @@ interface LongPressButtonProps {
   appearance?: 'primary' | 'secondary' | 'subtle' | 'outline' | 'transparent';
   style?: React.CSSProperties;
   title?: string;
-  holdDuration?: number; // Total duration to trigger long press (default 3000ms)
+  holdDuration?: number; // Total duration to trigger long press (default 2000ms)
   bufferDuration?: number; // Time before progress starts (default 500ms)
 }
 
@@ -58,7 +58,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   appearance = 'primary',
   style,
   title,
-  holdDuration = 3000,
+  holdDuration = 2000,
   bufferDuration = 500
 }) => {
   const [isHolding, setIsHolding] = useState(false);
@@ -113,8 +113,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     if (disabled) return;
 
     if (isHolding) {
-      // If we were holding but released before completion
+      // If we were holding but released before completion, treat as click
       clearTimers();
+      onClick();
     } else {
       // Normal click
       if (bufferTimerRef.current) {
