@@ -24,4 +24,10 @@ export const AgentState = Annotation.Root({
 
   // The final repomix CLI command to execute
   finalCommand: Annotation<string>,
+
+  // ID of the saved query (if this run was triggered from a saved query)
+  queryId: Annotation<string | undefined>,
+
+  // Output path for the generated file
+  outputPath: Annotation<string | undefined>,
 });

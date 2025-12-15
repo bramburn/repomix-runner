@@ -22,8 +22,13 @@ import { goToConfigFile } from './commands/goToConfigFile.js';
 import { RepomixWebviewProvider } from './webview/RepomixWebviewProvider.js';
 import { createSmartRepomixGraph } from './agent/graph.js';
 import { logger } from './shared/logger.js';
+import { DatabaseService } from './core/storage/databaseService.js';
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
+  // Initialize database service
+  const databaseService = new DatabaseService(context);
+  await databaseService.initialize();
+
   const cwd = getCwd();
   const bundleManager = new BundleManager(cwd);
 
@@ -41,7 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
-  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context);
+  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context, databaseService);
 
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
@@ -229,7 +234,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       try {
         // Initialize the Graph
-        const app = createSmartRepomixGraph();
+        const app = createSmartRepomixGraph(databaseService);
 
         // Prepare Initial State
         const inputs = {
@@ -238,7 +243,9 @@ export function activate(context: vscode.ExtensionContext) {
           allFilePaths: [],
           candidateFiles: [],
           confirmedFiles: [],
-          finalCommand: ""
+          finalCommand: "",
+          queryId: undefined,
+          outputPath: undefined
         };
 
         // Run the Graph
@@ -310,4 +317,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   tempDirManager.cleanup();
+  // Database service will be disposed automatically when extension context is disposed
 }

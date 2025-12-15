@@ -12,6 +12,7 @@ import { copyToClipboard } from '../core/files/copyToClipboard.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
+import { DatabaseService } from '../core/storage/databaseService.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -37,7 +38,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _bundleManager: BundleManager,
-    private readonly _context: vscode.ExtensionContext
+    private readonly _context: vscode.ExtensionContext,
+    private readonly _databaseService: DatabaseService
   ) {}
 
   public resolveWebviewView(
@@ -112,8 +114,26 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'runSmartAgent': {
-          const { query } = message;
-          await this._handleRunSmartAgent(query);
+          const { query, queryId } = message;
+          await this._handleRunSmartAgent(query, queryId);
+          break;
+        }
+        case 'getAgentHistory': {
+          await this._handleGetAgentHistory();
+          break;
+        }
+        case 'openFile': {
+          const { path } = message;
+          await this._handleOpenFile(path);
+          break;
+        }
+        case 'getSavedQueries': {
+          await this._handleGetSavedQueries();
+          break;
+        }
+        case 'deleteQuery': {
+          const { queryId } = message;
+          await this._handleDeleteQuery(queryId);
           break;
         }
       }
@@ -536,7 +556,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleRunSmartAgent(query: string) {
+  private async _handleRunSmartAgent(query: string, queryId?: string) {
     const workspaceRoot = getCwd();
 
     // Check for API key first
@@ -558,7 +578,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     try {
       const { createSmartRepomixGraph } = await import('../agent/graph.js');
-      const app = createSmartRepomixGraph();
+      const app = createSmartRepomixGraph(this._databaseService);
 
       const inputs = {
         apiKey: apiKey,
@@ -567,7 +587,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         allFilePaths: [],
         candidateFiles: [],
         confirmedFiles: [],
-        finalCommand: ""
+        finalCommand: "",
+        queryId: queryId,
+        outputPath: undefined
       };
 
       const config = { configurable: { thread_id: "1" } };
@@ -586,6 +608,65 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       if (this._view) {
         this._view.webview.postMessage({ command: 'agentStateChange', status: 'idle' });
       }
+    }
+  }
+
+  private async _handleGetAgentHistory(): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+
+    try {
+      const history = await this._databaseService.getAgentRunHistory(50);
+      this._view.webview.postMessage({
+        command: 'agentHistory',
+        history
+      });
+    } catch (error: any) {
+      console.error('Failed to get agent history:', error);
+      vscode.window.showErrorMessage(`Failed to get agent history: ${error.message}`);
+    }
+  }
+
+  private async _handleOpenFile(filePath: string): Promise<void> {
+    try {
+      if (!fs.existsSync(filePath)) {
+        vscode.window.showErrorMessage(`File not found: ${filePath}`);
+        return;
+      }
+
+      const uri = vscode.Uri.file(filePath);
+      await vscode.commands.executeCommand('vscode.open', uri);
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
+    }
+  }
+
+  private async _handleGetSavedQueries(): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+
+    try {
+      const queries = await this._databaseService.getSavedQueries(20);
+      this._view.webview.postMessage({
+        command: 'savedQueries',
+        queries
+      });
+    } catch (error: any) {
+      console.error('Failed to get saved queries:', error);
+      vscode.window.showErrorMessage(`Failed to get saved queries: ${error.message}`);
+    }
+  }
+
+  private async _handleDeleteQuery(queryId: string): Promise<void> {
+    try {
+      await this._databaseService.deleteQuery(queryId);
+      await this._handleGetSavedQueries(); // Refresh the list
+      vscode.window.showInformationMessage('Query deleted successfully');
+    } catch (error: any) {
+      console.error('Failed to delete query:', error);
+      vscode.window.showErrorMessage(`Failed to delete query: ${error.message}`);
     }
   }
 

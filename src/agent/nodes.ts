@@ -5,6 +5,7 @@ import * as tools from "./tools";
 import * as vscode from 'vscode';
 import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
+import { DatabaseService, AgentRunHistory } from '../core/storage/databaseService';
 
 // Helper to initialize the model dynamically
 function getModel(apiKey: string) {
@@ -186,22 +187,133 @@ export async function commandGeneration(state: typeof AgentState.State) {
 }
 
 // Node 6: Final Execution (Cleanup & Run)
-export async function finalExecution(state: typeof AgentState.State) {
+export async function finalExecution(
+  state: typeof AgentState.State,
+  databaseService: DatabaseService,
+  bundleId?: string
+): Promise<Partial<typeof AgentState.State>> {
   logger.both.info("Agent: Step 6 - Executing final run...");
 
+  const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const startTime = Date.now();
+  let outputPath: string | undefined;
+  let success = false;
+  let error: string | undefined;
+
   if (!state.finalCommand) {
-    vscode.window.showWarningMessage("Repomix Agent: No relevant files found for your query.");
+    const errorMessage = "Repomix Agent: No relevant files found for your query.";
+    vscode.window.showWarningMessage(errorMessage);
+    error = errorMessage;
+
+    // Save failed run to database
+    const runHistory: AgentRunHistory = {
+      id: runId,
+      timestamp: startTime,
+      query: state.userQuery,
+      files: state.confirmedFiles,
+      fileCount: state.confirmedFiles.length,
+      outputPath: state.outputPath,
+      success: false,
+      error: error,
+      duration: Date.now() - startTime,
+      bundleId,
+      queryId: state.queryId
+    };
+
+    try {
+      await databaseService.saveAgentRun(runHistory);
+    } catch (dbError) {
+      logger.both.error("Failed to save failed agent run to database:", dbError);
+    }
+
     return {};
+  }
+
+  // Extract output path from the final command
+  const outputPathMatch = state.finalCommand.match(/--output\s+["']?([^"'\s]+)["']?/);
+  if (outputPathMatch) {
+    outputPath = outputPathMatch[1];
+  } else {
+    outputPath = state.outputPath;
   }
 
   // Execute the final command using the existing runner infrastructure
   try {
     await execPromisify(state.finalCommand, { cwd: state.workspaceRoot });
+    success = true;
     vscode.window.showInformationMessage(`Agent successfully packaged ${state.confirmedFiles.length} files!`);
-  } catch (error) {
-    logger.both.error("Agent: Failed to execute final command", error);
+
+    // Save or update the query if run was successful
+    await handleQueryPersistence(state, databaseService);
+  } catch (executionError) {
+    error = executionError instanceof Error ? executionError.message : String(executionError);
+    logger.both.error("Agent: Failed to execute final command", executionError);
     vscode.window.showErrorMessage(`Repomix Agent failed to execute: ${error}`);
   }
 
+  const duration = Date.now() - startTime;
+
+  // Save run to database
+  const runHistory: AgentRunHistory = {
+    id: runId,
+    timestamp: startTime,
+    query: state.userQuery,
+    files: state.confirmedFiles,
+    fileCount: state.confirmedFiles.length,
+    outputPath: outputPath,
+    success: success,
+    error: error,
+    duration: duration,
+    bundleId,
+    queryId: state.queryId
+  };
+
+  try {
+    await databaseService.saveAgentRun(runHistory);
+    logger.both.info(`Agent run saved to database: ${runId} (${success ? 'success' : 'failed'})`);
+  } catch (dbError) {
+    logger.both.error("Failed to save agent run to database:", dbError);
+    // Don't throw error here as it shouldn't affect the main functionality
+  }
+
   return {};
+}
+
+/**
+ * Handles query persistence - saves new queries or updates existing ones
+ */
+async function handleQueryPersistence(
+  state: typeof AgentState.State,
+  databaseService: DatabaseService
+): Promise<void> {
+  try {
+    // Check if this query already exists
+    const existingQuery = await databaseService.findQueryByText(state.userQuery);
+
+    if (existingQuery) {
+      // Update existing query's usage
+      await databaseService.updateQueryUsage(existingQuery.id);
+      logger.both.info(`Updated existing query usage: ${existingQuery.id}`);
+    } else {
+      // Save new query
+      const queryId = state.queryId || `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const queryName = state.userQuery.length > 50
+        ? state.userQuery.substring(0, 47) + '...'
+        : state.userQuery;
+
+      await databaseService.saveQuery({
+        id: queryId,
+        name: queryName,
+        query: state.userQuery,
+        timestamp: Date.now(),
+        lastUsed: Date.now(),
+        runCount: 1
+      });
+
+      logger.both.info(`Saved new query: ${queryId}`);
+    }
+  } catch (error) {
+    // Don't fail the whole operation if query persistence fails
+    logger.both.error("Failed to handle query persistence:", error);
+  }
 }

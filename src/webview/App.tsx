@@ -14,7 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { CopyRegular, PlayRegular, SaveRegular } from '@fluentui/react-icons';
+import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular } from '@fluentui/react-icons';
 
 // --- Interfaces ---
 
@@ -38,6 +38,26 @@ interface DefaultRepomixInfo {
 }
 
 // --- Components ---
+
+interface AgentRunHistoryItem {
+  id: string;
+  timestamp: number;
+  query: string;
+  fileCount: number;
+  success: boolean;
+  error?: string;
+  duration?: number;
+  outputPath?: string;
+}
+
+interface SavedQueryItem {
+  id: string;
+  name: string;
+  query: string;
+  timestamp: number;
+  lastUsed: number;
+  runCount: number;
+}
 
 interface LongPressButtonProps {
   onClick: () => void;
@@ -204,9 +224,11 @@ const AgentView = () => {
   const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
+  const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
+  const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
+  const [showSavedQueries, setShowSavedQueries] = useState(false);
 
   useEffect(() => {
-    // Check if we have a key saved
     const handler = (event: MessageEvent) => {
       if (event.data.command === 'apiKeyStatus') {
         setHasKey(event.data.hasKey);
@@ -214,15 +236,32 @@ const AgentView = () => {
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
       }
+      if (event.data.command === 'agentHistory') {
+        setHistory(event.data.history || []);
+      }
+      if (event.data.command === 'savedQueries') {
+        setSavedQueries(event.data.queries || []);
+      }
     };
     window.addEventListener('message', handler);
     vscode.postMessage({ command: 'checkApiKey' });
+    vscode.postMessage({ command: 'getAgentHistory' });
+    vscode.postMessage({ command: 'getSavedQueries' });
     return () => window.removeEventListener('message', handler);
   }, []);
 
   const handleRun = () => {
     if (!query) return;
     vscode.postMessage({ command: 'runSmartAgent', query });
+  };
+
+  const handleRunSavedQuery = (savedQuery: SavedQueryItem) => {
+    setQuery(savedQuery.query);
+    vscode.postMessage({ command: 'runSmartAgent', query: savedQuery.query, queryId: savedQuery.id });
+  };
+
+  const handleDeleteQuery = (queryId: string) => {
+    vscode.postMessage({ command: 'deleteQuery', queryId });
   };
 
   const handleSaveKey = () => {
@@ -293,6 +332,197 @@ const AgentView = () => {
         <Text size={100} style={{opacity: 0.7}}>
           Key is stored securely in VS Code Secrets.
         </Text>
+      </div>
+
+      <Divider />
+
+      {/* Saved Queries Section */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Label weight="semibold">Saved Queries</Label>
+          <Button
+            appearance="subtle"
+            size="small"
+            onClick={() => setShowSavedQueries(!showSavedQueries)}
+          >
+            {showSavedQueries ? 'Hide' : 'Show'} ({savedQueries.length})
+          </Button>
+        </div>
+
+        {showSavedQueries && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '5px',
+            maxHeight: '250px',
+            overflowY: 'auto',
+            paddingRight: '5px'
+          }}>
+            {savedQueries.length === 0 ? (
+              <Text size={200} style={{ opacity: 0.7 }}>
+                No saved queries yet
+              </Text>
+            ) : (
+              savedQueries.map(item => (
+                <div
+                  key={item.id}
+                  style={{
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--vscode-editor-background)',
+                    borderRadius: '4px',
+                    border: '1px solid var(--vscode-widget-border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => handleRunSavedQuery(item)}
+                >
+                  <div style={{ flex: 1, overflow: 'hidden', marginRight: '10px' }}>
+                    <Text size={200} style={{
+                      fontWeight: 'semibold',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: 'block'
+                    }}>
+                      {item.name}
+                    </Text>
+                    <Text size={100} style={{ opacity: 0.7 }}>
+                      {item.runCount} run{item.runCount !== 1 ? 's' : ''} • Last used {new Date(item.lastUsed).toLocaleDateString()}
+                    </Text>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={<PlayRegular />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRunSavedQuery(item);
+                      }}
+                      title="Run this query again"
+                    />
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={<DeleteRegular />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete saved query: "${item.name}"?`)) {
+                          handleDeleteQuery(item.id);
+                        }
+                      }}
+                      title="Delete this query"
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      <Divider />
+
+      {/* Agent History */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Label weight="semibold">Agent Run History</Label>
+        {history.length === 0 ? (
+          <Text size={200} style={{ opacity: 0.7 }}>
+            No agent runs yet
+          </Text>
+        ) : (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '5px',
+            maxHeight: '300px',
+            overflowY: 'auto',
+            paddingRight: '5px' // Add some padding for scrollbar
+          }}>
+            {history.map(item => (
+              <div
+                key={item.id}
+                style={{
+                  padding: '10px',
+                  backgroundColor: 'var(--vscode-editor-background)',
+                  borderRadius: '4px',
+                  border: '1px solid var(--vscode-widget-border)',
+                  opacity: item.success ? 1 : 0.7,
+                  cursor: 'pointer'
+                }}
+                title={`${item.query}\n${item.fileCount} files${item.duration ? ` • ${Math.round(item.duration / 1000)}s` : ''}${item.error ? `\nError: ${item.error}` : ''}`}
+                onClick={() => {
+                  if (item.outputPath) {
+                    vscode.postMessage({
+                      command: 'openFile',
+                      path: item.outputPath
+                    });
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                  <Text size={200} style={{
+                    fontWeight: 'semibold',
+                    color: item.success ? 'var(--vscode-foreground)' : 'var(--vscode-errorForeground)',
+                    flex: 1,
+                    marginRight: '8px'
+                  }}>
+                    {item.query.substring(0, 50)}
+                    {item.query.length > 50 ? '...' : ''}
+                  </Text>
+                  <Text size={100} style={{
+                    opacity: 0.7,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
+                  }}>
+                    {new Date(item.timestamp).toLocaleTimeString()}
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text size={100} style={{ opacity: 0.7 }}>
+                    {item.fileCount} file{item.fileCount !== 1 ? 's' : ''} • {item.success ? 'Success' : 'Failed'}
+                    {item.duration && ` • ${Math.round(item.duration / 1000)}s`}
+                  </Text>
+                  {item.outputPath && (
+                    <Text
+                      size={100}
+                      style={{
+                        opacity: 0.8,
+                        color: 'var(--vscode-textLink-foreground)',
+                        cursor: 'pointer'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        vscode.postMessage({
+                          command: 'openFile',
+                          path: item.outputPath
+                        });
+                      }}
+                    >
+                      View Output
+                    </Text>
+                  )}
+                </div>
+                {item.error && (
+                  <Text
+                    size={100}
+                    style={{
+                      opacity: 0.8,
+                      color: 'var(--vscode-errorForeground)',
+                      marginTop: '4px',
+                      fontStyle: 'italic'
+                    }}
+                  >
+                    {item.error.substring(0, 100)}
+                    {item.error.length > 100 ? '...' : ''}
+                  </Text>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

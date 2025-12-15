@@ -1,8 +1,9 @@
 import { StateGraph } from "@langchain/langgraph";
 import { AgentState } from "./state";
 import * as nodes from "./nodes";
+import { DatabaseService } from '../core/storage/databaseService';
 
-export function createSmartRepomixGraph() {
+export function createSmartRepomixGraph(databaseService: DatabaseService, bundleId?: string) {
   const workflow = new StateGraph(AgentState)
     // Add all the nodes we defined
     .addNode("indexing", nodes.initialIndexing)
@@ -10,7 +11,7 @@ export function createSmartRepomixGraph() {
     .addNode("filtering", nodes.initialFiltering)
     .addNode("relevanceCheck", nodes.relevanceConfirmation)
     .addNode("commandGeneration", nodes.commandGeneration)
-    .addNode("execution", nodes.finalExecution)
+    .addNode("execution", (state) => nodes.finalExecution(state, databaseService, bundleId))
 
     // Define the flow (Edges)
     // Start -> Indexing

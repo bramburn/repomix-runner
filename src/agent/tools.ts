@@ -1,31 +1,101 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { logger } from '../shared/logger';
+import ignore from 'ignore';
 
 /**
  * Retrieve all files in the workspace using VS Code's native API.
- * Excludes common ignore patterns and node_modules.
+ * Excludes common ignore patterns, node_modules, and .gitignore patterns.
  */
 export async function getWorkspaceFiles(workspaceRoot: string): Promise<string[]> {
   try {
-    // Define patterns to exclude
-    const excludePattern = '**/{node_modules,git,dist,build,out,coverage,.next,.vscode,.idea}/**';
+    // Load .gitignore patterns
+    const gitignorePath = path.join(workspaceRoot, '.gitignore');
+    let gitignorePatterns: string[] = [];
+    let hasGitignore = false;
+
+    if (fs.existsSync(gitignorePath)) {
+      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+      gitignorePatterns = gitignoreContent
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'));
+      hasGitignore = gitignorePatterns.length > 0;
+    }
+
+    // Define base exclude patterns
+    const baseExcludePatterns = [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/out/**',
+      '**/coverage/**',
+      '**/.next/**',
+      '**/.vscode/**',
+      '**/.idea/**',
+      '**/*.tmp',
+      '**/temp/**',
+      '**/.DS_Store'
+    ];
 
     // Use VS Code's findFiles API with a relative pattern
-    const relativePattern = new vscode.RelativePattern(
-      workspaceRoot,
-      '**/*'
-    );
+    const relativePattern = new vscode.RelativePattern(workspaceRoot, '**/*');
 
-    // Find all files matching the pattern
-    const uris = await vscode.workspace.findFiles(relativePattern, excludePattern);
+    let uris: vscode.Uri[];
+
+    if (hasGitignore) {
+      // If .gitignore exists, we need to filter manually since VS Code's findFiles
+      // doesn't support complex gitignore patterns directly
+
+      // Get all files with basic exclusions
+      const basicExcludePattern = baseExcludePatterns.join(',');
+      uris = await vscode.workspace.findFiles(relativePattern, basicExcludePattern);
+
+      // Apply .gitignore filtering
+      const ignoreInstance = ignore({
+        ignorecase: process.platform === 'win32' || process.platform === 'darwin'
+      });
+
+      // Add gitignore patterns
+      gitignorePatterns.forEach(pattern => {
+        try {
+          ignoreInstance.add(pattern);
+        } catch (error) {
+          logger.both.warn(`Invalid .gitignore pattern: ${pattern}`, error);
+        }
+      });
+
+      // Filter files based on .gitignore
+      uris = uris.filter(uri => {
+        const relativePath = vscode.workspace.asRelativePath(uri, false);
+        // Convert path separators to forward slashes for gitignore compatibility
+        const normalizedPath = relativePath.replace(/\\/g, '/');
+
+        try {
+          const isIgnored = ignoreInstance.ignores(normalizedPath);
+          return !isIgnored;
+        } catch (error) {
+          logger.both.warn(`Error checking ignore status for ${normalizedPath}:`, error);
+          // Include file if there's an error checking its status
+          return true;
+        }
+      });
+
+      logger.both.info(`Found ${uris.length} files in workspace (filtered by .gitignore)`);
+    } else {
+      // No .gitignore, use basic exclusions only
+      const excludePattern = baseExcludePatterns.join(',');
+      uris = await vscode.workspace.findFiles(relativePattern, excludePattern);
+      logger.both.info(`Found ${uris.length} files in workspace (no .gitignore found)`);
+    }
 
     // Convert URIs to relative paths
     const filePaths = uris
       .map(uri => vscode.workspace.asRelativePath(uri, false))
       .filter(filePath => filePath); // Filter out empty paths
 
-    logger.both.info(`Found ${filePaths.length} files in workspace`);
     return filePaths;
   } catch (error) {
     logger.both.error('Failed to get workspace files:', error);

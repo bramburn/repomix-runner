@@ -42,9 +42,29 @@ export const SaveApiKeySchema = z.object({
   apiKey: z.string().startsWith('AIza', "API Key must start with 'AIza'").min(30, "API Key is too short"),
 });
 
+
+export const GetAgentHistorySchema = z.object({
+  command: z.literal('getAgentHistory'),
+});
+
+export const OpenFileSchema = z.object({
+  command: z.literal('openFile'),
+  path: z.string().min(1),
+});
+
+export const GetSavedQueriesSchema = z.object({
+  command: z.literal('getSavedQueries'),
+});
+
+export const DeleteQuerySchema = z.object({
+  command: z.literal('deleteQuery'),
+  queryId: z.string().min(1),
+});
+
 export const RunSmartAgentSchema = z.object({
   command: z.literal('runSmartAgent'),
   query: z.string().min(1).max(1000),
+  queryId: z.string().optional(),
 });
 
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
@@ -58,6 +78,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CheckApiKeySchema,
   SaveApiKeySchema,
   RunSmartAgentSchema,
+  GetAgentHistorySchema,
+  OpenFileSchema,
+  GetSavedQueriesSchema,
+  DeleteQuerySchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
