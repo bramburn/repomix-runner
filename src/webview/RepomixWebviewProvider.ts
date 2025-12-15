@@ -829,12 +829,24 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private async _handleCopyAgentOutput(runId: string): Promise<void> {
     try {
       const run = await this._databaseService.getAgentRunById(runId);
-      if (!run?.outputPath || !fs.existsSync(run.outputPath)) {
-        vscode.window.showErrorMessage('Output file not found');
+
+      // Resolve path before checking existence
+      if (!run?.outputPath) {
+        vscode.window.showErrorMessage('No output path found for this run');
         return;
       }
 
-      const originalFilename = path.basename(run.outputPath);
+      const workspaceRoot = getCwd();
+      const fullPath = path.isAbsolute(run.outputPath)
+        ? run.outputPath
+        : path.resolve(workspaceRoot, run.outputPath);
+
+      if (!fs.existsSync(fullPath)) {
+        vscode.window.showErrorMessage(`Output file not found: ${fullPath}`);
+        return;
+      }
+
+      const originalFilename = path.basename(fullPath);
       const uniqueSubdir = `copy_${Date.now()}`;
       const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
 
@@ -843,7 +855,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
       const tmpFilePath = path.join(tmpDir, originalFilename);
 
-      await copyToClipboard(run.outputPath, tmpFilePath);
+      await copyToClipboard(fullPath, tmpFilePath);
       vscode.window.showInformationMessage(`Copied ${originalFilename} to clipboard`);
       await tempDirManager.cleanupFile(tmpFilePath);
 
@@ -854,12 +866,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   private async _handleCopyLastAgentOutput(outputPath: string): Promise<void> {
     try {
-      if (!fs.existsSync(outputPath)) {
-        vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+      // Resolve the relative path to the workspace root
+      const workspaceRoot = getCwd();
+      const fullPath = path.isAbsolute(outputPath)
+        ? outputPath
+        : path.resolve(workspaceRoot, outputPath);
+
+      if (!fs.existsSync(fullPath)) {
+        vscode.window.showErrorMessage(`Output file not found: ${fullPath}`);
         return;
       }
 
-      const originalFilename = path.basename(outputPath);
+      const originalFilename = path.basename(fullPath);
       const uniqueSubdir = `copy_${Date.now()}`;
       const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
 
@@ -868,7 +886,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
       const tmpFilePath = path.join(tmpDir, originalFilename);
 
-      await copyToClipboard(outputPath, tmpFilePath);
+      await copyToClipboard(fullPath, tmpFilePath);
       vscode.window.showInformationMessage(`Copied ${originalFilename} to clipboard`);
       await tempDirManager.cleanupFile(tmpFilePath);
 

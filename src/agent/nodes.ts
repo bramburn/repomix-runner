@@ -12,6 +12,15 @@ function generateShortId(): string {
   return Math.random().toString(36).substring(2, 6);
 }
 
+// Helper function to chunk arrays into smaller pieces
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
 // Helper to initialize the model dynamically
 function getModel(apiKey: string) {
   if (!apiKey) {
@@ -45,23 +54,6 @@ export async function initialFiltering(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 3 - Filtering candidate files...");
 
   const model = getModel(state.apiKey);
-  const structureContext = state.allFilePaths.join('\n');
-
-  const prompt = `
-    You are an expert software engineer assistant.
-    The user wants to package specific parts of a codebase into a single file.
-
-    User Query: "${state.userQuery}"
-
-    Below is the list of all files in the repository:
-    ---
-    ${structureContext}
-    ---
-
-    Task: Select all file paths that appear relevant to the user's query based on their names and directory location.
-    Be generous in this step; include any file that MIGHT be relevant.
-    Do not hallucinate paths. Only select from the provided list.
-  `;
 
   // Define the structured output schema
   const schema = z.object({
@@ -70,17 +62,55 @@ export async function initialFiltering(state: typeof AgentState.State) {
 
   const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
 
-  try {
-    const response = await structuredLlm.invoke(prompt);
-    const result = response.parsed as { candidates: string[] };
-    const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+  // Chunk the files to avoid token limits (JSON truncation) with large repos
+  const CHUNK_SIZE = 600;
+  const fileChunks = chunkArray(state.allFilePaths, CHUNK_SIZE);
 
-    logger.both.info(`Agent: Selected ${result.candidates.length} candidate files for deep analysis.`);
+  const allCandidates: string[] = [];
+  let totalTokens = 0;
+
+  try {
+    // Process chunks sequentially to be safe with rate limits
+    for (const chunk of fileChunks) {
+      const structureContext = chunk.join('\n');
+
+      const prompt = `
+        You are an expert software engineer assistant.
+        The user wants to package specific parts of a codebase into a single file.
+
+        User Query: "${state.userQuery}"
+
+        Below is a subset of files from the repository:
+        ---
+        ${structureContext}
+        ---
+
+        Task: Select all file paths from the list above that appear relevant to the user's query based on their names and directory location.
+        Be generous in this step; include any file that MIGHT be relevant.
+        Do not hallucinate paths. Only select from the provided list.
+      `;
+
+      try {
+        const response = await structuredLlm.invoke(prompt);
+        const result = response.parsed as { candidates: string[] };
+        const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+
+        if (result && result.candidates) {
+          allCandidates.push(...result.candidates);
+        }
+        totalTokens += tokens;
+      } catch (chunkError) {
+        logger.both.warn("Agent: Error processing a file chunk, skipping...", chunkError);
+        // Continue to next chunk even if one fails
+      }
+    }
+
+    logger.both.info(`Agent: Selected ${allCandidates.length} candidate files for deep analysis.`);
 
     // Ensure we don't return empty candidates if there are files available
-    if (result.candidates.length === 0 && state.allFilePaths.length > 0) {
+    if (allCandidates.length === 0 && state.allFilePaths.length > 0) {
       logger.both.warn("Agent: No candidates selected, applying failsafe to select some files");
-      // Failsafe: select a reasonable subset of files based on common patterns
+
       const fallbackCandidates = state.allFilePaths.filter(file =>
         file.includes('src') ||
         file.includes('lib') ||
@@ -88,17 +118,16 @@ export async function initialFiltering(state: typeof AgentState.State) {
         file.match(/\.(ts|js|tsx|jsx|py|java|cs|cpp|c|go|rs|php)$/)
       ).slice(0, 20);
 
-      return { candidateFiles: fallbackCandidates, totalTokens: tokens };
+      return { candidateFiles: fallbackCandidates, totalTokens: totalTokens };
     }
 
-    return { candidateFiles: result.candidates, totalTokens: tokens };
+    return { candidateFiles: allCandidates, totalTokens: totalTokens };
+
   } catch (error) {
     logger.both.error("Agent: Filtering failed", error);
 
-    // Show warning to user so they know AI filtering failed and fallback is used
     vscode.window.showWarningMessage(`Agent filtering failed (${error instanceof Error ? error.message : 'Unknown'}), using fallback file list.`);
 
-    // Fallback: If LLM fails, return empty or apply failsafe
     if (state.allFilePaths.length > 0) {
       const fallbackCandidates = state.allFilePaths.filter(file =>
         file.match(/\.(ts|js|tsx|jsx|py|java|cs|cpp|c|go|rs|php)$/)
