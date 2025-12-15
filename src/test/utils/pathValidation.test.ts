@@ -27,6 +27,11 @@ suite('validateOutputFilePath Security Checks', () => {
         const absPath = path.join(workspaceRoot, 'output.txt');
         assert.doesNotThrow(() => validateOutputFilePath(absPath, workspaceRoot));
     });
+
+    test('should pass for path with ".." as part of a valid filename', () => {
+        // This confirms that '..foo' is not incorrectly flagged as traversal.
+        assert.doesNotThrow(() => validateOutputFilePath('..foo/valid.txt', workspaceRoot));
+    });
     
     // --- Traversal and Security Failure Cases ---
 
@@ -48,5 +53,4 @@ suite('validateOutputFilePath Security Checks', () => {
         const siblingPath = workspaceRoot + '_secret/file.txt';
         assert.throws(() => validateOutputFilePath(siblingPath, workspaceRoot), /Security/);
     });
-
 });
