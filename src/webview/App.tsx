@@ -46,7 +46,7 @@ interface LongPressButtonProps {
   appearance?: 'primary' | 'secondary' | 'subtle' | 'outline' | 'transparent';
   style?: React.CSSProperties;
   title?: string;
-  holdDuration?: number; // Total duration to trigger long press (default 3000ms)
+  holdDuration?: number; // Total duration to trigger long press (default 2000ms)
   bufferDuration?: number; // Time before progress starts (default 500ms)
 }
 
@@ -58,7 +58,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   appearance = 'primary',
   style,
   title,
-  holdDuration = 3000,
+  holdDuration = 2000,
   bufferDuration = 500
 }) => {
   const [isHolding, setIsHolding] = useState(false);
@@ -113,8 +113,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     if (disabled) return;
 
     if (isHolding) {
-      // If we were holding but released before completion
+      // If we were holding but released before completion, treat as click
       clearTimers();
+      onClick();
     } else {
       // Normal click
       if (bufferTimerRef.current) {
@@ -129,6 +130,23 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     clearTimers();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === ' ' || e.key === 'Enter') {
+      if (e.repeat) return;
+      e.preventDefault();
+      handleMouseDown();
+    }
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      handleMouseUp();
+    }
+  };
+
   return (
     <Button
       appearance={appearance}
@@ -136,6 +154,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      onBlur={handleMouseLeave}
       // Touch support
       onTouchStart={handleMouseDown}
       onTouchEnd={(e) => {
@@ -151,6 +172,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
         // Ensure z-index allows overlay
       }}
       title={title}
+      aria-label={title || "Long press button"}
     >
       {/* Progress Overlay */}
       {isHolding && (
@@ -330,6 +352,21 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
         >
           {bundle.name}
         </Text>
+        {bundle.description && (
+          <Text
+            size={200}
+            style={{
+              opacity: 0.7,
+              display: 'block',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+            title={bundle.description}
+          >
+            {bundle.description}
+          </Text>
+        )}
         <Text size={200} style={{ opacity: 0.7 }}>
           {fileCount} files, {folderCount} folders
         </Text>

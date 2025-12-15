@@ -12,6 +12,7 @@ import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
+import { WebviewMessageSchema } from './messageSchemas.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -53,7 +54,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
-      switch (data.command) {
+      let message;
+      try {
+        message = WebviewMessageSchema.parse(data);
+      } catch (error) {
+        console.error('Invalid webview message:', error);
+        return;
+      }
+
+      switch (message.command) {
         case 'webviewLoaded': {
           await this._sendBundles();
           await this._sendDefaultRepomixState();
@@ -61,29 +70,23 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'runBundle': {
-          const { bundleId, compress } = data;
-          if (typeof bundleId === 'string') {
-            await this._handleRunBundle(bundleId, typeof compress === 'boolean' ? compress : undefined);
-          }
+          const { bundleId, compress } = message;
+          await this._handleRunBundle(bundleId, compress);
           break;
         }
         case 'cancelBundle': {
-          const { bundleId, executionId } = data;
-          if (typeof bundleId === 'string') {
-            await this._handleCancelBundle(bundleId, typeof executionId === 'string' ? executionId : undefined);
-          }
+          const { bundleId, executionId } = message;
+          await this._handleCancelBundle(bundleId, executionId);
           break;
         }
         case 'copyBundleOutput': {
-          const { bundleId } = data;
-          if (typeof bundleId === 'string') {
-            await this._handleCopyBundleOutput(bundleId);
-          }
+          const { bundleId } = message;
+          await this._handleCopyBundleOutput(bundleId);
           break;
         }
         case 'runDefaultRepomix': {
-          const { compress } = data;
-          await this._handleRunDefaultRepomix(typeof compress === 'boolean' ? compress : undefined);
+          const { compress } = message;
+          await this._handleRunDefaultRepomix(compress);
           break;
         }
         case 'cancelDefaultRepomix': {
@@ -103,17 +106,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'saveApiKey': {
-          const { apiKey } = data;
-          if (typeof apiKey === 'string') {
-            await this._handleSaveApiKey(apiKey);
-          }
+          const { apiKey } = message;
+          await this._handleSaveApiKey(apiKey);
           break;
         }
         case 'runSmartAgent': {
-          const { query } = data;
-          if (typeof query === 'string') {
-            await this._handleRunSmartAgent(query);
-          }
+          const { query } = message;
+          await this._handleRunSmartAgent(query);
           break;
         }
       }
