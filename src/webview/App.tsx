@@ -46,7 +46,7 @@ interface LongPressButtonProps {
   appearance?: 'primary' | 'secondary' | 'subtle' | 'outline' | 'transparent';
   style?: React.CSSProperties;
   title?: string;
-  holdDuration?: number; // Total duration to trigger long press (default 3000ms)
+  holdDuration?: number; // Total duration to trigger long press (default 2000ms)
   bufferDuration?: number; // Time before progress starts (default 500ms)
 }
 
@@ -58,7 +58,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   appearance = 'primary',
   style,
   title,
-  holdDuration = 3000,
+  holdDuration = 2000,
   bufferDuration = 500
 }) => {
   const [isHolding, setIsHolding] = useState(false);
@@ -113,8 +113,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     if (disabled) return;
 
     if (isHolding) {
-      // If we were holding but released before completion
+      // If we were holding but released before completion, treat as click
       clearTimers();
+      onClick();
     } else {
       // Normal click
       if (bufferTimerRef.current) {
@@ -234,7 +235,6 @@ const AgentView = () => {
       <Divider />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-<<<<<<< HEAD
         <Label weight="semibold">Smart Agent Configuration</Label>
 
         {hasKey ? (
@@ -252,25 +252,6 @@ const AgentView = () => {
            </div>
         )}
 
-=======
-        <Label weight="semibold">Smart Agent Configuration</Label>
-
-        {hasKey ? (
-           <Text size={200} style={{ color: '#4caf50' }}>
-             ✅ API Key Configured
-           </Text>
-        ) : (
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-             <Text size={200} style={{ color: '#ffb74d' }}>
-               ⚠️ API Key Missing
-             </Text>
-             <Text size={100} style={{ opacity: 0.8 }}>
-               Please configure your Google API Key below to use the Smart Agent.
-             </Text>
-           </div>
-        )}
-
->>>>>>> origin/api-key-security-enhancement-2036651117042398085
         <div style={{ display: 'flex', gap: '5px' }}>
           <Input
             type="password"
