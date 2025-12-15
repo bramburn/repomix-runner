@@ -211,8 +211,29 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     if (!userQuery) {
-      return; // User cancelled
+<<<<<<< HEAD
+      userQuery = await vscode.window.showInputBox({
+        title: "Smart Repomix Agent",
+        prompt: "Describe what you want to package",
+        placeHolder: "e.g., 'All authentication logic excluding tests'",
+      });
     }
+    if (!userQuery) {return;}
+
+    // 2. Get API Key (Secrets > Prompt)
+    const apiKey = await context.secrets.get('repomix.agent.googleApiKey');
+=======
+      userQuery = await vscode.window.showInputBox({
+        title: "Smart Repomix Agent",
+        prompt: "Describe what you want to package",
+        placeHolder: "e.g., 'All authentication logic excluding tests'",
+      });
+    }
+    if (!userQuery) {return;}
+
+    // 2. Get API Key (Secrets > Prompt)
+    const apiKey = await context.secrets.get('repomix.agent.googleApiKey');
+>>>>>>> origin/api-key-security-enhancement-2036651117042398085
 
     // 3. Run the Agent with Progress Indication
     vscode.window.withProgress({

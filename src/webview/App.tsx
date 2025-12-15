@@ -81,9 +81,12 @@ const AgentView = () => {
   };
 
   const handleSaveKey = () => {
-    vscode.postMessage({ command: 'saveApiKey', apiKey });
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+        return;
+    }
+    vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
     setApiKey(''); // Clear input for security
-    setHasKey(true);
   };
 
   return (
@@ -109,10 +112,43 @@ const AgentView = () => {
       <Divider />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-        <Label weight="semibold">Configuration</Label>
-        <Text size={200}>
-           Status: {hasKey ? "✅ API Key Saved" : "⚠️ API Key Missing"}
-        </Text>
+<<<<<<< HEAD
+        <Label weight="semibold">Smart Agent Configuration</Label>
+
+        {hasKey ? (
+           <Text size={200} style={{ color: '#4caf50' }}>
+             ✅ API Key Configured
+           </Text>
+        ) : (
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+             <Text size={200} style={{ color: '#ffb74d' }}>
+               ⚠️ API Key Missing
+             </Text>
+             <Text size={100} style={{ opacity: 0.8 }}>
+               Please configure your Google API Key below to use the Smart Agent.
+             </Text>
+           </div>
+        )}
+
+=======
+        <Label weight="semibold">Smart Agent Configuration</Label>
+
+        {hasKey ? (
+           <Text size={200} style={{ color: '#4caf50' }}>
+             ✅ API Key Configured
+           </Text>
+        ) : (
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+             <Text size={200} style={{ color: '#ffb74d' }}>
+               ⚠️ API Key Missing
+             </Text>
+             <Text size={100} style={{ opacity: 0.8 }}>
+               Please configure your Google API Key below to use the Smart Agent.
+             </Text>
+           </div>
+        )}
+
+>>>>>>> origin/api-key-security-enhancement-2036651117042398085
         <div style={{ display: 'flex', gap: '5px' }}>
           <Input
             type="password"
@@ -121,7 +157,13 @@ const AgentView = () => {
             onChange={(e, data) => setApiKey(data.value)}
             style={{ flexGrow: 1 }}
           />
-          <Button icon={<SaveRegular />} onClick={handleSaveKey}>Save</Button>
+          <Button
+            icon={<SaveRegular />}
+            onClick={handleSaveKey}
+            disabled={!apiKey.trim()}
+          >
+            Save
+          </Button>
         </div>
         <Text size={100} style={{opacity: 0.7}}>
           Key is stored securely in VS Code Secrets.
