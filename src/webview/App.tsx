@@ -46,7 +46,7 @@ interface LongPressButtonProps {
   appearance?: 'primary' | 'secondary' | 'subtle' | 'outline' | 'transparent';
   style?: React.CSSProperties;
   title?: string;
-  holdDuration?: number; // Total duration to trigger long press (default 3000ms)
+  holdDuration?: number; // Total duration to trigger long press (default 2000ms)
   bufferDuration?: number; // Time before progress starts (default 500ms)
 }
 
@@ -58,7 +58,7 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   appearance = 'primary',
   style,
   title,
-  holdDuration = 3000,
+  holdDuration = 2000,
   bufferDuration = 500
 }) => {
   const [isHolding, setIsHolding] = useState(false);
@@ -113,8 +113,9 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
     if (disabled) return;
 
     if (isHolding) {
-      // If we were holding but released before completion
+      // If we were holding but released before completion, treat as click
       clearTimers();
+      onClick();
     } else {
       // Normal click
       if (bufferTimerRef.current) {
@@ -371,15 +372,14 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
         </Text>
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        {bundle.outputFileExists && !disabled && (
-           <Button
-             appearance="subtle"
-             icon={<CopyRegular />}
-             onClick={() => onCopy(bundle.id)}
-             title="Copy Output File to Clipboard"
-             style={{ minWidth: '32px' }}
-           />
-        )}
+        <Button
+          appearance="subtle"
+          icon={<CopyRegular />}
+          onClick={() => onCopy(bundle.id)}
+          disabled={disabled || !bundle.outputFileExists}
+          title={bundle.outputFileExists ? "Copy Output File to Clipboard" : "Generate bundle to enable copying"}
+          style={{ minWidth: '32px' }}
+        />
 
         {disabled ? (
           <Button
@@ -465,15 +465,14 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
         )}
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
-        {info.outputFileExists && !disabled && (
-           <Button
-             appearance="subtle"
-             icon={<CopyRegular />}
-             onClick={onCopy}
-             title="Copy Default Output to Clipboard"
-             style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
-           />
-        )}
+        <Button
+          appearance="subtle"
+          icon={<CopyRegular />}
+          onClick={onCopy}
+          disabled={disabled || !info.outputFileExists}
+          title={info.outputFileExists ? "Copy Default Output to Clipboard" : "Run Repomix to enable copying"}
+          style={{ minWidth: '32px', color: 'var(--vscode-button-secondaryForeground)' }}
+        />
 
         {disabled ? (
           <Button
