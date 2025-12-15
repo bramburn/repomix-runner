@@ -170,7 +170,6 @@ const AgentView = () => {
     }
     vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
     setApiKey(''); // Clear input for security
-    setHasKey(true);
   };
 
   return (

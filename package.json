@@ -239,12 +239,6 @@
         "order": 7,
         "type": "object",
         "properties": {
-          "repomix.agent.googleApiKey": {
-            "type": "string",
-            "default": "",
-            "description": "Google Gemini API Key for the Smart Repomix Agent",
-            "scope": "application"
-          }
         }
       }
     ],
