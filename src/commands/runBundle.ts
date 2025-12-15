@@ -1,14 +1,15 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { getCwd } from '../config/getCwd.js';
 import { runRepomixOnSelectedFiles } from './runRepomixOnSelectedFiles.js';
 import { logger } from '../shared/logger.js';
 import { showTempNotification } from '../shared/showTempNotification.js';
-import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
+import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../config/configLoader.js';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
-import { readRepomixFileConfig } from '../config/configLoader.js';
-import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
-import * as path from 'path';
+import { generateOutputFilename } from './generateOutputFilename.js';
+import { deepMerge } from '../utils/deepMerge.js';
+import { validateOutputFilePath } from '../utils/pathValidation.js';
 
 export async function runBundle(
   bundleManager: BundleManager,
@@ -19,40 +20,57 @@ export async function runBundle(
   const cwd = getCwd();
   const bundle = await bundleManager.getBundle(bundleId);
 
-  // Calculate output filename using the shared resolver
-  const outputFilePath = await resolveBundleOutputPath(bundle);
-
-  // We need to construct the override config expected by runRepomixOnSelectedFiles
-  // We can't pass the full path directly if it expects relative logic, but checking runRepomixOnSelectedFiles...
-  // It takes overrideConfig.output.filePath.
-
-  // Re-reading config just to respect the flow (though resolveBundleOutputPath did it too)
-  // This is a slight duplication of effort (reading config files twice) but ensures consistency
+  // Load bundle config if exists
   let overrideConfig: RepomixConfigFile = {};
   if (bundle.configPath) {
     const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
     overrideConfig = bundleConfig || {};
   }
 
-  // Apply additional overrides (e.g., compress flag)
+  // Validate and merge additional overrides
   if (additionalOverrides) {
-    overrideConfig = {
-      ...overrideConfig,
-      ...additionalOverrides,
-      output: {
-        ...overrideConfig.output,
-        ...additionalOverrides.output,
-      },
-      // Merge other nested objects if necessary, currently mainly output is used
-    };
+    // Security Check: Validate overridden output path if present
+    if (additionalOverrides.output?.filePath) {
+      try {
+        validateOutputFilePath(additionalOverrides.output.filePath, cwd);
+      } catch (error: any) {
+        logger.both.error('Security validation failed for override path:', error);
+        vscode.window.showErrorMessage(error.message);
+        return;
+      }
+    }
+
+    // Use deep merge to ensure nested properties (like output options) are preserved
+    overrideConfig = deepMerge(overrideConfig, additionalOverrides);
   }
 
+  // Calculate final output path
+  // We mirror the logic from resolveBundleOutputPath but using our merged config
+  const config = readRepomixRunnerVscodeConfig();
   overrideConfig.output ??= {};
-  // Important: resolveBundleOutputPath returns absolute path.
-  // runRepomix handles absolute paths correctly? Let's assume yes or make it relative if needed.
-  // runRepomix does: filePath: path.resolve(cwd, outputFilePath) in mergeConfigs
-  // So if we pass an absolute path, path.resolve(cwd, absPath) returns absPath. It is safe.
-  overrideConfig.output.filePath = outputFilePath;
+
+  const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
+  const useBundleNameAsOutputName = config.runner.useBundleNameAsOutputName;
+
+  const outputFilename = generateOutputFilename(
+    bundle,
+    baseFilePath,
+    useBundleNameAsOutputName
+  );
+
+  const finalOutputFilePath = path.resolve(cwd, outputFilename);
+
+  // Security Check: Validate the final resolved path
+  try {
+     validateOutputFilePath(finalOutputFilePath, cwd);
+  } catch (error: any) {
+      logger.both.error('Security validation failed for resolved output path:', error);
+      vscode.window.showErrorMessage(error.message);
+      return;
+  }
+
+  // Enforce the calculated path in the config used for execution
+  overrideConfig.output.filePath = finalOutputFilePath;
 
   try {
     // Convert file paths to URIs

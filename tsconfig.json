@@ -6,9 +6,9 @@
     "jsx": "react-jsx",
     "sourceMap": true,
     "rootDir": "src",
-    /* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
+/* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
     "skipLibCheck": true,
-    "strict": true /* enable all strict type-checking options */
+    "strict": true, /* enable all strict type-checking options */
     /* Additional Checks */
     // "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
     // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
