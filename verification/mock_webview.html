@@ -1,39 +1,52 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Repomix Runner Mock</title>
-    <!-- React and ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Fluent UI React Components -->
-    <!-- Note: Using a CDN for Fluent UI v9 is tricky as it's distributed as modules.
-         We will mock the styling behavior or try to bundle it.
-         However, for this verification, since we are testing *styling refactoring*,
-         we need the actual styling library to be active or at least the classes generated.
-
-         Since we cannot easily serve the actual React app with webpack dev server here without setting up a lot of things,
-         and the user wants to verify *frontend*, we have a limitation.
-
-         The user code uses `makeStyles` which generates classes at runtime.
-         If we can build the app and serve the built `index.html` (if it exists) or `App.js`, that would be better.
-
-         The build command `npm run compile` generates `dist/webview.js` (presumably from esbuild config).
-         Let's check `esbuild.js` to see where the webview code goes.
-    -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mock Webview</title>
 </head>
 <body>
-    <div id="root"></div>
-    <script>
-        // Mock vscode API
-        window.acquireVsCodeApi = () => ({
-            postMessage: (msg) => console.log('postMessage', msg),
-            getState: () => ({}),
-            setState: () => {}
-        });
-    </script>
-    <!-- We will inject the built webview script here if possible -->
+  <div id="root"></div>
+  <script>
+    window.process = { env: { NODE_ENV: "development" } };
+  </script>
+  <script>
+    // Mock VS Code API BEFORE loading the app
+    window.acquireVsCodeApi = () => ({
+      postMessage: (msg) => {
+        console.log("VSCode Message:", msg);
+        if (msg.command === "webviewLoaded") {
+           // Simulate backend response
+           console.log("Webview loaded, sending bundles...");
+           // Use requestAnimationFrame or just send immediately to catch React lifecycle?
+           // The event listener is added in useEffect.
+           setTimeout(() => {
+               window.postMessage({
+                 command: "updateBundles",
+                 bundles: [
+                   {
+                     id: "b1",
+                     name: "My Bundle",
+                     files: ["src/index.ts", "src/utils.ts"],
+                     outputFileExists: true,
+                     stats: { files: 2, folders: 0, totalSize: 1024 }
+                   },
+                   {
+                     id: "b2",
+                     name: "Missing Output",
+                     files: ["README.md"],
+                     outputFileExists: false,
+                     stats: { files: 1, folders: 0, totalSize: 512 }
+                   }
+                 ]
+               }, "*");
+           }, 500);
+        }
+      },
+      getState: () => ({}),
+      setState: () => {}
+    });
+  </script>
+  <script type="module" src="/dist/webview.js"></script>
 </body>
 </html>

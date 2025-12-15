@@ -11,118 +11,9 @@ import {
   Input,
   Label,
   Divider,
-  makeStyles,
-  shorthands,
-  tokens,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
 import { CopyRegular, PlayRegular, SaveRegular } from '@fluentui/react-icons';
-
-// --- STYLES ---
-
-const useStyles = makeStyles({
-  // App Layout
-  appContainer: {
-    ...shorthands.padding('10px'),
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    boxSizing: 'border-box',
-  },
-  tabList: {
-    marginBottom: '10px',
-  },
-  contentContainer: {
-    flexGrow: 1,
-    overflowY: 'auto',
-  },
-  bundleList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  footer: {
-    opacity: 0.5,
-    textAlign: 'center',
-    marginTop: '10px',
-  },
-
-  // BundleItem
-  bundleItemContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-    ...shorthands.padding('10px'),
-    ...shorthands.border('1px', 'solid', 'rgba(255,255,255,0.1)'),
-    ...shorthands.borderRadius('4px'),
-  },
-  bundleItemHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  bundleInfo: {
-    flex: 1,
-  },
-  bundleDescription: {
-    opacity: 0.8,
-    display: 'block',
-    marginTop: '4px',
-  },
-  bundleStats: {
-    opacity: 0.6,
-    display: 'block',
-    marginTop: '4px',
-  },
-  bundleActions: {
-    display: 'flex',
-    gap: '5px',
-    justifyContent: 'flex-end',
-  },
-  runButton: {
-    minWidth: '100px',
-  },
-  spinner: {
-    marginRight: '8px',
-  },
-  tooltipContainer: {
-    maxWidth: '300px',
-  },
-  tooltipFileList: {
-    marginTop: '5px',
-    fontSize: '12px',
-    opacity: 0.8,
-  },
-
-  // AgentView
-  agentViewContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '15px',
-    ...shorthands.padding('10px', '0'),
-  },
-  agentInputSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  agentConfigSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    marginTop: 'auto',
-  },
-  apiKeyInputContainer: {
-    display: 'flex',
-    gap: '5px',
-  },
-  apiKeyInput: {
-    flexGrow: 1,
-  },
-  apiKeyNote: {
-    opacity: 0.7,
-  },
-});
 
 interface Bundle {
   id: string;
@@ -147,8 +38,6 @@ interface BundleItemProps {
 }
 
 const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel, onCopy }) => {
-  const styles = useStyles();
-
   // State logic from main
   const isRunning = state === 'running';
   const isQueued = state === 'queued';
@@ -166,9 +55,9 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
     const remaining = (bundle.files?.length || 0) - maxFilesToShow;
 
     return (
-      <div className={styles.tooltipContainer}>
+      <div style={{ maxWidth: '300px' }}>
         <div>{fileCount} files, {folderCount} folders</div>
-        <div className={styles.tooltipFileList}>
+        <div style={{ marginTop: '5px', fontSize: '12px', opacity: 0.8 }}>
           {filesToShow.map((file, index) => (
             <div key={index}>• {file}</div>
           ))}
@@ -179,16 +68,25 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
   };
 
   return (
-    <div className={styles.bundleItemContainer}>
-      <div className={styles.bundleItemHeader}>
-        <div className={styles.bundleInfo}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        padding: '10px',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: '4px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
           <Text weight="semibold">{bundle.name}</Text>
           {bundle.description && (
-            <Text size={200} className={styles.bundleDescription}>
+            <Text size={200} style={{ opacity: 0.8, display: 'block', marginTop: '4px' }}>
               {bundle.description}
             </Text>
           )}
-          <Text size={200} className={styles.bundleStats}>
+          <Text size={200} style={{ opacity: 0.6, display: 'block', marginTop: '4px' }}>
             {fileCount} files, {folderCount} folders
           </Text>
         </div>
@@ -202,7 +100,7 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
         />
       </div>
 
-      <div className={styles.bundleActions}>
+      <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
         {isRunning || isQueued ? (
           <Button
             appearance="secondary"
@@ -219,12 +117,12 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
           appearance="primary"
           disabled={disabled}
           onClick={() => onRun(bundle.id)}
-          className={styles.runButton}
+          style={{ minWidth: '100px' }}
           title={`${fileCount} files, ${folderCount} folders`}
         >
           {isRunning ? (
             <>
-              <Spinner size="tiny" className={styles.spinner} />
+              <Spinner size="tiny" style={{ marginRight: '8px' }} />
               Running...
             </>
           ) : isQueued ? (
@@ -240,7 +138,6 @@ const BundleItem: React.FC<BundleItemProps> = ({ bundle, state, onRun, onCancel,
 
 // NEW COMPONENT: Agent View
 const AgentView = () => {
-  const styles = useStyles();
   const [query, setQuery] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -273,8 +170,8 @@ const AgentView = () => {
   };
 
   return (
-    <div className={styles.agentViewContainer}>
-      <div className={styles.agentInputSection}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '10px 0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <Label weight="semibold">Ask the Agent</Label>
         <Textarea
           placeholder="e.g., 'Package all auth logic excluding tests'"
@@ -294,22 +191,22 @@ const AgentView = () => {
 
       <Divider />
 
-      <div className={styles.agentConfigSection}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
         <Label weight="semibold">Configuration</Label>
         <Text size={200}>
           Status: {hasKey ? "✅ API Key Saved" : "⚠️ API Key Missing"}
         </Text>
-        <div className={styles.apiKeyInputContainer}>
+        <div style={{ display: 'flex', gap: '5px' }}>
           <Input
             type="password"
             placeholder="Paste Gemini API Key"
             value={apiKey}
             onChange={(e, data) => setApiKey(data.value)}
-            className={styles.apiKeyInput}
+            style={{ flexGrow: 1 }}
           />
           <Button icon={<SaveRegular />} onClick={handleSaveKey}>Save</Button>
         </div>
-        <Text size={100} className={styles.apiKeyNote}>
+        <Text size={100} style={{ opacity: 0.7 }}>
           Key is stored securely in VS Code Secrets.
         </Text>
       </div>
@@ -319,7 +216,6 @@ const AgentView = () => {
 
 // MAIN APP
 export const App = () => {
-  const styles = useStyles();
   const [selectedTab, setSelectedTab] = useState<string>('bundles');
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
@@ -368,22 +264,22 @@ export const App = () => {
 
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
-      <div className={styles.appContainer}>
+      <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', height: '100vh', boxSizing: 'border-box' }}>
 
         {/* TAB HEADER */}
         <TabList
           selectedValue={selectedTab}
           onTabSelect={(_, data) => setSelectedTab(data.value as string)}
-          className={styles.tabList}
+          style={{ marginBottom: '10px' }}
         >
           <Tab value="bundles">Bundles</Tab>
           <Tab value="agent">Smart Agent</Tab>
         </TabList>
 
         {/* TAB CONTENT */}
-        <div className={styles.contentContainer}>
+        <div style={{ flexGrow: 1, overflowY: 'auto' }}>
           {selectedTab === 'bundles' ? (
-            <div className={styles.bundleList}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {bundles.length === 0 ? <Text>No bundles found.</Text> : (
                 bundles.map((bundle) => (
                   <BundleItem
@@ -403,7 +299,7 @@ export const App = () => {
         </div>
 
         {/* FOOTER */}
-        <Text size={100} className={styles.footer}>
+        <Text size={100} style={{ opacity: 0.5, textAlign: 'center', marginTop: '10px' }}>
           v{version}
         </Text>
       </div>

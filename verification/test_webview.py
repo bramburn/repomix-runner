@@ -1,5 +1,6 @@
 
-from playwright.sync_api import sync_playwright
+import os
+from playwright.sync_api import sync_playwright, TimeoutError
 
 def verify_webview():
     with sync_playwright() as p:
@@ -7,14 +8,16 @@ def verify_webview():
         page = browser.new_page()
 
         # Navigate to the mock page served by python http.server
-        page.goto("http://localhost:8080/mock_index.html")
+        # We need to make sure we hit the right URL relative to where the server was started
+        # The server was started in repo root, so verification/mock_index.html is the path
+        page.goto("http://localhost:8080/verification/mock_index.html")
 
         # Wait for the webview content to load
         # We look for "No bundles found" or the "Bundles" tab
         try:
             page.wait_for_selector("text=Bundles", timeout=5000)
             print("Found Bundles tab")
-        except:
+        except TimeoutError:
             print("Timeout waiting for Bundles tab")
 
         # Inject some mock data via postMessage to simulate the extension sending data
@@ -39,12 +42,14 @@ def verify_webview():
         try:
             page.wait_for_selector("text=Test Bundle", timeout=2000)
             print("Found Test Bundle")
-        except:
+        except TimeoutError:
             print("Timeout waiting for Test Bundle")
 
-        # Take a screenshot
-        page.screenshot(path="verification/webview_screenshot.png")
-        print("Screenshot saved to verification/webview_screenshot.png")
+        # Take a screenshot with an absolute path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        screenshot_path = os.path.join(script_dir, "webview_screenshot.png")
+        page.screenshot(path=screenshot_path)
+        print(f"Screenshot saved to {screenshot_path}")
 
         browser.close()
 
