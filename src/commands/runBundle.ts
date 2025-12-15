@@ -7,7 +7,7 @@ import { showTempNotification } from '../shared/showTempNotification.js';
 import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../config/configLoader.js';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
-import { generateOutputFilename } from './generateOutputFilename.js';
+import { generateOutputFilename } from '../utils/generateOutputFilename.js';
 import { deepMerge } from '../utils/deepMerge.js'; // Added from main
 import { validateOutputFilePath } from '../utils/pathValidation.js'; // Added from main
 

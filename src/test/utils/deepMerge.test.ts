@@ -4,7 +4,7 @@ import { deepMerge } from '../../utils/deepMerge.js';
 suite('deepMerge Utility', () => {
   test('should merge two objects deeply', () => {
     const target = { a: 1, b: { c: 2 } };
-    const source = { b: { d: 3 }, e: 4 };
+    const source = { b: { d: 3 }, e: 4 } as any;
     const expected = { a: 1, b: { c: 2, d: 3 }, e: 4 };
 
     const result = deepMerge(target, source);
@@ -13,7 +13,7 @@ suite('deepMerge Utility', () => {
 
   test('should modify target in place', () => {
     const target = { a: 1 };
-    const source = { b: 2 };
+    const source = { b: 2 } as any;
 
     const result = deepMerge(target, source);
     assert.strictEqual(result, target);
@@ -22,7 +22,7 @@ suite('deepMerge Utility', () => {
 
   test('should NOT modify source', () => {
     const target = { a: 1, b: { c: 2 } };
-    const source = { b: { d: 3 }, e: 4 };
+    const source = { b: { d: 3 }, e: 4 } as any;
     const sourceOriginal = JSON.parse(JSON.stringify(source)); // Deep copy for comparison
 
     deepMerge(target, source);
@@ -30,7 +30,7 @@ suite('deepMerge Utility', () => {
   });
 
   test('should handle null target', () => {
-    const target = null;
+    const target = null as any;
     const source = { a: 1 };
     const result = deepMerge(target, source);
     assert.deepStrictEqual(result, source);
@@ -38,7 +38,7 @@ suite('deepMerge Utility', () => {
 
   test('should handle null source', () => {
     const target = { a: 1 };
-    const source = null;
+    const source = null as any;
     const result = deepMerge(target, source);
     assert.strictEqual(result, target);
     assert.deepStrictEqual(target, { a: 1 });
@@ -47,13 +47,13 @@ suite('deepMerge Utility', () => {
   test('should handle undefined source', () => {
     const target = { a: 1 };
     const source = undefined;
-    const result = deepMerge(target, source);
+    const result = deepMerge(target, source as any);
     assert.strictEqual(result, target);
     assert.deepStrictEqual(target, { a: 1 });
   });
 
   test('should handle undefined target', () => {
-    const target = undefined;
+    const target = undefined as any;
     const source = { a: 1 };
     const result = deepMerge(target, source);
     assert.deepStrictEqual(result, source);

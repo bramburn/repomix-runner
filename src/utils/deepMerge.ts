@@ -18,7 +18,9 @@ function isObject(item: any): item is Record<string, any> {
  * @returns The merged target object.
  */
 export function deepMerge<T extends Record<string, any>>(target: T, ...sources: Partial<T>[]): T {
-    if (!sources.length) return target;
+    if (!sources.length) {
+        return target;
+    }
     const source = sources.shift();
 
     if (isObject(target) && isObject(source)) {
