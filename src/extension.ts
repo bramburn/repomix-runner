@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { runRepomix } from './commands/runRepomix.js';
 import { openSettings } from './commands/openSettings.js';
 import { openOutput } from './commands/openOutput.js';
@@ -23,6 +25,8 @@ import { RepomixWebviewProvider } from './webview/RepomixWebviewProvider.js';
 import { createSmartRepomixGraph } from './agent/graph.js';
 import { logger } from './shared/logger.js';
 import { DatabaseService } from './core/storage/databaseService.js';
+import { execPromisify } from './shared/execPromisify.js';
+import { AgentRunHistory } from './core/storage/databaseService.js';
 
 export async function activate(context: vscode.ExtensionContext) {
   // Initialize database service
@@ -290,6 +294,66 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   });
 
+  // Schedule daily cleanup
+  const cleanupInterval = setInterval(() => {
+    cleanupOldRepomixOutputs(databaseService);
+  }, 24 * 60 * 60 * 1000); // Run every 24 hours
+
+  // Run cleanup on startup
+  cleanupOldRepomixOutputs(databaseService);
+
+  // Add regeneration command
+  const regenerateAgentRunCommand = vscode.commands.registerCommand(
+    'repomixRunner.regenerateAgentRun',
+    async (runId: string) => {
+      try {
+        const run = await databaseService.getAgentRunById(runId);
+        if (!run) {
+          vscode.window.showErrorMessage('Agent run not found');
+          return;
+        }
+
+        if (!run.success) {
+          vscode.window.showErrorMessage('Cannot regenerate failed run');
+          return;
+        }
+
+        // Create new run with same parameters but new ID
+        const newRunId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const uniqueId = generateShortId();
+        const outputPath = `repomix-output.${uniqueId}.xml`;
+
+        const includeFlag = run.files.map(f => `"${f}"`).join(",");
+        const command = `npx repomix --include ${includeFlag} --output ${outputPath}`;
+
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: "Regenerating Agent Run",
+          cancellable: false
+        }, async () => {
+          const startTime = Date.now();
+          await execPromisify(command, { cwd: getCwd() });
+
+          // Save new run to database
+          const newRun: AgentRunHistory = {
+            ...run,
+            id: newRunId,
+            timestamp: startTime,
+            outputPath: outputPath,
+            duration: Date.now() - startTime
+          };
+
+          await databaseService.saveAgentRun(newRun);
+        });
+
+        vscode.window.showInformationMessage(`Successfully regenerated output: ${outputPath}`);
+      } catch (error) {
+        logger.both.error('Failed to regenerate agent run', error);
+        vscode.window.showErrorMessage(`Regeneration failed: ${error}`);
+      }
+    }
+  );
+
   // Ajouter toutes les souscriptions au contexte
   context.subscriptions.push(
     goToConfigFileCommand,
@@ -311,8 +375,39 @@ export async function activate(context: vscode.ExtensionContext) {
     removeSelectedFilesFromExplorerToActiveBundleCommand,
     removeSelectedFilesFromCustomViewToActiveBundleCommand,
     refreshBundlesCommand,
-    smartRunCommand
+    smartRunCommand,
+    regenerateAgentRunCommand,
+    { dispose: () => clearInterval(cleanupInterval) }
   );
+}
+
+// Helper function to generate a unique 4-character ID
+function generateShortId(): string {
+  return Math.random().toString(36).substring(2, 6);
+}
+
+// Cleanup function for old repomix output files
+async function cleanupOldRepomixOutputs(databaseService: DatabaseService) {
+  try {
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const runs = await databaseService.getAgentRunHistory();
+
+    for (const run of runs) {
+      if (run.timestamp < sevenDaysAgo && run.outputPath && run.success) {
+        const fullPath = path.join(getCwd(), run.outputPath);
+        if (fs.existsSync(fullPath)) {
+          try {
+            fs.unlinkSync(fullPath);
+            logger.both.info(`Cleaned up old repomix output: ${run.outputPath}`);
+          } catch (error) {
+            logger.both.error(`Failed to delete old output file: ${fullPath}`, error);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logger.both.error('Failed to cleanup old repomix outputs', error);
+  }
 }
 
 export function deactivate() {

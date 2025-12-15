@@ -1,6 +1,7 @@
+import initSqlJs, { Database } from 'sql.js';
 import * as vscode from 'vscode';
-import Database from 'better-sqlite3';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export interface AgentRunHistory {
   id: string;
@@ -26,8 +27,10 @@ export interface SavedQuery {
 }
 
 export class DatabaseService {
-  private db: Database.Database | null = null;
+  private db: Database | null = null;
   private dbPath: string;
+  private SQL: any;
+  private isInitialized: boolean = false;
 
   constructor(context: vscode.ExtensionContext) {
     // Use globalStorageUri for cross-workspace persistence
@@ -38,16 +41,75 @@ export class DatabaseService {
   }
 
   async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
     try {
+      // Load sql.js
+      this.SQL = await initSqlJs({
+        // Try multiple locations for the wasm file
+        locateFile: (file: string) => {
+          const possiblePaths = [
+            // In the dist directory (copied by esbuild)
+            path.join(__dirname, file),
+            // In node_modules (development)
+            path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file),
+            // In global node_modules (some environments)
+            path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+            // In extension directory
+            path.join(path.dirname(__dirname), 'node_modules', 'sql.js', 'dist', file)
+          ];
+
+          for (const wasmPath of possiblePaths) {
+            if (fs.existsSync(wasmPath)) {
+              return wasmPath;
+            }
+          }
+
+          // Fallback - this will likely fail but gives a clear error
+          return path.join(__dirname, file);
+        }
+      });
+
       // Ensure storage directory exists
       await vscode.workspace.fs.createDirectory(
         vscode.Uri.file(path.dirname(this.dbPath))
       );
 
-      this.db = new Database(this.dbPath);
+      // Load existing database or create new one
+      if (fs.existsSync(this.dbPath)) {
+        try {
+          const buffer = fs.readFileSync(this.dbPath);
+          this.db = new this.SQL.Database(buffer);
+          console.log('Loaded existing database from:', this.dbPath);
+        } catch (error) {
+          console.warn('Failed to load existing database, creating new one:', error);
+          this.db = new this.SQL.Database();
+          await this.createTables();
+        }
+      } else {
+        this.db = new this.SQL.Database();
+        await this.createTables();
+        console.log('Created new database at:', this.dbPath);
+      }
 
-      // Create the agent_runs table if it doesn't exist
-      this.db.exec(`
+      this.isInitialized = true;
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw new Error(`Database initialization failed: ${error}`);
+    }
+  }
+
+  private async createTables(): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      // Create agent_runs table
+      this.db.run(`
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           timestamp INTEGER NOT NULL,
@@ -59,20 +121,13 @@ export class DatabaseService {
           error TEXT,
           duration INTEGER,
           bundle_id TEXT,
+          query_id TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Create indexes for better performance
-      this.db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success);
-        CREATE INDEX IF NOT EXISTS idx_bundle_id ON agent_runs(bundle_id);
-        CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id);
-      `);
-
-      // Create saved queries table
-      this.db.exec(`
+      // Create saved_queries table
+      this.db.run(`
         CREATE TABLE IF NOT EXISTS saved_queries (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -83,19 +138,25 @@ export class DatabaseService {
         )
       `);
 
-      // Add index for faster lookups
-      this.db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_queries_last_used ON saved_queries(last_used DESC)
-      `);
+      // Create indexes for better performance
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_bundle_id ON agent_runs(bundle_id)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_queries_last_used ON saved_queries(last_used DESC)`);
 
-      console.log('Database initialized successfully at:', this.dbPath);
+      await this.saveDatabase();
     } catch (error) {
-      console.error('Failed to initialize database:', error);
-      throw new Error(`Database initialization failed: ${error}`);
+      console.error('Failed to create tables:', error);
+      throw error;
     }
   }
 
   async saveAgentRun(run: AgentRunHistory): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -107,7 +168,7 @@ export class DatabaseService {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      stmt.run(
+      stmt.run([
         run.id,
         run.timestamp,
         run.query,
@@ -119,8 +180,10 @@ export class DatabaseService {
         run.duration || null,
         run.bundleId || null,
         run.queryId || null
-      );
+      ]);
 
+      stmt.free();
+      await this.saveDatabase();
       console.log('Agent run saved to database:', run.id);
     } catch (error) {
       console.error('Failed to save agent run:', error);
@@ -129,6 +192,10 @@ export class DatabaseService {
   }
 
   async getAgentRunHistory(limit: number = 50, offset: number = 0): Promise<AgentRunHistory[]> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -140,21 +207,28 @@ export class DatabaseService {
         LIMIT ? OFFSET ?
       `);
 
-      const rows = stmt.all(limit, offset) as any[];
+      const result: AgentRunHistory[] = [];
+      stmt.bind([limit, offset]);
 
-      return rows.map(row => ({
-        id: row.id,
-        timestamp: row.timestamp,
-        query: row.query,
-        files: JSON.parse(row.files),
-        fileCount: row.file_count,
-        outputPath: row.output_path,
-        success: row.success === 1,
-        error: row.error,
-        duration: row.duration,
-        bundleId: row.bundle_id,
-        queryId: row.query_id
-      }));
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        result.push({
+          id: row.id as string,
+          timestamp: row.timestamp as number,
+          query: row.query as string,
+          files: JSON.parse(row.files as string),
+          fileCount: row.file_count as number,
+          outputPath: row.output_path as string || undefined,
+          success: (row.success as number) === 1,
+          error: row.error as string || undefined,
+          duration: row.duration as number || undefined,
+          bundleId: row.bundle_id as string || undefined,
+          queryId: row.query_id as string || undefined
+        });
+      }
+
+      stmt.free();
+      return result;
     } catch (error) {
       console.error('Failed to get agent run history:', error);
       throw new Error(`Failed to get agent run history: ${error}`);
@@ -162,6 +236,10 @@ export class DatabaseService {
   }
 
   async getAgentRunById(id: string): Promise<AgentRunHistory | null> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -171,24 +249,28 @@ export class DatabaseService {
         SELECT * FROM agent_runs WHERE id = ?
       `);
 
-      const row = stmt.get(id) as any;
+      stmt.bind([id]);
 
-      if (!row) {
-        return null;
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stmt.free();
+        return {
+          id: row.id as string,
+          timestamp: row.timestamp as number,
+          query: row.query as string,
+          files: JSON.parse(row.files as string),
+          fileCount: row.file_count as number,
+          outputPath: row.output_path as string || undefined,
+          success: (row.success as number) === 1,
+          error: row.error as string || undefined,
+          duration: row.duration as number || undefined,
+          bundleId: row.bundle_id as string || undefined,
+          queryId: row.query_id as string || undefined
+        };
       }
 
-      return {
-        id: row.id,
-        timestamp: row.timestamp,
-        query: row.query,
-        files: JSON.parse(row.files),
-        fileCount: row.file_count,
-        outputPath: row.output_path,
-        success: row.success === 1,
-        error: row.error,
-        duration: row.duration,
-        bundleId: row.bundle_id
-      };
+      stmt.free();
+      return null;
     } catch (error) {
       console.error('Failed to get agent run by ID:', error);
       throw new Error(`Failed to get agent run by ID: ${error}`);
@@ -196,6 +278,10 @@ export class DatabaseService {
   }
 
   async deleteAgentRun(id: string): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -205,12 +291,11 @@ export class DatabaseService {
         DELETE FROM agent_runs WHERE id = ?
       `);
 
-      const result = stmt.run(id);
+      stmt.bind([id]);
+      stmt.step();
+      stmt.free();
 
-      if (result.changes === 0) {
-        throw new Error(`Agent run with ID ${id} not found`);
-      }
-
+      await this.saveDatabase();
       console.log('Agent run deleted from database:', id);
     } catch (error) {
       console.error('Failed to delete agent run:', error);
@@ -219,15 +304,20 @@ export class DatabaseService {
   }
 
   async clearAgentRunHistory(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
 
     try {
-      this.db.exec(`
+      this.db.run(`
         DELETE FROM agent_runs
       `);
 
+      await this.saveDatabase();
       console.log('Agent run history cleared from database');
     } catch (error) {
       console.error('Failed to clear agent run history:', error);
@@ -242,12 +332,16 @@ export class DatabaseService {
     totalFilesProcessed: number;
     averageRunTime?: number;
   }> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
 
     try {
-      const statsStmt = this.db.prepare(`
+      const stmt = this.db.prepare(`
         SELECT
           COUNT(*) as total_runs,
           SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_runs,
@@ -257,15 +351,27 @@ export class DatabaseService {
         FROM agent_runs
       `);
 
-      const stats = statsStmt.get() as any;
-
-      return {
-        totalRuns: stats.total_runs || 0,
-        successfulRuns: stats.successful_runs || 0,
-        failedRuns: stats.failed_runs || 0,
-        totalFilesProcessed: stats.total_files || 0,
-        averageRunTime: stats.avg_duration || undefined
+      let stats = {
+        totalRuns: 0,
+        successfulRuns: 0,
+        failedRuns: 0,
+        totalFilesProcessed: 0,
+        averageRunTime: undefined as number | undefined
       };
+
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stats = {
+          totalRuns: (row.total_runs as number) || 0,
+          successfulRuns: (row.successful_runs as number) || 0,
+          failedRuns: (row.failed_runs as number) || 0,
+          totalFilesProcessed: (row.total_files as number) || 0,
+          averageRunTime: (row.avg_duration as number) || undefined
+        };
+      }
+
+      stmt.free();
+      return stats;
     } catch (error) {
       console.error('Failed to get agent run stats:', error);
       throw new Error(`Failed to get agent run stats: ${error}`);
@@ -273,6 +379,10 @@ export class DatabaseService {
   }
 
   async saveQuery(query: SavedQuery): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -284,15 +394,17 @@ export class DatabaseService {
         VALUES (?, ?, ?, ?, ?, ?)
       `);
 
-      stmt.run(
+      stmt.run([
         query.id,
         query.name,
         query.query,
         query.timestamp,
         query.lastUsed,
         query.runCount
-      );
+      ]);
 
+      stmt.free();
+      await this.saveDatabase();
       console.log('Query saved to database:', query.id);
     } catch (error) {
       console.error('Failed to save query:', error);
@@ -301,6 +413,10 @@ export class DatabaseService {
   }
 
   async getSavedQueries(limit: number = 20): Promise<SavedQuery[]> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -312,16 +428,23 @@ export class DatabaseService {
         LIMIT ?
       `);
 
-      const rows = stmt.all(limit) as any[];
+      stmt.bind([limit]);
+      const result: SavedQuery[] = [];
 
-      return rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        query: row.query,
-        timestamp: row.timestamp,
-        lastUsed: row.last_used,
-        runCount: row.run_count
-      }));
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        result.push({
+          id: row.id as string,
+          name: row.name as string,
+          query: row.query as string,
+          timestamp: row.timestamp as number,
+          lastUsed: row.last_used as number,
+          runCount: row.run_count as number
+        });
+      }
+
+      stmt.free();
+      return result;
     } catch (error) {
       console.error('Failed to get saved queries:', error);
       throw new Error(`Failed to get saved queries: ${error}`);
@@ -329,6 +452,10 @@ export class DatabaseService {
   }
 
   async getSavedQueryById(id: string): Promise<SavedQuery | null> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -338,20 +465,23 @@ export class DatabaseService {
         SELECT * FROM saved_queries WHERE id = ?
       `);
 
-      const row = stmt.get(id) as any;
+      stmt.bind([id]);
 
-      if (!row) {
-        return null;
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stmt.free();
+        return {
+          id: row.id as string,
+          name: row.name as string,
+          query: row.query as string,
+          timestamp: row.timestamp as number,
+          lastUsed: row.last_used as number,
+          runCount: row.run_count as number
+        };
       }
 
-      return {
-        id: row.id,
-        name: row.name,
-        query: row.query,
-        timestamp: row.timestamp,
-        lastUsed: row.last_used,
-        runCount: row.run_count
-      };
+      stmt.free();
+      return null;
     } catch (error) {
       console.error('Failed to get saved query by ID:', error);
       throw new Error(`Failed to get saved query by ID: ${error}`);
@@ -359,6 +489,10 @@ export class DatabaseService {
   }
 
   async updateQueryUsage(id: string): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -370,7 +504,11 @@ export class DatabaseService {
         WHERE id = ?
       `);
 
-      stmt.run(Date.now(), id);
+      stmt.bind([Date.now(), id]);
+      stmt.step();
+      stmt.free();
+
+      await this.saveDatabase();
     } catch (error) {
       console.error('Failed to update query usage:', error);
       throw new Error(`Failed to update query usage: ${error}`);
@@ -378,6 +516,10 @@ export class DatabaseService {
   }
 
   async deleteQuery(id: string): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -387,12 +529,11 @@ export class DatabaseService {
         DELETE FROM saved_queries WHERE id = ?
       `);
 
-      const result = stmt.run(id);
+      stmt.bind([id]);
+      stmt.step();
+      stmt.free();
 
-      if (result.changes === 0) {
-        throw new Error(`Query with ID ${id} not found`);
-      }
-
+      await this.saveDatabase();
       console.log('Query deleted from database:', id);
     } catch (error) {
       console.error('Failed to delete query:', error);
@@ -401,6 +542,10 @@ export class DatabaseService {
   }
 
   async findQueryByText(queryText: string): Promise<SavedQuery | null> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
@@ -410,30 +555,57 @@ export class DatabaseService {
         SELECT * FROM saved_queries WHERE query = ?
       `);
 
-      const row = stmt.get(queryText) as any;
+      stmt.bind([queryText]);
 
-      if (!row) {
-        return null;
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stmt.free();
+        return {
+          id: row.id as string,
+          name: row.name as string,
+          query: row.query as string,
+          timestamp: row.timestamp as number,
+          lastUsed: row.last_used as number,
+          runCount: row.run_count as number
+        };
       }
 
-      return {
-        id: row.id,
-        name: row.name,
-        query: row.query,
-        timestamp: row.timestamp,
-        lastUsed: row.last_used,
-        runCount: row.run_count
-      };
+      stmt.free();
+      return null;
     } catch (error) {
       console.error('Failed to find query by text:', error);
       throw new Error(`Failed to find query by text: ${error}`);
     }
   }
 
+  private async saveDatabase(): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      const data = this.db.export();
+      const buffer = Buffer.from(data);
+
+      // Ensure the directory exists
+      const dir = path.dirname(this.dbPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(this.dbPath, buffer);
+    } catch (error) {
+      console.error('Failed to save database:', error);
+      throw new Error(`Failed to save database: ${error}`);
+    }
+  }
+
   dispose(): void {
     if (this.db) {
+      this.saveDatabase();
       this.db.close();
       this.db = null;
     }
+    this.isInitialized = false;
   }
 }

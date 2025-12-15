@@ -1,4 +1,6 @@
 const esbuild = require('esbuild');
+const fs = require('fs');
+const path = require('path');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -23,6 +25,28 @@ const esbuildProblemMatcherPlugin = {
   },
 };
 
+/**
+ * Plugin to copy sql.js WASM file to dist directory
+ */
+const copyWasmPlugin = {
+  name: 'copy-wasm',
+
+  setup(build) {
+    build.onEnd(() => {
+      // Copy sql.wasm file to dist directory
+      const wasmSource = path.join(__dirname, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
+      const wasmDest = path.join(__dirname, 'dist', 'sql-wasm.wasm');
+
+      if (fs.existsSync(wasmSource)) {
+        fs.copyFileSync(wasmSource, wasmDest);
+        console.log('Copied sql-wasm.wasm to dist/');
+      } else {
+        console.warn('sql-wasm.wasm not found in node_modules/sql.js/dist/');
+      }
+    });
+  }
+};
+
 async function main() {
   const extensionCtx = await esbuild.context({
     entryPoints: ['src/extension.ts'],
@@ -35,7 +59,7 @@ async function main() {
     outfile: 'dist/extension.js',
     external: ['vscode'],
     logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
+    plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
   });
 
   const webviewCtx = await esbuild.context({
@@ -48,7 +72,7 @@ async function main() {
     platform: 'browser',
     outfile: 'dist/webview.js',
     logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
+    plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
   });
 
   if (watch) {

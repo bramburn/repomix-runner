@@ -14,7 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular } from '@fluentui/react-icons';
+import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular } from '@fluentui/react-icons';
 
 // --- Interfaces ---
 
@@ -44,6 +44,7 @@ interface AgentRunHistoryItem {
   timestamp: number;
   query: string;
   fileCount: number;
+  files: string[];
   success: boolean;
   error?: string;
   duration?: number;
@@ -227,6 +228,12 @@ const AgentView = () => {
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
   const [showSavedQueries, setShowSavedQueries] = useState(false);
+  const [agentState, setAgentState] = useState({
+    lastOutputPath: undefined as string | undefined,
+    lastFileCount: undefined as number | undefined,
+    lastQuery: undefined as string | undefined,
+    runFailed: false
+  });
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -235,6 +242,24 @@ const AgentView = () => {
       }
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
+      }
+      if (event.data.command === 'agentRunComplete') {
+        setIsRunning(false);
+        setAgentState({
+          lastOutputPath: event.data.outputPath,
+          lastFileCount: event.data.fileCount,
+          lastQuery: event.data.query,
+          runFailed: false
+        });
+      }
+      if (event.data.command === 'agentRunFailed') {
+        setIsRunning(false);
+        setAgentState(prev => ({
+          ...prev,
+          runFailed: true,
+          lastOutputPath: undefined,
+          lastFileCount: 0
+        }));
       }
       if (event.data.command === 'agentHistory') {
         setHistory(event.data.history || []);
@@ -252,6 +277,11 @@ const AgentView = () => {
 
   const handleRun = () => {
     if (!query) return;
+    setAgentState(prev => ({
+      ...prev,
+      lastOutputPath: undefined, // Reset output path for new run
+      runFailed: false
+    }));
     vscode.postMessage({ command: 'runSmartAgent', query });
   };
 
@@ -262,6 +292,22 @@ const AgentView = () => {
 
   const handleDeleteQuery = (queryId: string) => {
     vscode.postMessage({ command: 'deleteQuery', queryId });
+  };
+
+  const handleRerunAgent = (runId: string, useSavedFiles: boolean) => {
+    vscode.postMessage({ command: 'rerunAgent', runId, useSavedFiles });
+  };
+
+  const handleCopyAgentOutput = (runId: string) => {
+    vscode.postMessage({ command: 'copyAgentOutput', runId });
+  };
+
+  const handleCopyLastAgentOutput = () => {
+    if (!agentState.lastOutputPath) {
+      // Error will be handled by the webview provider
+      return;
+    }
+    vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
   };
 
   const handleSaveKey = () => {
@@ -291,7 +337,48 @@ const AgentView = () => {
         >
           {isRunning ? 'Agent Working...' : 'Run Agent'}
         </Button>
+
+        {/* Copy Button - appears after successful run */}
+        {agentState.lastOutputPath && !isRunning && (
+          <Button
+            appearance="subtle"
+            icon={<CopyRegular />}
+            onClick={handleCopyLastAgentOutput}
+            style={{ width: '100%' }}
+            title={`Copy generated file (${agentState.lastFileCount} files packaged)`}
+          >
+            Copy Generated File ({agentState.lastFileCount} files)
+          </Button>
+        )}
       </div>
+
+      {/* Success/Failure Message */}
+      {agentState.lastOutputPath && !isRunning && (
+        <div style={{
+          padding: '8px',
+          backgroundColor: 'var(--vscode-inputValidation-infoBackground)',
+          borderRadius: '4px',
+          border: '1px solid var(--vscode-inputValidation-infoBorder)'
+        }}>
+          <Text size={100} style={{ color: 'var(--vscode-foreground)' }}>
+            ✓ Successfully packaged {agentState.lastFileCount} files for: "{agentState.lastQuery}"
+          </Text>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {agentState.runFailed && !isRunning && query && (
+        <div style={{
+          padding: '8px',
+          backgroundColor: 'var(--vscode-inputValidation-warningBackground)',
+          borderRadius: '4px',
+          border: '1px solid var(--vscode-inputValidation-warningBorder)'
+        }}>
+          <Text size={100} style={{ color: 'var(--vscode-foreground)' }}>
+            ⚠ No relevant files found for the query
+          </Text>
+        </div>
+      )}
 
       <Divider />
 
@@ -518,6 +605,66 @@ const AgentView = () => {
                     {item.error.substring(0, 100)}
                     {item.error.length > 100 ? '...' : ''}
                   </Text>
+                )}
+
+                {/* Action Buttons */}
+                {item.success && (
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={<PlayRegular />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRerunAgent(item.id, false);
+                      }}
+                      title="Re-run query on latest files"
+                    >
+                      Fresh Scan
+                    </Button>
+
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={<CopyRegular />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRerunAgent(item.id, true);
+                      }}
+                      title="Re-pack using saved file list"
+                    >
+                      Re-pack Files
+                    </Button>
+
+                    {item.outputPath && (
+                      <Button
+                        appearance="subtle"
+                        size="small"
+                        icon={<CopyRegular />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyAgentOutput(item.id);
+                        }}
+                        title="Copy generated output"
+                      >
+                        Copy Output
+                      </Button>
+                    )}
+
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={<ArrowClockwiseRegular />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        vscode.postMessage({ command: 'regenerateAgentRun', runId: item.id });
+                      }}
+                      disabled={!item.success}
+                      title="Regenerate this output file"
+                    >
+                      Regenerate
+                    </Button>
+                  </div>
                 )}
               </div>
             ))}

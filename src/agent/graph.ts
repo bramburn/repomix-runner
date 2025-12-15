@@ -17,8 +17,13 @@ export function createSmartRepomixGraph(databaseService: DatabaseService, bundle
     // Start -> Indexing
     .addEdge("__start__", "indexing")
 
-    // Indexing -> Extract Structure
-    .addEdge("indexing", "structureExtraction")
+    // Conditional edge: Skip to command generation if we already have confirmed files (re-pack scenario)
+    .addConditionalEdges("indexing", (state) => {
+      if (state.confirmedFiles.length > 0) {
+        return "commandGeneration"; // Skip directly to command generation
+      }
+      return "structureExtraction"; // Continue with normal flow
+    })
 
     // Structure -> Filter Files (Phase 1)
     .addEdge("structureExtraction", "filtering")

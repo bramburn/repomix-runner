@@ -67,6 +67,43 @@ export const RunSmartAgentSchema = z.object({
   queryId: z.string().optional(),
 });
 
+export const RerunAgentSchema = z.object({
+  command: z.literal('rerunAgent'),
+  runId: z.string().min(1),
+  useSavedFiles: z.boolean()
+});
+
+export const CopyAgentOutputSchema = z.object({
+  command: z.literal('copyAgentOutput'),
+  runId: z.string().min(1),
+});
+
+export const CopyLastAgentOutputSchema = z.object({
+  command: z.literal('copyLastAgentOutput'),
+  outputPath: z.string().min(1),
+});
+
+export const RegenerateAgentRunSchema = z.object({
+  command: z.literal('regenerateAgentRun'),
+  runId: z.string().min(1),
+});
+
+export const AgentStateChangeSchema = z.object({
+  command: z.literal('agentStateChange'),
+  status: z.enum(['running', 'idle'])
+});
+
+export const AgentRunCompleteSchema = z.object({
+  command: z.literal('agentRunComplete'),
+  outputPath: z.string(),
+  fileCount: z.number(),
+  query: z.string()
+});
+
+export const AgentRunFailedSchema = z.object({
+  command: z.literal('agentRunFailed')
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -78,10 +115,14 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CheckApiKeySchema,
   SaveApiKeySchema,
   RunSmartAgentSchema,
+  RerunAgentSchema,
+  CopyAgentOutputSchema,
+  CopyLastAgentOutputSchema,
   GetAgentHistorySchema,
   OpenFileSchema,
   GetSavedQueriesSchema,
   DeleteQuerySchema,
+  RegenerateAgentRunSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

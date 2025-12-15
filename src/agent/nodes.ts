@@ -7,6 +7,11 @@ import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
 import { DatabaseService, AgentRunHistory } from '../core/storage/databaseService';
 
+// Helper to generate a unique 4-character ID
+function generateShortId(): string {
+  return Math.random().toString(36).substring(2, 6);
+}
+
 // Helper to initialize the model dynamically
 function getModel(apiKey: string) {
   if (!apiKey) {
@@ -172,18 +177,27 @@ export async function commandGeneration(state: typeof AgentState.State) {
 
   if (state.confirmedFiles.length === 0) {
     logger.both.warn("Agent: No relevant files found. Skipping execution.");
-    return { finalCommand: "" };
+    return { finalCommand: "", outputPath: undefined };
   }
+
+  // Generate unique 4-char ID for this run
+  const uniqueId = generateShortId();
+
+  // Create output filename with unique ID
+  const outputPath = `repomix-output.${uniqueId}.xml`;
 
   // Escape paths for safety (basic quoting)
   const includeFlag = state.confirmedFiles
     .map(f => `"${f}"`)
     .join(",");
 
-  // Construct the CLI command using repomix with --include flag
-  const command = `npx repomix --include ${includeFlag}`;
+  // Construct the CLI command using repomix with --include and --output flags
+  const command = `npx repomix --include ${includeFlag} --output ${outputPath}`;
 
-  return { finalCommand: command };
+  return {
+    finalCommand: command,
+    outputPath: outputPath
+  };
 }
 
 // Node 6: Final Execution (Cleanup & Run)
@@ -196,7 +210,7 @@ export async function finalExecution(
 
   const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const startTime = Date.now();
-  let outputPath: string | undefined;
+  const outputPath = state.outputPath;
   let success = false;
   let error: string | undefined;
 
@@ -212,7 +226,7 @@ export async function finalExecution(
       query: state.userQuery,
       files: state.confirmedFiles,
       fileCount: state.confirmedFiles.length,
-      outputPath: state.outputPath,
+      outputPath: outputPath,
       success: false,
       error: error,
       duration: Date.now() - startTime,
@@ -226,15 +240,7 @@ export async function finalExecution(
       logger.both.error("Failed to save failed agent run to database:", dbError);
     }
 
-    return {};
-  }
-
-  // Extract output path from the final command
-  const outputPathMatch = state.finalCommand.match(/--output\s+["']?([^"'\s]+)["']?/);
-  if (outputPathMatch) {
-    outputPath = outputPathMatch[1];
-  } else {
-    outputPath = state.outputPath;
+    return { outputPath: undefined };
   }
 
   // Execute the final command using the existing runner infrastructure
@@ -276,7 +282,9 @@ export async function finalExecution(
     // Don't throw error here as it shouldn't affect the main functionality
   }
 
-  return {};
+  return {
+    outputPath: outputPath
+  };
 }
 
 /**

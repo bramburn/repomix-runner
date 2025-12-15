@@ -46,8 +46,14 @@ export class TempDirManager {
     try {
       await setTimeout(delay);
       try {
-        await access(tmpFilePath);
-        await unlink(tmpFilePath);
+        const stats = await fs.promises.stat(tmpFilePath);
+        if (stats.isDirectory()) {
+          // If it's a directory, remove it recursively
+          await fs.promises.rm(tmpFilePath, { recursive: true, force: true });
+        } else {
+          // If it's a file, remove it
+          await unlink(tmpFilePath);
+        }
       } catch (error: any) {
         if (error.code !== 'ENOENT') {
           throw error;

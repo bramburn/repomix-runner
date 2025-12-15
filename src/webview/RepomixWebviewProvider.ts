@@ -9,6 +9,7 @@ import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileSt
 import { getCwd } from '../config/getCwd.js';
 import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
+import { getWorkspaceFiles } from '../agent/tools.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
@@ -120,6 +121,26 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
         case 'getAgentHistory': {
           await this._handleGetAgentHistory();
+          break;
+        }
+        case 'rerunAgent': {
+          const { runId, useSavedFiles } = message;
+          await this._handleRerunAgent(runId, useSavedFiles);
+          break;
+        }
+        case 'regenerateAgentRun': {
+          const { runId } = message;
+          await vscode.commands.executeCommand('repomixRunner.regenerateAgentRun', runId);
+          break;
+        }
+        case 'copyAgentOutput': {
+          const { runId } = message;
+          await this._handleCopyAgentOutput(runId);
+          break;
+        }
+        case 'copyLastAgentOutput': {
+          const { outputPath } = message;
+          await this._handleCopyLastAgentOutput(outputPath);
           break;
         }
         case 'openFile': {
@@ -332,13 +353,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const tmpFilePath = path.join(
-            tempDirManager.getTempDir(),
-            `${Date.now().toString().slice(-3)}_${path.basename(outputPath)}`
-        );
+        // Use original filename without timestamp prefix
+        const originalFilename = path.basename(outputPath);
+        const uniqueSubdir = `copy_${Date.now()}`;
+        const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+        // Ensure subdirectory exists
+        await fs.promises.mkdir(tmpDir, { recursive: true });
+
+        const tmpFilePath = path.join(tmpDir, originalFilename);
 
         await copyToClipboard(outputPath, tmpFilePath);
-        vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
+        vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
 
         await tempDirManager.cleanupFile(tmpFilePath);
     } catch (err: unknown) {
@@ -354,13 +380,19 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
               vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
               return;
           }
-          const tmpFilePath = path.join(
-            tempDirManager.getTempDir(),
-            `${Date.now().toString().slice(-3)}_${path.basename(outputPath)}`
-          );
+
+          // Use original filename without timestamp prefix
+          const originalFilename = path.basename(outputPath);
+          const uniqueSubdir = `copy_${Date.now()}`;
+          const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+          // Ensure subdirectory exists
+          await fs.promises.mkdir(tmpDir, { recursive: true });
+
+          const tmpFilePath = path.join(tmpDir, originalFilename);
 
           await copyToClipboard(outputPath, tmpFilePath);
-          vscode.window.showInformationMessage(`Copied "${path.basename(outputPath)}" to clipboard.`);
+          vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
           await tempDirManager.cleanupFile(tmpFilePath);
 
       } catch (err: unknown) {
@@ -568,6 +600,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     if (!apiKey) {
       vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
+      this._view?.webview.postMessage({ command: 'agentRunFailed' });
       return;
     }
 
@@ -592,17 +625,47 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         outputPath: undefined
       };
 
-      const config = { configurable: { thread_id: "1" } };
+      const config = { configurable: { thread_id: `agent_${Date.now()}` } };
       const finalState = await app.invoke(inputs, config);
 
-      const count = finalState.confirmedFiles.length;
-      if (count > 0) {
-        vscode.window.showInformationMessage(`Agent packaged ${count} files.`);
+      const fileCount = finalState.confirmedFiles.length;
+      const outputPath = finalState.outputPath;
+
+      if (fileCount > 0 && outputPath) {
+        // Success - notify webview with output path
+        this._view?.webview.postMessage({
+          command: 'agentRunComplete',
+          outputPath: outputPath,
+          fileCount: fileCount,
+          query: query
+        });
+
+        vscode.window.showInformationMessage(`Agent successfully packaged ${fileCount} files!`);
       } else {
-        vscode.window.showWarningMessage("No relevant files found.");
+        // No files found
+        this._view?.webview.postMessage({ command: 'agentRunFailed' });
+        vscode.window.showWarningMessage(`No relevant files found for: "${query}"`);
       }
     } catch (error: any) {
-      vscode.window.showErrorMessage(`Agent failed: ${error.message}`);
+      this._view?.webview.postMessage({ command: 'agentRunFailed' });
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Specific error handling for missing API key
+      if (errorMessage.includes('Google API Key')) {
+        const selection = await vscode.window.showErrorMessage(
+          'Google API Key missing.',
+          'Open Settings'
+        );
+        if (selection === 'Open Settings') {
+          vscode.commands.executeCommand(
+            'workbench.action.openSettings',
+            'repomix.agent.googleApiKey'
+          );
+        }
+      } else {
+        vscode.window.showErrorMessage(`Agent failed: ${errorMessage}`);
+      }
     } finally {
       // Notify webview that agent is done
       if (this._view) {
@@ -625,6 +688,133 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error: any) {
       console.error('Failed to get agent history:', error);
       vscode.window.showErrorMessage(`Failed to get agent history: ${error.message}`);
+    }
+  }
+
+  private async _handleRerunAgent(runId: string, useSavedFiles: boolean): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+
+    try {
+      // Get the previous run from database
+      const previousRun = await this._databaseService.getAgentRunById(runId);
+      if (!previousRun) {
+        vscode.window.showErrorMessage('Previous agent run not found');
+        return;
+      }
+
+      if (useSavedFiles && previousRun.files.length === 0) {
+        vscode.window.showWarningMessage('No saved file list for this run');
+        return;
+      }
+
+      // Notify webview
+      this._view.webview.postMessage({
+        command: 'agentStateChange',
+        status: 'running'
+      });
+
+      const createSmartRepomixGraph = (await import('../agent/graph.js')).createSmartRepomixGraph;
+      const app = createSmartRepomixGraph(this._databaseService);
+
+      // Check for API key first
+      let apiKey = await this._context.secrets.get('repomix.agent.googleApiKey');
+      if (!apiKey) {
+        // Fallback to config
+        apiKey = vscode.workspace.getConfiguration('repomix.agent').get<string>('googleApiKey');
+      }
+
+      if (!apiKey) {
+        vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
+        return;
+      }
+
+      const inputs = {
+        apiKey,
+        userQuery: previousRun.query,
+        workspaceRoot: getCwd(),
+        allFilePaths: useSavedFiles ? await getWorkspaceFiles(getCwd()) : [],
+        candidateFiles: [],
+        confirmedFiles: useSavedFiles ? previousRun.files : [], // Use saved files or empty for fresh scan
+        finalCommand: '',
+        queryId: previousRun.queryId,
+        outputPath: previousRun.outputPath
+      };
+
+      const config = { configurable: { thread_id: `rerun_${Date.now()}` } };
+
+      // Skip to appropriate node based on whether we're re-running or re-packing
+      if (useSavedFiles) {
+        // Skip directly to command generation since we already have the file list
+        inputs.allFilePaths = await getWorkspaceFiles(inputs.workspaceRoot);
+        const finalState = await app.invoke(inputs, config);
+        vscode.window.showInformationMessage(`Re-packed ${finalState.confirmedFiles.length} files from saved list`);
+      } else {
+        // Full fresh scan
+        const finalState = await app.invoke(inputs, config);
+        vscode.window.showInformationMessage(`Fresh scan completed. Found ${finalState.confirmedFiles.length} files`);
+      }
+
+    } catch (error) {
+      vscode.window.showErrorMessage(`Re-run failed: ${error}`);
+    } finally {
+      this._view.webview.postMessage({
+        command: 'agentStateChange',
+        status: 'idle'
+      });
+    }
+  }
+
+  private async _handleCopyAgentOutput(runId: string): Promise<void> {
+    try {
+      const run = await this._databaseService.getAgentRunById(runId);
+      if (!run?.outputPath || !fs.existsSync(run.outputPath)) {
+        vscode.window.showErrorMessage('Output file not found');
+        return;
+      }
+
+      const originalFilename = path.basename(run.outputPath);
+      const uniqueSubdir = `copy_${Date.now()}`;
+      const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+      // Ensure subdirectory exists
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+
+      await copyToClipboard(run.outputPath, tmpFilePath);
+      vscode.window.showInformationMessage(`Copied ${originalFilename} to clipboard`);
+      await tempDirManager.cleanupFile(tmpFilePath);
+
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to copy output: ${error}`);
+    }
+  }
+
+  private async _handleCopyLastAgentOutput(outputPath: string): Promise<void> {
+    try {
+      if (!fs.existsSync(outputPath)) {
+        vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+        return;
+      }
+
+      const originalFilename = path.basename(outputPath);
+      const uniqueSubdir = `copy_${Date.now()}`;
+      const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+      // Ensure subdirectory exists
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+
+      await copyToClipboard(outputPath, tmpFilePath);
+      vscode.window.showInformationMessage(`Copied ${originalFilename} to clipboard`);
+      await tempDirManager.cleanupFile(tmpFilePath);
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
     }
   }
 
