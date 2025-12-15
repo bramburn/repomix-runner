@@ -17,16 +17,9 @@ fn main() {
     let file_path = &args[1];
     let path = Path::new(file_path);
 
-    // We need absolute path
-    let abs_path = match std::fs::canonicalize(path) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Error resolving path '{}': {}", file_path, e);
-            std::process::exit(1);
-        }
-    };
-
-    if let Err(e) = copy_file_to_clipboard(&abs_path) {
+    // The copy_file_to_clipboard function handles path resolution internally
+    // and ensures absolute paths are used for clipboard operations
+    if let Err(e) = copy_file_to_clipboard(path) {
         eprintln!("Failed to copy to clipboard: {}", e);
         std::process::exit(1);
     }
@@ -35,8 +28,21 @@ fn main() {
 }
 
 fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure we always work with an absolute path for consistency
+    let abs_path = if path.is_relative() {
+        std::env::current_dir()?.join(path)
+    } else {
+        path.to_path_buf()
+    };
+
+    // Try to canonicalize if the path exists, otherwise use the absolute path
+    let final_path = match std::fs::canonicalize(&abs_path) {
+        Ok(p) => p,
+        Err(_) => abs_path, // Fallback to absolute path if canonicalization fails
+    };
+
     // Convert path to wide string (UTF-16) and add null terminator
-    let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let mut wide_path: Vec<u16> = final_path.as_os_str().encode_wide().collect();
     wide_path.push(0); // Null terminator
     wide_path.push(0); // Double null terminator for the list end
 
@@ -68,15 +74,19 @@ fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>>
     // Set clipboard data for both CF_HDROP and CF_UNICODETEXT
     // CF_HDROP (format 15) for file drop operations
     set_clipboard(formats::RawData(CF_HDROP), buffer.as_slice())
-        .map_err(|e| format!("Clipboard error code: {}", e).into())?;
+        .map_err(|e| -> Box<dyn std::error::Error> {
+            format!("Clipboard error code: {}", e).into()
+        })?;
 
     // CF_UNICODETEXT (format 13) for plain text path
-    // Convert path to UTF-16 little-endian bytes for Windows
-    let text_path: Vec<u16> = path.as_os_str().encode_wide().collect();
+    // Convert absolute path to UTF-16 little-endian bytes for Windows
+    let text_path: Vec<u16> = final_path.as_os_str().encode_wide().collect();
     set_clipboard(formats::RawData(13), unsafe {
         std::slice::from_raw_parts(text_path.as_ptr() as *const u8, text_path.len() * 2)
     })
-    .map_err(|e| format!("Clipboard error code: {}", e).into())?;
+    .map_err(|e| -> Box<dyn std::error::Error> {
+        format!("Clipboard error code: {}", e).into()
+    })?;
 
     Ok(())
 }
