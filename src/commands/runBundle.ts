@@ -7,7 +7,8 @@ import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { readRepomixFileConfig } from '../config/configLoader.js';
-import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
+import { generateOutputFilename } from './generateOutputFilename.js';
+import { validateOutputFilePath } from '../utils/pathValidation.js';
 import * as path from 'path';
 
 export async function runBundle(
@@ -19,19 +20,17 @@ export async function runBundle(
   const cwd = getCwd();
   const bundle = await bundleManager.getBundle(bundleId);
 
-  // Calculate output filename using the shared resolver
-  const outputFilePath = await resolveBundleOutputPath(bundle);
-
   // We need to construct the override config expected by runRepomixOnSelectedFiles
-  // We can't pass the full path directly if it expects relative logic, but checking runRepomixOnSelectedFiles...
-  // It takes overrideConfig.output.filePath.
-
-  // Re-reading config just to respect the flow (though resolveBundleOutputPath did it too)
-  // This is a slight duplication of effort (reading config files twice) but ensures consistency
   let overrideConfig: RepomixConfigFile = {};
   if (bundle.configPath) {
-    const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
-    overrideConfig = bundleConfig || {};
+    try {
+      const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
+      overrideConfig = bundleConfig || {};
+    } catch (error: any) {
+       logger.both.error('Failed to parse bundle config:', error);
+       vscode.window.showErrorMessage(`Failed to parse bundle config: ${error.message}`);
+       return;
+    }
   }
 
   // Apply additional overrides (e.g., compress flag)
@@ -43,16 +42,32 @@ export async function runBundle(
         ...overrideConfig.output,
         ...additionalOverrides.output,
       },
-      // Merge other nested objects if necessary, currently mainly output is used
     };
   }
 
-  overrideConfig.output ??= {};
-  // Important: resolveBundleOutputPath returns absolute path.
-  // runRepomix handles absolute paths correctly? Let's assume yes or make it relative if needed.
-  // runRepomix does: filePath: path.resolve(cwd, outputFilePath) in mergeConfigs
-  // So if we pass an absolute path, path.resolve(cwd, absPath) returns absPath. It is safe.
-  overrideConfig.output.filePath = outputFilePath;
+  // Load VS Code config to get base values
+  const config = readRepomixRunnerVscodeConfig();
+
+  // Calculate final output path using the new utility
+  const finalOutputFilePath = generateOutputFilename(
+    bundle,
+    overrideConfig.output?.filePath || config.output.filePath, // Base path from config
+    config.runner.useBundleNameAsOutputName
+  );
+
+  // Explicitly set the calculated path in the override config so downstream functions use it
+  overrideConfig.output = {
+    ...overrideConfig.output,
+    filePath: finalOutputFilePath
+  };
+
+  try {
+    validateOutputFilePath(finalOutputFilePath, cwd);
+  } catch (error: any) {
+    logger.both.error('Security validation failed:', error);
+    vscode.window.showErrorMessage(error.message);
+    return;
+  }
 
   try {
     // Convert file paths to URIs
