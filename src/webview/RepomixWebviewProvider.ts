@@ -503,6 +503,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       const app = createSmartRepomixGraph();
 
       const inputs = {
+        apiKey: apiKey,
         userQuery: query,
         workspaceRoot: workspaceRoot,
         allFilePaths: [],

@@ -7,13 +7,9 @@ import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
 
 // Helper to initialize the model dynamically
-function getModel() {
-  // Read the API key from VS Code configuration
-  const config = vscode.workspace.getConfiguration('repomix.agent');
-  const apiKey = config.get<string>('googleApiKey');
-
+function getModel(apiKey: string) {
   if (!apiKey) {
-    throw new Error("Google API Key not configured. Please set 'repomix.agent.googleApiKey' in settings.");
+    throw new Error("Google API Key not provided to agent.");
   }
 
   return new ChatGoogleGenerativeAI({
@@ -42,7 +38,7 @@ export async function structureExtraction(state: typeof AgentState.State) {
 export async function initialFiltering(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 3 - Filtering candidate files...");
 
-  const model = getModel();
+  const model = getModel(state.apiKey);
   const structureContext = state.allFilePaths.join('\n');
 
   const prompt = `
@@ -112,7 +108,7 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
   // Bulk fetch content using our optimized tool
   const contentMap = await tools.getFileContents(state.workspaceRoot, state.candidateFiles);
 
-  const model = getModel();
+  const model = getModel(state.apiKey);
   const confirmed: string[] = [];
 
   // Define schema for the boolean check
