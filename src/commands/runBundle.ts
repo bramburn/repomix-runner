@@ -8,8 +8,8 @@ import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../config/
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { generateOutputFilename } from './generateOutputFilename.js';
-import { deepMerge } from '../utils/deepMerge.js';
-import { validateOutputFilePath } from '../utils/pathValidation.js';
+import { deepMerge } from '../utils/deepMerge.js'; // Added from main
+import { validateOutputFilePath } from '../utils/pathValidation.js'; // Added from main
 
 export async function runBundle(
   bundleManager: BundleManager,
@@ -23,13 +23,19 @@ export async function runBundle(
   // Load bundle config if exists
   let overrideConfig: RepomixConfigFile = {};
   if (bundle.configPath) {
-    const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
-    overrideConfig = bundleConfig || {};
+    try {
+      const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
+      overrideConfig = bundleConfig || {};
+    } catch (error: any) {
+      logger.both.error('Failed to parse bundle config:', error);
+      vscode.window.showErrorMessage(`Failed to parse bundle config: ${error.message}`);
+      return;
+    }
   }
 
   // Validate and merge additional overrides
   if (additionalOverrides) {
-    // Security Check: Validate overridden output path if present
+    // Security Check 1: Validate overridden output path if present
     if (additionalOverrides.output?.filePath) {
       try {
         validateOutputFilePath(additionalOverrides.output.filePath, cwd);
@@ -47,7 +53,7 @@ export async function runBundle(
   // Calculate final output path
   // We mirror the logic from resolveBundleOutputPath but using our merged config
   const config = readRepomixRunnerVscodeConfig();
-  overrideConfig.output ??= {};
+  overrideConfig.output ??= {}; // Ensure output object exists
 
   const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
   const useBundleNameAsOutputName = config.runner.useBundleNameAsOutputName;
@@ -60,17 +66,18 @@ export async function runBundle(
 
   const finalOutputFilePath = path.resolve(cwd, outputFilename);
 
-  // Security Check: Validate the final resolved path
+  // Security Check 2: Validate the final resolved path
   try {
-     validateOutputFilePath(finalOutputFilePath, cwd);
+    validateOutputFilePath(finalOutputFilePath, cwd);
   } catch (error: any) {
-      logger.both.error('Security validation failed for resolved output path:', error);
-      vscode.window.showErrorMessage(error.message);
-      return;
+    logger.both.error('Security validation failed for resolved output path:', error);
+    vscode.window.showErrorMessage(error.message);
+    return;
   }
 
   // Enforce the calculated path in the config used for execution
   overrideConfig.output.filePath = finalOutputFilePath;
+
 
   try {
     // Convert file paths to URIs
@@ -108,7 +115,7 @@ export async function runBundle(
     }
 
     if (signal?.aborted) {
-        throw new Error('Aborted');
+      throw new Error('Aborted');
     }
 
     // Filter out missing files
@@ -123,7 +130,7 @@ export async function runBundle(
     await runRepomixOnSelectedFiles(validUris, overrideConfig, signal);
 
     if (signal?.aborted) {
-       return;
+      return;
     }
 
     const updatedBundle = {
@@ -134,8 +141,8 @@ export async function runBundle(
     await bundleManager.saveBundle(bundleId, updatedBundle);
   } catch (error: any) {
     if (error.name === 'AbortError' || error.message === 'Aborted') {
-        logger.both.info('Bundle execution cancelled');
-        throw error;
+      logger.both.info('Bundle execution cancelled');
+      throw error;
     }
     logger.both.error('Failed to run bundle:', error);
     vscode.window.showErrorMessage(`Failed to run bundle: ${error}`);

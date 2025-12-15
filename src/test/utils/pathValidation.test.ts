@@ -2,51 +2,51 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { validateOutputFilePath } from '../../utils/pathValidation';
 
-suite('Path Validation Utils', () => {
-    const workspaceRoot = path.resolve('/test/workspace');
+// Standardize the workspace root for testing
+const workspaceRoot = path.resolve('/test/workspace');
 
-    test('validates path inside workspace', () => {
-        assert.doesNotThrow(() => {
-            validateOutputFilePath('output.txt', workspaceRoot);
-        });
-        assert.doesNotThrow(() => {
-            validateOutputFilePath('subfolder/output.txt', workspaceRoot);
-        });
+suite('validateOutputFilePath Security Checks', () => {
+
+    test('should pass for simple relative path', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('output.txt', workspaceRoot));
     });
 
-    test('validates absolute path inside workspace', () => {
-        const absolutePath = path.join(workspaceRoot, 'output.txt');
-        assert.doesNotThrow(() => {
-            validateOutputFilePath(absolutePath, workspaceRoot);
-        });
+    test('should pass for relative path in subdirectory', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('subdir/output.txt', workspaceRoot));
     });
 
-    test('allows root path itself', () => {
-        assert.doesNotThrow(() => {
-            validateOutputFilePath('.', workspaceRoot);
-        });
-        assert.doesNotThrow(() => {
-            validateOutputFilePath(workspaceRoot, workspaceRoot);
-        });
+    test('should pass for path that resolves to the root directory itself (dot)', () => {
+        assert.doesNotThrow(() => validateOutputFilePath('.', workspaceRoot));
     });
 
-    test('throws error for path outside workspace using ../', () => {
-        assert.throws(() => {
-            validateOutputFilePath('../outside.txt', workspaceRoot);
-        }, /Security Error/);
+    test('should pass for path that is the absolute root directory itself', () => {
+        assert.doesNotThrow(() => validateOutputFilePath(workspaceRoot, workspaceRoot));
     });
 
-    test('throws error for absolute path outside workspace', () => {
-        assert.throws(() => {
-            validateOutputFilePath('/etc/passwd', workspaceRoot);
-        }, /Security Error/);
+    test('should pass for absolute path inside workspace', () => {
+        const absPath = path.join(workspaceRoot, 'output.txt');
+        assert.doesNotThrow(() => validateOutputFilePath(absPath, workspaceRoot));
+    });
+    
+    // --- Traversal and Security Failure Cases ---
+
+    test('should throw for path traversing out of workspace (simple ../)', () => {
+        assert.throws(() => validateOutputFilePath('../output.txt', workspaceRoot), /Security/);
     });
 
-    test('throws error for partial path match', () => {
+    test('should throw for deep traversal out of workspace (subdir/../../)', () => {
+        assert.throws(() => validateOutputFilePath('subdir/../../output.txt', workspaceRoot), /Security/);
+    });
+
+    test('should throw for absolute path outside workspace', () => {
+        const absPath = '/etc/passwd';
+        assert.throws(() => validateOutputFilePath(absPath, workspaceRoot), /Security/);
+    });
+
+    test('should throw for sibling directory with similar prefix (partial path match)', () => {
         // e.g. /test/workspace_secret vs /test/workspace
-        const siblingFolder = workspaceRoot + '_secret';
-        assert.throws(() => {
-            validateOutputFilePath(siblingFolder, workspaceRoot);
-        }, /Security Error/);
+        const siblingPath = workspaceRoot + '_secret/file.txt';
+        assert.throws(() => validateOutputFilePath(siblingPath, workspaceRoot), /Security/);
     });
+
 });
