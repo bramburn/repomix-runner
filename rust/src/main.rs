@@ -72,8 +72,11 @@ fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>>
 
     // CF_UNICODETEXT (format 13) for plain text path
     // Convert path to UTF-16 little-endian bytes for Windows
-    let text_path: Vec<u16> = abs_path.as_os_str().encode_wide().collect();
+    let text_path: Vec<u16> = path.as_os_str().encode_wide().collect();
     set_clipboard(formats::RawData(13), unsafe {
         std::slice::from_raw_parts(text_path.as_ptr() as *const u8, text_path.len() * 2)
     })
-    .map_err(|e| format!("Clipboard error code: {}", e).into())
+    .map_err(|e| format!("Clipboard error code: {}", e).into())?;
+
+    Ok(())
+}
