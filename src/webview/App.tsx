@@ -16,6 +16,13 @@ import {
 import { vscode } from './vscode-api.js';
 import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular } from '@fluentui/react-icons';
 
+// --- Helpers ---
+
+const updateVsState = (updates: any) => {
+  const current = vscode.getState() || {};
+  vscode.setState({ ...current, ...updates });
+};
+
 // --- Interfaces ---
 
 interface Bundle {
@@ -38,6 +45,14 @@ interface DefaultRepomixInfo {
 }
 
 // --- Components ---
+
+interface AgentState {
+  lastOutputPath?: string;
+  lastFileCount?: number;
+  lastQuery?: string;
+  lastTokens?: number;
+  runFailed: boolean;
+}
 
 interface AgentRunHistoryItem {
   id: string;
@@ -221,18 +236,20 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
 };
 
 const AgentView = () => {
-  const [query, setQuery] = useState('');
-  const [apiKey, setApiKey] = useState('');
+  const initialState = vscode.getState() || {};
+
+  const [query, setQuery] = useState(initialState.agentQuery || '');
+  const [apiKey, setApiKey] = useState(initialState.agentApiKey || '');
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
   const [showSavedQueries, setShowSavedQueries] = useState(false);
-  const [agentState, setAgentState] = useState({
-    lastOutputPath: undefined as string | undefined,
-    lastFileCount: undefined as number | undefined,
-    lastQuery: undefined as string | undefined,
-    lastTokens: undefined as number | undefined,
+  const [agentState, setAgentState] = useState<AgentState>(initialState.agentLastRun || {
+    lastOutputPath: undefined,
+    lastFileCount: undefined,
+    lastQuery: undefined,
+    lastTokens: undefined,
     runFailed: false
   });
 
@@ -319,6 +336,7 @@ const AgentView = () => {
     }
     vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
     setApiKey(''); // Clear input for security
+    updateVsState({ agentApiKey: '' });
   };
 
   return (
@@ -328,7 +346,10 @@ const AgentView = () => {
         <Textarea
           placeholder="e.g., 'Package all auth logic excluding tests'"
           value={query}
-          onChange={(e, data) => setQuery(data.value)}
+          onChange={(e, data) => {
+            setQuery(data.value);
+            updateVsState({ agentQuery: data.value });
+          }}
           rows={4}
         />
         <Button
@@ -428,7 +449,10 @@ const AgentView = () => {
             type="password"
             placeholder="Paste Gemini API Key"
             value={apiKey}
-            onChange={(e, data) => setApiKey(data.value)}
+            onChange={(e, data) => {
+              setApiKey(data.value);
+              updateVsState({ agentApiKey: data.value });
+            }}
             style={{ flexGrow: 1 }}
           />
           <Button
@@ -917,7 +941,9 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
 // --- MAIN APP ---
 
 export const App = () => {
-  const [selectedTab, setSelectedTab] = useState<string>('bundles');
+  const [selectedTab, setSelectedTab] = useState<string>(() => {
+    return vscode.getState()?.selectedTab || 'bundles';
+  });
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
   const [version, setVersion] = useState<string>('');
@@ -1002,7 +1028,11 @@ export const App = () => {
         {/* TAB HEADER */}
         <TabList
           selectedValue={selectedTab}
-          onTabSelect={(_, data) => setSelectedTab(data.value as string)}
+          onTabSelect={(_, data) => {
+            const val = data.value as string;
+            setSelectedTab(val);
+            updateVsState({ selectedTab: val });
+          }}
           style={{ marginBottom: '15px' }}
         >
           <Tab value="bundles">Bundles</Tab>
