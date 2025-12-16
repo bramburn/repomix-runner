@@ -1007,11 +1007,12 @@ export const App = () => {
         >
           <Tab value="bundles">Bundles</Tab>
           <Tab value="agent">Smart Agent</Tab>
+          <Tab value="debug">Debug</Tab>
         </TabList>
 
         {/* TAB CONTENT */}
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {selectedTab === 'bundles' ? (
+          {selectedTab === 'bundles' && (
              <>
                 <DefaultRepomixItem
                     state={defaultRepomixState}
@@ -1039,8 +1040,14 @@ export const App = () => {
                   )}
                 </div>
              </>
-          ) : (
-            <AgentView />
+          )}
+          {selectedTab === 'agent' && <AgentView />}
+          {selectedTab === 'debug' && (
+            <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
+                Debug Monitor Placeholder
+              </Text>
+            </div>
           )}
         </div>
 
