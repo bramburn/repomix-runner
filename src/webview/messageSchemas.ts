@@ -52,19 +52,9 @@ export const OpenFileSchema = z.object({
   path: z.string().min(1),
 });
 
-export const GetSavedQueriesSchema = z.object({
-  command: z.literal('getSavedQueries'),
-});
-
-export const DeleteQuerySchema = z.object({
-  command: z.literal('deleteQuery'),
-  queryId: z.string().min(1),
-});
-
 export const RunSmartAgentSchema = z.object({
   command: z.literal('runSmartAgent'),
   query: z.string().min(1).max(1000),
-  queryId: z.string().optional(),
 });
 
 export const RerunAgentSchema = z.object({
@@ -120,8 +110,6 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyLastAgentOutputSchema,
   GetAgentHistorySchema,
   OpenFileSchema,
-  GetSavedQueriesSchema,
-  DeleteQuerySchema,
   RegenerateAgentRunSchema,
 ]);
 

@@ -275,8 +275,7 @@ export async function finalExecution(
       success: false,
       error: error,
       duration: Date.now() - startTime,
-      bundleId,
-      queryId: state.queryId
+      bundleId
     };
 
     try {
@@ -293,9 +292,6 @@ export async function finalExecution(
     await execPromisify(state.finalCommand, { cwd: state.workspaceRoot });
     success = true;
     vscode.window.showInformationMessage(`Agent successfully packaged ${state.confirmedFiles.length} files!`);
-
-    // Save or update the query if run was successful
-    await handleQueryPersistence(state, databaseService);
   } catch (executionError) {
     error = executionError instanceof Error ? executionError.message : String(executionError);
     logger.both.error("Agent: Failed to execute final command", executionError);
@@ -315,8 +311,7 @@ export async function finalExecution(
     success: success,
     error: error,
     duration: duration,
-    bundleId,
-    queryId: state.queryId
+    bundleId
   };
 
   try {
@@ -330,43 +325,4 @@ export async function finalExecution(
   return {
     outputPath: outputPath
   };
-}
-
-/**
- * Handles query persistence - saves new queries or updates existing ones
- */
-async function handleQueryPersistence(
-  state: typeof AgentState.State,
-  databaseService: DatabaseService
-): Promise<void> {
-  try {
-    // Check if this query already exists
-    const existingQuery = await databaseService.findQueryByText(state.userQuery);
-
-    if (existingQuery) {
-      // Update existing query's usage
-      await databaseService.updateQueryUsage(existingQuery.id);
-      logger.both.info(`Updated existing query usage: ${existingQuery.id}`);
-    } else {
-      // Save new query
-      const queryId = state.queryId || `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const queryName = state.userQuery.length > 50
-        ? state.userQuery.substring(0, 47) + '...'
-        : state.userQuery;
-
-      await databaseService.saveQuery({
-        id: queryId,
-        name: queryName,
-        query: state.userQuery,
-        timestamp: Date.now(),
-        lastUsed: Date.now(),
-        runCount: 1
-      });
-
-      logger.both.info(`Saved new query: ${queryId}`);
-    }
-  } catch (error) {
-    // Don't fail the whole operation if query persistence fails
-    logger.both.error("Failed to handle query persistence:", error);
-  }
 }

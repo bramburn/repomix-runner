@@ -51,15 +51,6 @@ interface AgentRunHistoryItem {
   outputPath?: string;
 }
 
-interface SavedQueryItem {
-  id: string;
-  name: string;
-  query: string;
-  timestamp: number;
-  lastUsed: number;
-  runCount: number;
-}
-
 interface LongPressButtonProps {
   onClick: () => void;
   onLongPress: () => void;
@@ -226,8 +217,6 @@ const AgentView = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
-  const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
-  const [showSavedQueries, setShowSavedQueries] = useState(false);
   const [agentState, setAgentState] = useState({
     lastOutputPath: undefined as string | undefined,
     lastFileCount: undefined as number | undefined,
@@ -266,14 +255,10 @@ const AgentView = () => {
       if (event.data.command === 'agentHistory') {
         setHistory(event.data.history || []);
       }
-      if (event.data.command === 'savedQueries') {
-        setSavedQueries(event.data.queries || []);
-      }
     };
     window.addEventListener('message', handler);
     vscode.postMessage({ command: 'checkApiKey' });
     vscode.postMessage({ command: 'getAgentHistory' });
-    vscode.postMessage({ command: 'getSavedQueries' });
     return () => window.removeEventListener('message', handler);
   }, []);
 
@@ -285,15 +270,6 @@ const AgentView = () => {
       runFailed: false
     }));
     vscode.postMessage({ command: 'runSmartAgent', query });
-  };
-
-  const handleRunSavedQuery = (savedQuery: SavedQueryItem) => {
-    setQuery(savedQuery.query);
-    vscode.postMessage({ command: 'runSmartAgent', query: savedQuery.query, queryId: savedQuery.id });
-  };
-
-  const handleDeleteQuery = (queryId: string) => {
-    vscode.postMessage({ command: 'deleteQuery', queryId });
   };
 
   const handleRerunAgent = (runId: string, useSavedFiles: boolean) => {
@@ -442,95 +418,6 @@ const AgentView = () => {
         <Text size={100} style={{opacity: 0.7}}>
           Key is stored securely in VS Code Secrets.
         </Text>
-      </div>
-
-      <Divider />
-
-      {/* Saved Queries Section */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Label weight="semibold">Saved Queries</Label>
-          <Button
-            appearance="subtle"
-            size="small"
-            onClick={() => setShowSavedQueries(!showSavedQueries)}
-          >
-            {showSavedQueries ? 'Hide' : 'Show'} ({savedQueries.length})
-          </Button>
-        </div>
-
-        {showSavedQueries && (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '5px',
-            maxHeight: '250px',
-            overflowY: 'auto',
-            paddingRight: '5px'
-          }}>
-            {savedQueries.length === 0 ? (
-              <Text size={200} style={{ opacity: 0.7 }}>
-                No saved queries yet
-              </Text>
-            ) : (
-              savedQueries.map(item => (
-                <div
-                  key={item.id}
-                  style={{
-                    padding: '8px 10px',
-                    backgroundColor: 'var(--vscode-editor-background)',
-                    borderRadius: '4px',
-                    border: '1px solid var(--vscode-widget-border)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => handleRunSavedQuery(item)}
-                >
-                  <div style={{ flex: 1, overflow: 'hidden', marginRight: '10px' }}>
-                    <Text size={200} style={{
-                      fontWeight: 'semibold',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      display: 'block'
-                    }}>
-                      {item.name}
-                    </Text>
-                    <Text size={100} style={{ opacity: 0.7 }}>
-                      {item.runCount} run{item.runCount !== 1 ? 's' : ''} • Last used {new Date(item.lastUsed).toLocaleDateString()}
-                    </Text>
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                    <Button
-                      appearance="subtle"
-                      size="small"
-                      icon={<PlayRegular />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRunSavedQuery(item);
-                      }}
-                      title="Run this query again"
-                    />
-                    <Button
-                      appearance="subtle"
-                      size="small"
-                      icon={<DeleteRegular />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Delete saved query: "${item.name}"?`)) {
-                          handleDeleteQuery(item.id);
-                        }
-                      }}
-                      title="Delete this query"
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
 
       <Divider />

@@ -17,15 +17,6 @@ export interface AgentRunHistory {
   queryId?: string; // Reference to saved query if applicable
 }
 
-export interface SavedQuery {
-  id: string;
-  name: string;
-  query: string;
-  timestamp: number;
-  lastUsed: number;
-  runCount: number;
-}
-
 export class DatabaseService {
   private db: Database | null = null;
   private dbPath: string;
@@ -126,24 +117,11 @@ export class DatabaseService {
         )
       `);
 
-      // Create saved_queries table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS saved_queries (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          query TEXT NOT NULL,
-          timestamp INTEGER NOT NULL,
-          last_used INTEGER NOT NULL,
-          run_count INTEGER NOT NULL DEFAULT 1
-        )
-      `);
-
       // Create indexes for better performance
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_bundle_id ON agent_runs(bundle_id)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id)`);
-      this.db.run(`CREATE INDEX IF NOT EXISTS idx_queries_last_used ON saved_queries(last_used DESC)`);
 
       await this.saveDatabase();
     } catch (error) {
@@ -375,206 +353,6 @@ export class DatabaseService {
     } catch (error) {
       console.error('Failed to get agent run stats:', error);
       throw new Error(`Failed to get agent run stats: ${error}`);
-    }
-  }
-
-  async saveQuery(query: SavedQuery): Promise<void> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        INSERT OR REPLACE INTO saved_queries
-        (id, name, query, timestamp, last_used, run_count)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      stmt.run([
-        query.id,
-        query.name,
-        query.query,
-        query.timestamp,
-        query.lastUsed,
-        query.runCount
-      ]);
-
-      stmt.free();
-      await this.saveDatabase();
-      console.log('Query saved to database:', query.id);
-    } catch (error) {
-      console.error('Failed to save query:', error);
-      throw new Error(`Failed to save query: ${error}`);
-    }
-  }
-
-  async getSavedQueries(limit: number = 20): Promise<SavedQuery[]> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        SELECT * FROM saved_queries
-        ORDER BY last_used DESC
-        LIMIT ?
-      `);
-
-      stmt.bind([limit]);
-      const result: SavedQuery[] = [];
-
-      while (stmt.step()) {
-        const row = stmt.getAsObject();
-        result.push({
-          id: row.id as string,
-          name: row.name as string,
-          query: row.query as string,
-          timestamp: row.timestamp as number,
-          lastUsed: row.last_used as number,
-          runCount: row.run_count as number
-        });
-      }
-
-      stmt.free();
-      return result;
-    } catch (error) {
-      console.error('Failed to get saved queries:', error);
-      throw new Error(`Failed to get saved queries: ${error}`);
-    }
-  }
-
-  async getSavedQueryById(id: string): Promise<SavedQuery | null> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        SELECT * FROM saved_queries WHERE id = ?
-      `);
-
-      stmt.bind([id]);
-
-      if (stmt.step()) {
-        const row = stmt.getAsObject();
-        stmt.free();
-        return {
-          id: row.id as string,
-          name: row.name as string,
-          query: row.query as string,
-          timestamp: row.timestamp as number,
-          lastUsed: row.last_used as number,
-          runCount: row.run_count as number
-        };
-      }
-
-      stmt.free();
-      return null;
-    } catch (error) {
-      console.error('Failed to get saved query by ID:', error);
-      throw new Error(`Failed to get saved query by ID: ${error}`);
-    }
-  }
-
-  async updateQueryUsage(id: string): Promise<void> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        UPDATE saved_queries
-        SET last_used = ?, run_count = run_count + 1
-        WHERE id = ?
-      `);
-
-      stmt.bind([Date.now(), id]);
-      stmt.step();
-      stmt.free();
-
-      await this.saveDatabase();
-    } catch (error) {
-      console.error('Failed to update query usage:', error);
-      throw new Error(`Failed to update query usage: ${error}`);
-    }
-  }
-
-  async deleteQuery(id: string): Promise<void> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        DELETE FROM saved_queries WHERE id = ?
-      `);
-
-      stmt.bind([id]);
-      stmt.step();
-      stmt.free();
-
-      await this.saveDatabase();
-      console.log('Query deleted from database:', id);
-    } catch (error) {
-      console.error('Failed to delete query:', error);
-      throw new Error(`Failed to delete query: ${error}`);
-    }
-  }
-
-  async findQueryByText(queryText: string): Promise<SavedQuery | null> {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        SELECT * FROM saved_queries WHERE query = ?
-      `);
-
-      stmt.bind([queryText]);
-
-      if (stmt.step()) {
-        const row = stmt.getAsObject();
-        stmt.free();
-        return {
-          id: row.id as string,
-          name: row.name as string,
-          query: row.query as string,
-          timestamp: row.timestamp as number,
-          lastUsed: row.last_used as number,
-          runCount: row.run_count as number
-        };
-      }
-
-      stmt.free();
-      return null;
-    } catch (error) {
-      console.error('Failed to find query by text:', error);
-      throw new Error(`Failed to find query by text: ${error}`);
     }
   }
 
