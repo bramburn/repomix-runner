@@ -16,6 +16,13 @@ import {
 import { vscode } from './vscode-api.js';
 import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular } from '@fluentui/react-icons';
 
+// --- Helpers ---
+
+const updateVsState = (updates: any) => {
+  const current = vscode.getState() || {};
+  vscode.setState({ ...current, ...updates });
+};
+
 // --- Interfaces ---
 
 interface Bundle {
@@ -38,6 +45,14 @@ interface DefaultRepomixInfo {
 }
 
 // --- Components ---
+
+interface AgentState {
+  lastOutputPath?: string;
+  lastFileCount?: number;
+  lastQuery?: string;
+  lastTokens?: number;
+  runFailed: boolean;
+}
 
 interface AgentRunHistoryItem {
   id: string;
@@ -212,17 +227,22 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
 };
 
 const AgentView = () => {
-  const [query, setQuery] = useState('');
+  const initialState = vscode.getState() || {};
+
+  const [query, setQuery] = useState(initialState.agentQuery || '');
   const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
-  const [agentState, setAgentState] = useState({
-    lastOutputPath: undefined as string | undefined,
-    lastFileCount: undefined as number | undefined,
-    lastQuery: undefined as string | undefined,
-    lastTokens: undefined as number | undefined,
-    runFailed: false
+const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
+  const [showSavedQueries, setShowSavedQueries] = useState(false);
+  const [agentState, setAgentState] = useState<AgentState>({
+    lastOutputPath: initialState.agentLastRun?.lastOutputPath,
+    lastFileCount: initialState.agentLastRun?.lastFileCount,
+    lastQuery: initialState.agentLastRun?.lastQuery,
+    lastTokens: initialState.agentLastRun?.lastTokens,
+    runFailed: initialState.agentLastRun?.runFailed ?? false
+  });
   });
 
   useEffect(() => {
@@ -235,22 +255,28 @@ const AgentView = () => {
       }
       if (event.data.command === 'agentRunComplete') {
         setIsRunning(false);
-        setAgentState({
+        const newState = {
           lastOutputPath: event.data.outputPath,
           lastFileCount: event.data.fileCount,
           lastQuery: event.data.query,
           lastTokens: event.data.tokens,
           runFailed: false
-        });
+        };
+        setAgentState(newState);
+        updateVsState({ agentLastRun: newState });
       }
       if (event.data.command === 'agentRunFailed') {
         setIsRunning(false);
-        setAgentState(prev => ({
-          ...prev,
-          runFailed: true,
-          lastOutputPath: undefined,
-          lastFileCount: 0
-        }));
+        setAgentState(prev => {
+          const newState = {
+            ...prev,
+            runFailed: true,
+            lastOutputPath: undefined,
+            lastFileCount: 0
+          };
+          updateVsState({ agentLastRun: newState });
+          return newState;
+        });
       }
       if (event.data.command === 'agentHistory') {
         setHistory(event.data.history || []);
@@ -304,7 +330,10 @@ const AgentView = () => {
         <Textarea
           placeholder="e.g., 'Package all auth logic excluding tests'"
           value={query}
-          onChange={(e, data) => setQuery(data.value)}
+          onChange={(e, data) => {
+            setQuery(data.value);
+            updateVsState({ agentQuery: data.value });
+          }}
           rows={4}
         />
         <Button
@@ -404,7 +433,9 @@ const AgentView = () => {
             type="password"
             placeholder="Paste Gemini API Key"
             value={apiKey}
-            onChange={(e, data) => setApiKey(data.value)}
+            onChange={(e, data) => {
+              setApiKey(data.value);
+            }}
             style={{ flexGrow: 1 }}
           />
           <Button
@@ -804,7 +835,9 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
 // --- MAIN APP ---
 
 export const App = () => {
-  const [selectedTab, setSelectedTab] = useState<string>('bundles');
+  const [selectedTab, setSelectedTab] = useState<string>(() => {
+    return vscode.getState()?.selectedTab || 'bundles';
+  });
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
   const [version, setVersion] = useState<string>('');
@@ -889,7 +922,11 @@ export const App = () => {
         {/* TAB HEADER */}
         <TabList
           selectedValue={selectedTab}
-          onTabSelect={(_, data) => setSelectedTab(data.value as string)}
+          onTabSelect={(_, data) => {
+            const val = data.value as string;
+            setSelectedTab(val);
+            updateVsState({ selectedTab: val });
+          }}
           style={{ marginBottom: '15px' }}
         >
           <Tab value="bundles">Bundles</Tab>
