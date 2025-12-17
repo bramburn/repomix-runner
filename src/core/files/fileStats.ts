@@ -19,6 +19,10 @@ export function invalidateStatsCache(bundleId?: string) {
   }
 }
 
+export function getCachedBundleStats(bundleId: string): FileStats | undefined {
+  return statsCache.get(bundleId);
+}
+
 async function getPathStats(filePath: string): Promise<FileStats> {
   const stats: FileStats = { files: 0, folders: 0, totalSize: 0 };
 
@@ -26,9 +30,7 @@ async function getPathStats(filePath: string): Promise<FileStats> {
     const fileStat = await fs.stat(filePath);
 
     if (fileStat.isDirectory()) {
-      stats.folders = 1; // Count the folder itself? Usually users care about contents.
-                         // Requirement: "differentiate between files and folders"
-                         // Let's count the folder itself as 1 folder.
+      stats.folders = 1; // Count the folder itself
 
       const entries = await fs.readdir(filePath);
       for (const entry of entries) {
@@ -50,13 +52,7 @@ async function getPathStats(filePath: string): Promise<FileStats> {
 }
 
 export async function calculateBundleStats(cwd: string, bundleId: string, filePaths: string[]): Promise<FileStats> {
-  // Check cache first?
-  // The issue is that file contents on disk might change without the bundle definition changing.
-  // However, traversing the FS every time might be heavy.
-  // For now, let's cache based on bundleId and clear it manually if needed,
-  // OR we assume the user accepts that stats are a snapshot at load time.
-  // Requirement: "store the stats in cache somewhere"
-
+  // Check cache first
   if (statsCache.has(bundleId)) {
     return statsCache.get(bundleId)!;
   }

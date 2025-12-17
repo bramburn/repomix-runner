@@ -5,7 +5,7 @@ import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
 import { runRepomix, defaultRunRepomixDeps } from '../commands/runRepomix.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
-import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileStats.js';
+import { calculateBundleStats, invalidateStatsCache, getCachedBundleStats } from '../core/files/fileStats.js';
 import { getCwd } from '../config/getCwd.js';
 import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
@@ -115,8 +115,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'runSmartAgent': {
-          const { query, queryId } = message;
-          await this._handleRunSmartAgent(query, queryId);
+          const { query } = message;
+          await this._handleRunSmartAgent(query);
           break;
         }
         case 'getAgentHistory': {
@@ -146,15 +146,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'openFile': {
           const { path } = message;
           await this._handleOpenFile(path);
-          break;
-        }
-        case 'getSavedQueries': {
-          await this._handleGetSavedQueries();
-          break;
-        }
-        case 'deleteQuery': {
-          const { queryId } = message;
-          await this._handleDeleteQuery(queryId);
           break;
         }
       }
@@ -277,50 +268,84 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    const webviewBundles: WebviewBundle[] = await Promise.all(
+    // Phase 1: Send bundles with cached stats (fast)
+    const initialBundles: WebviewBundle[] = await Promise.all(
         Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
             const outputPath = await resolveBundleOutputPath(bundle);
             const exists = fs.existsSync(outputPath);
 
             // Smart Watcher Management:
-            // Only recreate watcher if it doesn't exist OR the path has changed
             const existingWatcher = this._outputFileWatchers.get(id);
 
             if (!existingWatcher || existingWatcher.path !== outputPath) {
-                // Dispose old if exists (path changed)
                 if (existingWatcher) {
                     existingWatcher.watcher.dispose();
                 }
 
-                // Create new watcher
                 const watcher = vscode.workspace.createFileSystemWatcher(
                     new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath))
                 );
 
-                // Use debounced update to avoid spamming
                 watcher.onDidCreate(() => this._debouncedSendBundles());
                 watcher.onDidDelete(() => this._debouncedSendBundles());
                 
                 this._outputFileWatchers.set(id, { watcher, path: outputPath });
             }
 
-            // Calculate stats
-            const stats = await calculateBundleStats(cwd, id, bundle.files);
+            // Get cached stats without calculating
+            const stats = getCachedBundleStats(id);
 
             return {
                 id,
                 ...bundle,
                 outputFilePath: outputPath,
                 outputFileExists: exists,
-                stats
+                stats: stats || undefined // Use cached stats or undefined if not ready
             };
         })
     );
 
     this._view.webview.postMessage({
       command: 'updateBundles',
-      bundles: webviewBundles,
+      bundles: initialBundles,
     });
+
+    // Phase 2: Calculate missing stats in background
+    const bundlesNeedingStats = initialBundles.filter(b => !b.stats);
+
+    if (bundlesNeedingStats.length > 0) {
+        // Run calculation for missing stats
+        await Promise.all(bundlesNeedingStats.map(async (bundle) => {
+             // Re-fetch bundle definition to be safe, or use what we have
+             // calculateBundleStats updates the cache
+             if (bundle.files) {
+                await calculateBundleStats(cwd, bundle.id, bundle.files);
+             }
+        }));
+
+        // Phase 3: Send updated list with all stats
+        // We reuse logic but now cache is populated
+        const finalBundles: WebviewBundle[] = await Promise.all(
+            Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
+                const outputPath = await resolveBundleOutputPath(bundle);
+                const exists = fs.existsSync(outputPath);
+                const stats = getCachedBundleStats(id); // Should be populated now
+
+                return {
+                    id,
+                    ...bundle,
+                    outputFilePath: outputPath,
+                    outputFileExists: exists,
+                    stats
+                };
+            })
+        );
+
+        this._view.webview.postMessage({
+            command: 'updateBundles',
+            bundles: finalBundles,
+        });
+    }
   }
 
   private async _sendVersion() {
@@ -588,7 +613,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleRunSmartAgent(query: string, queryId?: string) {
+  private async _handleRunSmartAgent(query: string) {
     const workspaceRoot = getCwd();
 
     // Check for API key first
@@ -629,7 +654,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           candidateFiles: [],
           confirmedFiles: [],
           finalCommand: "",
-          queryId: queryId,
           outputPath: undefined
         };
 
@@ -798,7 +822,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         candidateFiles: [],
         confirmedFiles: useSavedFiles ? previousRun.files : [], // Use saved files or empty for fresh scan
         finalCommand: '',
-        queryId: previousRun.queryId,
         outputPath: previousRun.outputPath
       };
 
@@ -907,34 +930,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       await vscode.commands.executeCommand('vscode.open', uri);
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
-    }
-  }
-
-  private async _handleGetSavedQueries(): Promise<void> {
-    if (!this._view) {
-      return;
-    }
-
-    try {
-      const queries = await this._databaseService.getSavedQueries(20);
-      this._view.webview.postMessage({
-        command: 'savedQueries',
-        queries
-      });
-    } catch (error: any) {
-      console.error('Failed to get saved queries:', error);
-      vscode.window.showErrorMessage(`Failed to get saved queries: ${error.message}`);
-    }
-  }
-
-  private async _handleDeleteQuery(queryId: string): Promise<void> {
-    try {
-      await this._databaseService.deleteQuery(queryId);
-      await this._handleGetSavedQueries(); // Refresh the list
-      vscode.window.showInformationMessage('Query deleted successfully');
-    } catch (error: any) {
-      console.error('Failed to delete query:', error);
-      vscode.window.showErrorMessage(`Failed to delete query: ${error.message}`);
     }
   }
 
