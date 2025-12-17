@@ -33,30 +33,46 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     # xclip for clipboard support
     if ! command -v xclip &> /dev/null; then
         echo -e "${YELLOW}xclip is not installed.${NC} It is required for clipboard functionality on Linux."
-        if [ "$EUID" -eq 0 ]; then
-             echo "Attempting to install xclip..."
-             apt-get update && apt-get install -y xclip
-        elif command -v sudo &> /dev/null; then
-             echo "Attempting to install xclip with sudo..."
-             sudo apt-get update && sudo apt-get install -y xclip
+        if command -v apt-get &> /dev/null; then
+            if [ "$EUID" -eq 0 ]; then
+                 echo "Attempting to install xclip..."
+                 apt-get update && apt-get install -y xclip
+            elif command -v sudo &> /dev/null; then
+                 echo "Attempting to install xclip with sudo..."
+                 sudo apt-get update && sudo apt-get install -y xclip
+            else
+                 echo -e "${RED}Please install xclip manually (e.g., sudo apt-get install xclip).${NC}"
+            fi
         else
-             echo -e "${RED}Please install xclip manually (e.g., sudo apt-get install xclip).${NC}"
+            echo -e "${RED}Package manager not found. Please install xclip manually.${NC}"
         fi
     else
         echo "xclip is installed."
     fi
 
     # mingw-w64 for cross-compiling Rust to Windows
-    if ! dpkg -s mingw-w64 &> /dev/null && ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+    # Check if we have dpkg (Debian/Ubuntu) or just check for the compiler binary directly
+    MINGW_INSTALLED=false
+    if command -v dpkg &> /dev/null && dpkg -s mingw-w64 &> /dev/null; then
+        MINGW_INSTALLED=true
+    elif command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+        MINGW_INSTALLED=true
+    fi
+
+    if [ "$MINGW_INSTALLED" = false ]; then
         echo -e "${YELLOW}mingw-w64 is not installed.${NC} It is required to cross-compile the Windows clipboard helper."
-        if [ "$EUID" -eq 0 ]; then
-             echo "Attempting to install mingw-w64..."
-             apt-get update && apt-get install -y mingw-w64
-        elif command -v sudo &> /dev/null; then
-             echo "Attempting to install mingw-w64 with sudo..."
-             sudo apt-get update && sudo apt-get install -y mingw-w64
+        if command -v apt-get &> /dev/null; then
+            if [ "$EUID" -eq 0 ]; then
+                 echo "Attempting to install mingw-w64..."
+                 apt-get update && apt-get install -y mingw-w64
+            elif command -v sudo &> /dev/null; then
+                 echo "Attempting to install mingw-w64 with sudo..."
+                 sudo apt-get update && sudo apt-get install -y mingw-w64
+            else
+                 echo -e "${RED}Please install mingw-w64 manually (e.g., sudo apt-get install mingw-w64).${NC}"
+            fi
         else
-             echo -e "${RED}Please install mingw-w64 manually (e.g., sudo apt-get install mingw-w64).${NC}"
+             echo -e "${RED}Package manager not found. Please install mingw-w64 manually.${NC}"
         fi
     else
         echo "mingw-w64 is installed."
@@ -65,6 +81,7 @@ fi
 
 # 4. Rust Setup
 echo -e "\n${YELLOW}Checking Rust environment...${NC}"
+RUST_READY=false
 if ! command -v cargo &> /dev/null; then
     echo -e "${RED}Error: Rust/Cargo is not installed.${NC}"
     echo "Please install Rust from https://rustup.rs/ or your package manager."
@@ -72,18 +89,32 @@ if ! command -v cargo &> /dev/null; then
 else
     echo "Rust/Cargo is installed."
 
-    # Add Windows target for cross-compilation
-    echo -e "Adding x86_64-pc-windows-gnu target..."
-    rustup target add x86_64-pc-windows-gnu
+    # Add Windows target for cross-compilation if rustup is available
+    if command -v rustup &> /dev/null; then
+        echo -e "Adding x86_64-pc-windows-gnu target..."
+        rustup target add x86_64-pc-windows-gnu
+        RUST_READY=true
+    else
+        echo -e "${YELLOW}Warning: rustup not found.${NC} Skipping target addition."
+        echo "If you installed Rust via a system package manager, ensure the 'x86_64-pc-windows-gnu' target is installed manually."
+        # We assume RUST_READY is true enough to try building, but it might fail if target is missing.
+        # However, without rustup, we can't easily add it.
+        RUST_READY=true
+    fi
 fi
 
 # 5. Build Rust Helper
-echo -e "\n${YELLOW}Building Rust clipboard helper...${NC}"
-if npm run build:rust; then
-    echo -e "${GREEN}Rust binary built successfully.${NC}"
+if [ "$RUST_READY" = true ]; then
+    echo -e "\n${YELLOW}Building Rust clipboard helper...${NC}"
+    if npm run build:rust; then
+        echo -e "${GREEN}Rust binary built successfully.${NC}"
+    else
+        echo -e "${RED}Failed to build Rust binary.${NC}"
+        echo "Ensure you have the required dependencies (mingw-w64) and Rust target installed."
+        # Don't exit here, just warn, as the rest of the dev setup (Node/VS Code) is likely fine
+    fi
 else
-    echo -e "${RED}Failed to build Rust binary.${NC}"
-    echo "Ensure you have the required dependencies (mingw-w64) and Rust target installed."
+    echo -e "\n${YELLOW}Skipping Rust build (Rust not ready).${NC}"
 fi
 
 # 6. Verify VSCE
