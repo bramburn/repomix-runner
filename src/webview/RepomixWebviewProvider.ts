@@ -5,7 +5,7 @@ import { BundleManager } from '../core/bundles/bundleManager.js';
 import { runBundle } from '../commands/runBundle.js';
 import { runRepomix, defaultRunRepomixDeps } from '../commands/runRepomix.js';
 import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
-import { calculateBundleStats, invalidateStatsCache } from '../core/files/fileStats.js';
+import { calculateBundleStats, invalidateStatsCache, getCachedBundleStats } from '../core/files/fileStats.js';
 import { getCwd } from '../config/getCwd.js';
 import { WebviewBundle } from '../core/bundles/types.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
@@ -268,50 +268,84 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    const webviewBundles: WebviewBundle[] = await Promise.all(
+    // Phase 1: Send bundles with cached stats (fast)
+    const initialBundles: WebviewBundle[] = await Promise.all(
         Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
             const outputPath = await resolveBundleOutputPath(bundle);
             const exists = fs.existsSync(outputPath);
 
             // Smart Watcher Management:
-            // Only recreate watcher if it doesn't exist OR the path has changed
             const existingWatcher = this._outputFileWatchers.get(id);
 
             if (!existingWatcher || existingWatcher.path !== outputPath) {
-                // Dispose old if exists (path changed)
                 if (existingWatcher) {
                     existingWatcher.watcher.dispose();
                 }
 
-                // Create new watcher
                 const watcher = vscode.workspace.createFileSystemWatcher(
                     new vscode.RelativePattern(path.dirname(outputPath), path.basename(outputPath))
                 );
 
-                // Use debounced update to avoid spamming
                 watcher.onDidCreate(() => this._debouncedSendBundles());
                 watcher.onDidDelete(() => this._debouncedSendBundles());
                 
                 this._outputFileWatchers.set(id, { watcher, path: outputPath });
             }
 
-            // Calculate stats
-            const stats = await calculateBundleStats(cwd, id, bundle.files);
+            // Get cached stats without calculating
+            const stats = getCachedBundleStats(id);
 
             return {
                 id,
                 ...bundle,
                 outputFilePath: outputPath,
                 outputFileExists: exists,
-                stats
+                stats: stats || undefined // Use cached stats or undefined if not ready
             };
         })
     );
 
     this._view.webview.postMessage({
       command: 'updateBundles',
-      bundles: webviewBundles,
+      bundles: initialBundles,
     });
+
+    // Phase 2: Calculate missing stats in background
+    const bundlesNeedingStats = initialBundles.filter(b => !b.stats);
+
+    if (bundlesNeedingStats.length > 0) {
+        // Run calculation for missing stats
+        await Promise.all(bundlesNeedingStats.map(async (bundle) => {
+             // Re-fetch bundle definition to be safe, or use what we have
+             // calculateBundleStats updates the cache
+             if (bundle.files) {
+                await calculateBundleStats(cwd, bundle.id, bundle.files);
+             }
+        }));
+
+        // Phase 3: Send updated list with all stats
+        // We reuse logic but now cache is populated
+        const finalBundles: WebviewBundle[] = await Promise.all(
+            Object.entries(bundleMetadata.bundles).map(async ([id, bundle]) => {
+                const outputPath = await resolveBundleOutputPath(bundle);
+                const exists = fs.existsSync(outputPath);
+                const stats = getCachedBundleStats(id); // Should be populated now
+
+                return {
+                    id,
+                    ...bundle,
+                    outputFilePath: outputPath,
+                    outputFileExists: exists,
+                    stats
+                };
+            })
+        );
+
+        this._view.webview.postMessage({
+            command: 'updateBundles',
+            bundles: finalBundles,
+        });
+    }
   }
 
   private async _sendVersion() {
