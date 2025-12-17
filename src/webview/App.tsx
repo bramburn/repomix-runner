@@ -239,18 +239,18 @@ const AgentView = () => {
   const initialState = vscode.getState() || {};
 
   const [query, setQuery] = useState(initialState.agentQuery || '');
-  const [apiKey, setApiKey] = useState(initialState.agentApiKey || '');
+  const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
   const [showSavedQueries, setShowSavedQueries] = useState(false);
-  const [agentState, setAgentState] = useState<AgentState>(initialState.agentLastRun || {
-    lastOutputPath: undefined,
-    lastFileCount: undefined,
-    lastQuery: undefined,
-    lastTokens: undefined,
-    runFailed: false
+  const [agentState, setAgentState] = useState<AgentState>({
+    lastOutputPath: initialState.agentLastRun?.lastOutputPath,
+    lastFileCount: initialState.agentLastRun?.lastFileCount,
+    lastQuery: initialState.agentLastRun?.lastQuery,
+    lastTokens: initialState.agentLastRun?.lastTokens,
+    runFailed: initialState.agentLastRun?.runFailed ?? false
   });
 
   useEffect(() => {
@@ -263,22 +263,28 @@ const AgentView = () => {
       }
       if (event.data.command === 'agentRunComplete') {
         setIsRunning(false);
-        setAgentState({
+        const newState = {
           lastOutputPath: event.data.outputPath,
           lastFileCount: event.data.fileCount,
           lastQuery: event.data.query,
           lastTokens: event.data.tokens,
           runFailed: false
-        });
+        };
+        setAgentState(newState);
+        updateVsState({ agentLastRun: newState });
       }
       if (event.data.command === 'agentRunFailed') {
         setIsRunning(false);
-        setAgentState(prev => ({
-          ...prev,
-          runFailed: true,
-          lastOutputPath: undefined,
-          lastFileCount: 0
-        }));
+        setAgentState(prev => {
+          const newState = {
+            ...prev,
+            runFailed: true,
+            lastOutputPath: undefined,
+            lastFileCount: 0
+          };
+          updateVsState({ agentLastRun: newState });
+          return newState;
+        });
       }
       if (event.data.command === 'agentHistory') {
         setHistory(event.data.history || []);
@@ -336,7 +342,6 @@ const AgentView = () => {
     }
     vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
     setApiKey(''); // Clear input for security
-    updateVsState({ agentApiKey: '' });
   };
 
   return (
@@ -451,7 +456,6 @@ const AgentView = () => {
             value={apiKey}
             onChange={(e, data) => {
               setApiKey(data.value);
-              updateVsState({ agentApiKey: data.value });
             }}
             style={{ flexGrow: 1 }}
           />
