@@ -12,6 +12,7 @@ export interface TreeNode {
   isDirectory?: boolean;
   children?: TreeNode[];
   missing?: boolean;
+  isPendingScan?: boolean;
 }
 
 export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
@@ -116,9 +117,26 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
             isDirectory,
             children: isDirectory ? [] : undefined,
           };
-          current.children!.push(item);
-          if (isDirectory) {
-            await this._populateDirectory(item, uri);
+
+          // Check if item already exists (e.g. from another path)
+          // Actually, if we are at the leaf of this path, and it already exists, we might need to update it?
+          // _addPathToTree iterates. If we have 'src' and 'src/foo', 'src' is created first.
+          // If we then process 'src' (as a folder inclusion), we find existing 'src'.
+
+          let existing = current.children!.find(c => c.label === part);
+
+          if (existing) {
+             // It already exists. Update it.
+             if (isDirectory) {
+                 existing.isDirectory = true;
+                 existing.isPendingScan = true;
+                 if (!existing.children) { existing.children = []; }
+             }
+          } else {
+              current.children!.push(item);
+              if (isDirectory) {
+                item.isPendingScan = true;
+              }
           }
         } catch (error) {
           current.children!.push({
@@ -146,11 +164,17 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
     }
   }
 
-  private async _populateDirectory(dirItem: TreeNode, dirUri: vscode.Uri) {
+  private async _scanDirectory(dirItem: TreeNode) {
+    if (!dirItem.resourceUri) { return; }
     try {
-      const entries = await fs.readdir(dirUri.fsPath, { withFileTypes: true });
+      const entries = await fs.readdir(dirItem.resourceUri.fsPath, { withFileTypes: true });
       for (const entry of entries) {
-        const entryUri = vscode.Uri.joinPath(dirUri, entry.name);
+        // Skip if already exists
+        if (dirItem.children?.some(c => c.label === entry.name)) {
+            continue;
+        }
+
+        const entryUri = vscode.Uri.joinPath(dirItem.resourceUri, entry.name);
         const isDirectory = entry.isDirectory();
         const child: TreeNode = {
           bundleId: dirItem.bundleId,
@@ -158,14 +182,12 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
           resourceUri: entryUri,
           isDirectory,
           children: isDirectory ? [] : undefined,
+          isPendingScan: isDirectory // Lazy load subdirectories too
         };
         dirItem.children!.push(child);
-        if (isDirectory) {
-          await this._populateDirectory(child, entryUri);
-        }
       }
     } catch (error) {
-      console.error(`Erreur lors de la lecture du répertoire ${dirUri.fsPath} :`, error);
+      console.error(`Erreur lors de la lecture du répertoire ${dirItem.resourceUri.fsPath} :`, error);
     }
   }
 
@@ -188,6 +210,9 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
 
   // Détermine l'état collapsible en fonction des nœuds expandés
   private _determineCollapsibleState(element: TreeNode): vscode.TreeItemCollapsibleState {
+    if (element.isDirectory) {
+        return vscode.TreeItemCollapsibleState.Collapsed;
+    }
     if (element.children && element.children.length > 0) {
       return vscode.TreeItemCollapsibleState.Collapsed;
     }
@@ -245,6 +270,12 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
       }
       return roots;
     }
+
+    if (element.isPendingScan) {
+        await this._scanDirectory(element);
+        element.isPendingScan = false;
+    }
+
     if (element.children) {
       return element.children;
     }

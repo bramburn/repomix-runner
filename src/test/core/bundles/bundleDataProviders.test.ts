@@ -236,7 +236,6 @@ suite('BundleDataProvider', () => {
     // Mock fs.stat to simulate file existence
     const fsStatStub = sandbox.stub().resolves({ isDirectory: () => false });
     const fsPromisesStub = sandbox.stub(require('fs/promises'), 'stat').callsFake(fsStatStub);
-    sandbox.stub(bundleDataProvider as any, '_populateDirectory').resolves();
 
     // Setup root node
     const root: TreeNode = {
@@ -273,7 +272,7 @@ suite('BundleDataProvider', () => {
     );
   });
 
-  test('_populateDirectory should add directory contents to tree', async () => {
+  test('_scanDirectory should add directory contents to tree', async () => {
     // Mock directory contents
     const dirEntries = [
       { name: 'file1.js', isDirectory: () => false },
@@ -283,36 +282,6 @@ suite('BundleDataProvider', () => {
     // Mock fs.readdir to return our fake entries
     const readdirStub = sandbox.stub().resolves(dirEntries);
     sandbox.stub(require('fs/promises'), 'readdir').callsFake(readdirStub);
-
-    // Disable recursive population for subdirectories to avoid infinite recursion
-    // We'll only test the first level of directory population
-    const populateDirectoryOriginal = bundleDataProvider['_populateDirectory'];
-
-    // Create a controlled stub that only allows non-recursive calls
-    const populateStub = sandbox.stub(bundleDataProvider as any, '_populateDirectory');
-    populateStub.callsFake(function (this: any, ...args: any[]) {
-      // Don't allow recursive calls to avoid infinite recursion
-      // by only processing the first directory level
-      const item = args[0] as TreeNode;
-      const uri = args[1] as vscode.Uri;
-
-      if (item.label === 'testdir') {
-        // Instead of using the original function, we'll manually populate
-        // the children based on our mock data
-        for (const entry of dirEntries) {
-          const entryUri = vscode.Uri.joinPath(uri, entry.name);
-          const child: TreeNode = {
-            bundleId: item.bundleId,
-            label: entry.name,
-            resourceUri: entryUri,
-            isDirectory: entry.isDirectory(),
-            children: entry.isDirectory() ? [] : undefined,
-          };
-          item.children!.push(child);
-        }
-      }
-      return Promise.resolve();
-    });
 
     // Create a directory node
     const dirItem: TreeNode = {
@@ -324,7 +293,7 @@ suite('BundleDataProvider', () => {
     };
 
     // Execute
-    await populateStub.call(bundleDataProvider, dirItem, dirItem.resourceUri);
+    await (bundleDataProvider as any)._scanDirectory(dirItem);
 
     // Verify
     assert.strictEqual(dirItem.children?.length, 2, 'Directory should have two children');
@@ -344,15 +313,13 @@ suite('BundleDataProvider', () => {
     assert.ok(dirEntry, 'Should include subdir');
     assert.strictEqual(dirEntry?.isDirectory, true, 'subdir should be a directory');
     assert.ok(dirEntry?.children, 'subdir should have children array');
+    assert.strictEqual(dirEntry?.isPendingScan, true, 'subdir should be pending scan');
   });
 
   test('_addPathToTree should mark file as missing when it does not exist', async () => {
     // Mock fs.stat to throw an error, simulating a file that doesn't exist
     const fsStatStub = sandbox.stub().rejects(new Error('File not found'));
     sandbox.stub(require('fs/promises'), 'stat').callsFake(fsStatStub);
-
-    // Skip directory population
-    sandbox.stub(bundleDataProvider as any, '_populateDirectory').resolves();
 
     // Setup root node
     const root: TreeNode = {
@@ -376,7 +343,7 @@ suite('BundleDataProvider', () => {
     assert.ok(fileNode?.resourceUri, 'Missing file should still have a resourceUri');
   });
 
-  test('integration of _buildTreeRoots, _addPathToTree, and _populateDirectory', async () => {
+  test('integration of _buildTreeRoots, _addPathToTree', async () => {
     // Setup test bundles
     (bundleDataProvider as any).bundles = {
       bundle1: {
@@ -393,32 +360,6 @@ suite('BundleDataProvider', () => {
     fsStub.withArgs(sinon.match(/dir1$/)).resolves({ isDirectory: () => true });
     fsStub.withArgs(sinon.match(/nested\.js$/)).resolves({ isDirectory: () => false });
     fsStub.withArgs(sinon.match(/missing\.js$/)).rejects(new Error('File not found'));
-
-    // Mock directory contents for dir1
-    const dirEntries = [
-      { name: 'nested.js', isDirectory: () => false },
-      { name: 'other.js', isDirectory: () => false },
-    ];
-    const readdirStub = sandbox.stub(require('fs/promises'), 'readdir');
-    readdirStub.withArgs(sinon.match(/dir1$/)).resolves(dirEntries);
-
-    // Restore original methods so we can test their interaction
-    const originalAddPathToTree = (bundleDataProvider as any)._addPathToTree;
-    const originalPopulateDirectory = (bundleDataProvider as any)._populateDirectory;
-
-    // Keep track of method calls
-    let populateDirectoryCalled = false;
-
-    // Prevent infinite recursion in populateDirectory
-    sandbox
-      .stub(bundleDataProvider as any, '_populateDirectory')
-      .callsFake(function (this: any, ...args: any[]) {
-        if (!populateDirectoryCalled) {
-          populateDirectoryCalled = true;
-          return originalPopulateDirectory.apply(this, args);
-        }
-        return Promise.resolve();
-      });
 
     // Execute
     await (bundleDataProvider as any)._buildTreeRoots();
