@@ -234,15 +234,12 @@ const AgentView = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
-const [savedQueries, setSavedQueries] = useState<SavedQueryItem[]>([]);
-  const [showSavedQueries, setShowSavedQueries] = useState(false);
   const [agentState, setAgentState] = useState<AgentState>({
     lastOutputPath: initialState.agentLastRun?.lastOutputPath,
     lastFileCount: initialState.agentLastRun?.lastFileCount,
     lastQuery: initialState.agentLastRun?.lastQuery,
     lastTokens: initialState.agentLastRun?.lastTokens,
     runFailed: initialState.agentLastRun?.runFailed ?? false
-  });
   });
 
   useEffect(() => {

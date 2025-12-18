@@ -37,6 +37,12 @@ const copyWasmPlugin = {
       const wasmSource = path.join(__dirname, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
       const wasmDest = path.join(__dirname, 'dist', 'sql-wasm.wasm');
 
+      // Ensure dist directory exists
+      const distDir = path.join(__dirname, 'dist');
+      if (!fs.existsSync(distDir)) {
+        fs.mkdirSync(distDir, { recursive: true });
+      }
+
       if (fs.existsSync(wasmSource)) {
         fs.copyFileSync(wasmSource, wasmDest);
         console.log('Copied sql-wasm.wasm to dist/');
