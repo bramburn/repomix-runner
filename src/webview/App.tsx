@@ -928,6 +928,7 @@ export const App = () => {
         >
           <Tab value="bundles">Bundles</Tab>
           <Tab value="agent">Smart Agent</Tab>
+          <Tab value="settings">Settings</Tab>
           <Tab value="debug">Debug</Tab>
         </TabList>
 
@@ -963,6 +964,13 @@ export const App = () => {
              </>
           )}
           {selectedTab === 'agent' && <AgentView />}
+          {selectedTab === 'settings' && (
+            <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
+                Settings Placeholder
+              </Text>
+            </div>
+          )}
           {selectedTab === 'debug' && (
             <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
               <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
