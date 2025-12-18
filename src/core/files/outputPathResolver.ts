@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { Bundle } from '../bundles/types.js';
 import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../../config/configLoader.js';
+import { addFileExtension } from '../../utils/fileExtensions.js';
 import { generateOutputFilename } from '../../utils/generateOutputFilename.js';
 import { getCwd } from '../../config/getCwd.js';
 import { RepomixConfigFile } from '../../config/configSchema.js';
@@ -22,11 +23,15 @@ export async function resolveBundleOutputPath(bundle: Bundle): Promise<string> {
   const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
   const useBundleNameAsOutputName = config.runner.useBundleNameAsOutputName;
 
-  const outputFilename = generateOutputFilename(
+  const outputStyle = overrideConfig.output.style || config.output.style;
+
+  let outputFilename = generateOutputFilename(
     bundle,
     baseFilePath,
     useBundleNameAsOutputName
   );
+
+  outputFilename = addFileExtension(outputFilename, outputStyle);
 
   return path.resolve(cwd, outputFilename);
 }

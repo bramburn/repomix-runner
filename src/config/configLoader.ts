@@ -12,6 +12,7 @@ import {
 } from './configSchema.js';
 import { logger } from '../shared/logger.js';
 import { isDirectory } from '../shared/files.js';
+import { addFileExtension } from '../utils/fileExtensions.js';
 
 export function stripJsonComments(json: string): string {
   if (typeof json !== 'string') {
@@ -93,31 +94,7 @@ export function stripJsonComments(json: string): string {
   return out.join('');
 }
 
-function addFileExtension(filePath: string, style: string): string {
-  const extensionMap: Record<string, string> = {
-    xml: '.xml',
-    markdown: '.md',
-    plain: '.txt',
-    json: '.json',
-  };
-
-  const expectedExt = extensionMap[style];
-  if (!expectedExt) {
-    return filePath;
-  }
-
-  if (filePath.endsWith(expectedExt)) {
-    return filePath;
-  }
-
-  const knownExts = Object.values(extensionMap);
-  const currentExt = path.extname(filePath);
-  if (currentExt && knownExts.includes(currentExt)) {
-    return filePath.slice(0, -currentExt.length) + expectedExt;
-  }
-
-  return filePath + expectedExt;
-}
+export { addFileExtension };
 
 export function readRepomixRunnerVscodeConfig(): RepomixRunnerConfigDefault {
   const config = vscode.workspace.getConfiguration('repomix');
