@@ -12,7 +12,14 @@ suite('CliFlagsBuilder', () => {
     };
   });
 
-  //TODO --version
+  test('should add "--version" flag when config.version is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      version: true,
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--version'));
+  });
 
   test('should add "--output" file path flag when output.filePath is specified', () => {
     const config: MergedConfig = {
