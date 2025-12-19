@@ -24,6 +24,7 @@ suite('runRepomix', () => {
       copyMode: 'file' as const,
       useTargetAsOutput: false,
       useBundleNameAsOutputName: true,
+      configPath: '',
     },
     output: {
       filePath: '/fake/output.txt',

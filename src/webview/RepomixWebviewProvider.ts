@@ -62,8 +62,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       let message;
       try {
         message = WebviewMessageSchema.parse(data);
+
+        // Manual refine check for SaveSecretSchema because discriminatedUnion
+        // uses the base schema which lacks the superRefine validation
+        if (message.command === 'saveSecret') {
+            const { SaveSecretSchema } = await import('./messageSchemas.js');
+            message = SaveSecretSchema.parse(data);
+        }
       } catch (error) {
         console.error('Invalid webview message:', error);
+        vscode.window.showErrorMessage(`Invalid message: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
 
@@ -115,6 +123,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleSaveApiKey(apiKey);
           break;
         }
+        case 'saveSecret': {
+          const { key, value } = message;
+          await this._handleSaveSecret(key, value);
+          break;
+        }
+        case 'checkSecret': {
+          const { key } = message;
+          await this._handleCheckSecret(key);
+          break;
+        }
         case 'runSmartAgent': {
           const { query } = message;
           await this._handleRunSmartAgent(query);
@@ -156,6 +174,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'reRunDebug': {
           const { files } = message;
           await this._handleReRunDebug(files);
+          break;
+        }
+        case 'copyDebugOutput': {
+          await this._handleCopyDebugOutput();
           break;
         }
       }
@@ -205,8 +227,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private async _resolveDefaultRepomixOutputPath(): Promise<string> {
       const cwd = getCwd();
       const vscodeConfig = readRepomixRunnerVscodeConfig();
-      const configFile = await readRepomixFileConfig(cwd);
-      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null);
+      const configFile = await readRepomixFileConfig(cwd, vscodeConfig.runner.configPath);
+      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null, vscodeConfig.runner.configPath);
       return mergedConfig.output.filePath;
   }
 
@@ -623,6 +645,38 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async _handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey', value: string) {
+    try {
+      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+      await this._context.secrets.store(storageKey, value);
+      // Send updated status back to UI
+      await this._handleCheckSecret(key);
+      vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
+    } catch (error) {
+      console.error(`Failed to save secret for ${key}:`, error);
+      vscode.window.showErrorMessage(`Failed to save ${key}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async _handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey') {
+    try {
+      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+      const value = await this._context.secrets.get(storageKey);
+
+      if (this._view) {
+        this._view.webview.postMessage({
+          command: 'secretStatus',
+          key,
+          exists: !!value
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to check secret for ${key}:`, error);
+      // We don't show a UI error here to avoid spamming the user on load,
+      // but we log it and effectively report "missing"
+    }
+  }
+
   private async _handleRunSmartAgent(query: string) {
     const workspaceRoot = getCwd();
 
@@ -960,10 +1014,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   private async _handleReRunDebug(files: string[]): Promise<void> {
     const cwd = getCwd();
-    // Validate and sanitize paths before execution
     const safeFiles = files.filter(file => {
-      // Basic check: no '..' that escapes cwd, although simple string check isn't perfect
-      // Better: resolve path and check it starts with cwd
       const resolved = path.resolve(cwd, file);
       return resolved.startsWith(cwd);
     });
@@ -978,6 +1029,34 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     const uris = safeFiles.map(file => vscode.Uri.file(path.join(cwd, file)));
     await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
+  }
+
+  private async _handleCopyDebugOutput() {
+    try {
+      const outputPath = await this._resolveDefaultRepomixOutputPath();
+      if (!fs.existsSync(outputPath)) {
+        vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+        return;
+      }
+
+      // Use original filename without timestamp prefix
+      const originalFilename = path.basename(outputPath);
+      const uniqueSubdir = `copy_${Date.now()}`;
+      const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+      // Ensure subdirectory exists
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+
+      await copyToClipboard(outputPath, tmpFilePath);
+      vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
+      await tempDirManager.cleanupFile(tmpFilePath);
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {

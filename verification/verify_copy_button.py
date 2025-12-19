@@ -1,4 +1,3 @@
-
 import os
 import sys
 import threading
@@ -11,7 +10,7 @@ import pyperclip
 
 # --- Configuration ---
 HOST = "localhost"
-PORT = 9008 # Use a different port than verify_debug_tab
+PORT = 9008 
 # Derive ROOT_DIR from the script location to ensure consistency
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

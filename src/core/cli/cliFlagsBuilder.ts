@@ -40,10 +40,16 @@ export const cliFlags = {
   },
 } as const;
 
-export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string {
+export function cliFlagsBuilder(
+  config: MergedConfig,
+  flags = cliFlags,
+  onWarning?: (msg: string) => void
+): string {
   const outputFlags: string[] = [];
 
-  // TODO si une clée de config n'est pas dans le la flagsmapping alors on le log en disant la config n'est pas supportée
+  if (onWarning) {
+    checkUnsupportedKeys(config, flags, onWarning);
+  }
 
   // Version
   if (config.version) {
@@ -140,4 +146,69 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   }
 
   return outputFlags.join(' ');
+}
+
+function checkUnsupportedKeys(config: MergedConfig, flags: typeof cliFlags, onWarning: (msg: string) => void) {
+  const internalKeys = new Set(['cwd']);
+  const internalRunnerKeys = new Set([
+    'keepOutputFile',
+    'copyMode',
+    'useTargetAsOutput',
+    'useBundleNameAsOutputName'
+  ]);
+
+  Object.keys(config).forEach(key => {
+    if (internalKeys.has(key)) return;
+
+    if (key === 'runner') {
+      const runnerConfig = config.runner;
+      Object.keys(runnerConfig).forEach(runnerKey => {
+         if (internalRunnerKeys.has(runnerKey)) return;
+         if (runnerKey === 'verbose' && flags.verbose) return;
+         onWarning(`Configuration key 'runner.${runnerKey}' is not supported by CLI flags.`);
+      });
+      return;
+    }
+
+    if (key === 'configFilePath') {
+        if (!flags.config) onWarning(`Configuration key '${key}' is not supported by CLI flags.`);
+        return;
+    }
+
+    // config.include is array, flags.include is string.
+    if (key === 'include') {
+        if (!flags.include) onWarning(`Configuration key '${key}' is not supported by CLI flags.`);
+        return;
+    }
+
+    // Mirror objects
+    if (['output', 'ignore', 'security', 'tokenCount', 'remote'].includes(key)) {
+        const configSection = (config as any)[key];
+        const flagsSection = (flags as any)[key];
+
+        if (!flagsSection) {
+             onWarning(`Configuration section '${key}' is not supported by CLI flags.`);
+             return;
+        }
+
+        // If config section is undefined (optional), skip
+        if (!configSection) return;
+
+        Object.keys(configSection).forEach(subKey => {
+            if (!(subKey in flagsSection)) {
+                onWarning(`Configuration key '${key}.${subKey}' is not supported by CLI flags.`);
+            }
+        });
+        return;
+    }
+
+    // Simple keys
+    if (key === 'version') {
+         if (!flags.version) onWarning(`Configuration key '${key}' is not supported by CLI flags.`);
+         return;
+    }
+
+    // Fallback for unknown top level keys
+    onWarning(`Configuration key '${key}' is not supported by CLI flags.`);
+  });
 }

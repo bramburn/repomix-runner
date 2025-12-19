@@ -27,6 +27,7 @@ export type RunRepomixDeps = {
   execPromisify: typeof execPromisify;
   mergeConfigOverride: RepomixConfigFile | null;
   signal?: AbortSignal;
+  configFilePath?: string;
 };
 
 export const defaultRunRepomixDeps: RunRepomixDeps = {
@@ -40,6 +41,7 @@ export const defaultRunRepomixDeps: RunRepomixDeps = {
   cliFlagsBuilder,
   execPromisify,
   mergeConfigOverride: null,
+  configFilePath: undefined,
 } as const;
 
 export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): Promise<void> {
@@ -54,12 +56,20 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
     const vscodeConfig = deps.readRepomixRunnerVscodeConfig();
     logger.setVerbose(vscodeConfig.runner.verbose);
 
-    const configFile = await deps.readRepomixFileConfig(cwd);
+    const configFilePath = deps.configFilePath || vscodeConfig.runner.configPath;
+
+    const configFile = await deps.readRepomixFileConfig(cwd, configFilePath);
     if (!configFile) {
       logger.both.debug('No root repomix.config.json file found');
     }
 
-    const config = await deps.mergeConfigs(cwd, configFile, vscodeConfig, deps.mergeConfigOverride);
+    const config = await deps.mergeConfigs(
+      cwd,
+      configFile,
+      vscodeConfig,
+      deps.mergeConfigOverride,
+      configFilePath
+    );
 
     // Security check: validate paths
     const workspaceRoot = cwd; // cwd is guaranteed to be workspace root or valid
@@ -68,7 +78,7 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
          throw new Error(`Security Violation: Output path "${config.output.filePath}" attempts to traverse outside the workspace.`);
     }
 
-    const cliFlags = deps.cliFlagsBuilder(config);
+    const cliFlags = deps.cliFlagsBuilder(config, undefined, (msg) => logger.both.warn(msg));
 
     // Security: Validate config.cwd usage if it differs from workspaceRoot (though mergeConfigs sets it to cwd usually)
     // config.cwd is derived from getCwd().
