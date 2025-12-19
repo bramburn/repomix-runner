@@ -182,6 +182,18 @@ export async function mergeConfigs(
 
   outputFilePath = addFileExtension(outputFilePath, outputStyle);
 
+  const remote =
+    overrideConfig?.remote ||
+    configFromRepomixFile?.remote ||
+    configFromRepomixRunnerVscode.remote ||
+    baseConfig.remote;
+
+  const remoteBranch =
+    overrideConfig?.remoteBranch ||
+    configFromRepomixFile?.remoteBranch ||
+    configFromRepomixRunnerVscode.remoteBranch ||
+    baseConfig.remoteBranch;
+
   const mergedConfig = {
     cwd,
     runner: {
@@ -220,6 +232,8 @@ export async function mergeConfigs(
       ...configFromRepomixFile?.tokenCount,
       ...overrideConfig?.tokenCount,
     },
+    remote,
+    remoteBranch,
   };
 
   return mergedConfigSchema.parse(mergedConfig);
