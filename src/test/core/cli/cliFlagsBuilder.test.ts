@@ -12,7 +12,7 @@ suite('CliFlagsBuilder', () => {
     };
   });
 
-  test('should add "--version" flag when config.version is true', () => {
+  test('should add "--version" flag when version is true', () => {
     const config: MergedConfig = {
       ...baseConfig,
       version: true,
@@ -48,7 +48,14 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--ignore "node_modules,dist"'));
   });
 
-  //TODO config
+  test('should add "--config" flag when configFilePath is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      configFilePath: 'custom-config.json',
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--config "custom-config.json"'));
+  });
 
   test('should add "--style" flag when output.style is specified', () => {
     const config: MergedConfig = {
@@ -113,7 +120,7 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--no-default-patterns'));
   });
 
-  test('shouldf add "--token-count-encoding" flag when config.tokenCountEncoding is specified', () => {
+  test('should add "--token-count-encoding" flag when config.tokenCount.encoding is specified', () => {
     const config: MergedConfig = {
       ...baseConfig,
       tokenCount: {
@@ -198,9 +205,23 @@ suite('CliFlagsBuilder', () => {
     assert.ok(!flags.includes('--copy'));
   });
 
-  //TODO --remote
+  test('should add "--remote" flag when remote.url is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, url: 'https://github.com/user/repo' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote "https://github.com/user/repo"'));
+  });
 
-  //TODO --remote-branch
+  test('should add "--remote-branch" flag when remote.branch is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, branch: 'develop' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote-branch "develop"'));
+  });
 
   test('should add "--no-security-check" flag when config.security.enableSecurityCheck is false', () => {
     const config: MergedConfig = {
@@ -211,28 +232,14 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--no-security-check'));
   });
 
-  //TODO --token-count-encoding
-
-  //TODO --verbose
-
-  //HELP  no flag yet for this config in repomix ?
-  //   test('should add "--no-gitignore" flag when ignore.useGitignore is false', () => {
-  //     const config: MergedConfig = {
-  //       ...baseConfig,
-  //       ignore: { ...baseConfig.ignore, useGitignore: false },
-  //     };
-  //     const flags = cliFlagsBuilder(config);
-  //     assert.ok(flags.includes('--no-gitignore'));
-  //   });
-  //HELP  no flag yet for this config in repomix ?
-  // test('should add "--no-default-ignore" flag when ignore.useDefaultPatterns is false', () => {
-  //   const config: MergedConfig = {
-  //     ...baseConfig,
-  //     ignore: { ...baseConfig.ignore, useDefaultPatterns: false },
-  //   };
-  //   const flags = cliFlagsBuilder(config);
-  //   assert.ok(flags.includes('--no-default-ignore'));
-  // });
+  test('should add "--verbose" flag when runner.verbose is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      runner: { ...baseConfig.runner, verbose: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--verbose'));
+  });
 
   test('should add "--compress" flag when output.compress is true', () => {
     const config: MergedConfig = {
@@ -279,7 +286,6 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--remove-empty-lines'));
     assert.ok(flags.includes('--top-files-len 10'));
     assert.ok(flags.includes('--output-show-line-numbers'));
-    // assert.ok(flags.includes('--copy')); // Uncomment if clipboard conflict is resolved
     assert.ok(flags.includes('--include "*.ts,*.js"'));
     assert.ok(flags.includes('--ignore "node_modules,dist"'));
     assert.ok(flags.includes('--no-security-check'));
