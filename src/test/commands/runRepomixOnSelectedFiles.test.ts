@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as sinon from 'sinon';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
 import * as getCwdModule from '../../config/getCwd.js';
 import * as runRepomixModule from '../../commands/runRepomix.js';
@@ -16,6 +19,7 @@ suite('runRepomixOnSelectedFiles', () => {
   let getTempDirStub: sinon.SinonStub;
   let showTempNotificationStub: sinon.SinonStub;
   let loggerInfoStub: sinon.SinonStub;
+  let tempTestDir: string;
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -24,10 +28,19 @@ suite('runRepomixOnSelectedFiles', () => {
     getTempDirStub = sandbox.stub(tempDirManager, 'getTempDir');
     showTempNotificationStub = sandbox.stub(showTempNotificationModule, 'showTempNotification');
     loggerInfoStub = sandbox.stub(logger.both, 'info');
+
+    // Create a temporary directory for real file tests
+    tempTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repomix-test-'));
   });
 
   teardown(() => {
     sandbox.restore();
+    // Clean up temp dir
+    try {
+      fs.rmSync(tempTestDir, { recursive: true, force: true });
+    } catch (e) {
+      console.error('Failed to cleanup temp dir:', e);
+    }
   });
 
   test('should run repomix with selected files config', async () => {
@@ -49,6 +62,42 @@ suite('runRepomixOnSelectedFiles', () => {
     sinon.assert.calledWith(runRepomixStub, {
       ...defaultRunRepomixDeps,
       mergeConfigOverride: { include: ['file1.ts', 'file2.ts'] },
+    });
+  });
+
+  test('should merge override config correctly with calculated include patterns', async () => {
+    // Setup real directory structure
+    const subDirName = 'subdir';
+    const subDirPath = path.join(tempTestDir, subDirName);
+    fs.mkdirSync(subDirPath);
+
+    // Mock CWD to be the temp directory so relative paths work
+    getCwdStub.returns(tempTestDir);
+    getTempDirStub.returns('/temp/output');
+
+    const mockUris = [vscode.Uri.file(subDirPath)];
+
+    const overrideConfig = {
+      ignore: {
+        customPatterns: ['*.log']
+      },
+      include: ['**/*.ts']
+    };
+
+    await runRepomixOnSelectedFiles(mockUris, overrideConfig);
+
+    assert.strictEqual(runRepomixStub.calledOnce, true);
+
+    const expectedInclude = [path.posix.join(subDirName, '**/*.ts')];
+
+    sinon.assert.calledWith(runRepomixStub, {
+      ...defaultRunRepomixDeps,
+      mergeConfigOverride: {
+        ignore: {
+          customPatterns: ['*.log']
+        },
+        include: expectedInclude
+      },
     });
   });
 
