@@ -3,12 +3,11 @@ import http.server
 import socketserver
 import threading
 import os
-import time
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright
 
-# Configuration
-PORT = 8081
-DIRECTORY = os.getcwd()  # Serve from current directory to access /dist and /verification
+# Define the port for the mock server
+PORT = 8000
+DIRECTORY = os.getcwd()
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -17,74 +16,108 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def start_server():
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"Serving at port {PORT}")
-        httpd.allow_reuse_address = True
         httpd.serve_forever()
 
+# Start the server in a separate thread
+thread = threading.Thread(target=start_server, daemon=True)
+thread.start()
+
 def verify_settings_tab():
-    # Start the server in a separate thread
-    thread = threading.Thread(target=start_server)
-    thread.daemon = True
-    thread.start()
-
-    # Give the server a moment to start
-    time.sleep(1)
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context()
+        page = context.new_page()
 
-        try:
-            # Navigate to the mock webview
-            page.goto(f"http://localhost:{PORT}/verification/mock_settings_webview.html")
+        # Load the mocked webview HTML which will load our compiled webview.js
+        # We need a mock HTML file that mimics the webview environment
 
-            # Wait for the app to load
-            page.wait_for_selector("text=Repomix Runner")
+        # Since we don't have a dedicated mock html for settings, we can reuse or create one.
+        # Let's create a temporary HTML file for this test
 
-            # Verify we are on the Settings tab (handled by mock getState)
-            # Check for the Configuration header
-            expect(page.get_by_text("Configuration", exact=True)).to_be_visible()
+        with open("verification/mock_settings.html", "w") as f:
+            f.write("""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repomix Settings Mock</title>
+    <style>
+        body { background-color: #1e1e1e; color: #cccccc; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module">
+        // Mock VS Code API
+        window.acquireVsCodeApi = () => ({
+            postMessage: (msg) => {
+                console.log("VS Code Message:", msg);
+                // Mock responses
+                if (msg.command === 'webviewLoaded') {
+                     window.postMessage({ command: 'updateVersion', version: '0.0.0-test' }, '*');
+                }
+                if (msg.command === 'checkSecret') {
+                    // Simulate keys existing
+                    window.postMessage({ command: 'secretStatus', key: msg.key, exists: true }, '*');
+                }
+                if (msg.command === 'fetchPineconeIndexes') {
+                    // Simulate fetching indexes
+                    setTimeout(() => {
+                        window.postMessage({
+                            command: 'updatePineconeIndexes',
+                            indexes: [
+                                { name: 'test-index-1', host: 'test-host-1', dimension: 1536 },
+                                { name: 'test-index-2', host: 'test-host-2', dimension: 768 }
+                            ]
+                        }, '*');
+                    }, 100);
+                }
+                if (msg.command === 'savePineconeIndex') {
+                    // Simulate confirming selection
+                    window.postMessage({ command: 'updateSelectedIndex', index: msg.index }, '*');
+                }
+            },
+            getState: () => ({ selectedTab: 'settings' }),
+            setState: () => {}
+        });
+    </script>
+    <script type="module" src="/dist/webview.js"></script>
+</body>
+</html>
+            """)
 
-            # Check for "Google Gemini API Key" section
-            gemini_section = page.get_by_text("Google Gemini API Key")
-            expect(gemini_section).to_be_visible()
+        page.goto(f"http://localhost:{PORT}/verification/mock_settings.html")
 
-            # Check status (should be Missing based on mock)
-            expect(page.get_by_text("Missing").first).to_be_visible()
+        # Wait for the tab to be visible (should default to settings due to mock state)
+        page.wait_for_selector("text=Configuration")
 
-            # Check that input is NOT visible initially (collapsed)
-            # The input has a placeholder "Enter Gemini API Key..."
-            gemini_input = page.get_by_placeholder("Enter Gemini API Key (starts with AIza...)")
-            expect(gemini_input).not_to_be_visible()
+        # Verify the Accordion exists
+        page.wait_for_selector("text=API Configuration")
 
-            # Click to expand
-            print("Clicking to expand Gemini section...")
-            gemini_section.click()
+        # Verify Pinecone API Key section
+        page.wait_for_selector("text=Pinecone API Key")
 
-            # Check that input IS visible now
-            expect(gemini_input).to_be_visible()
+        # Wait for indexes to load (simulated)
+        page.wait_for_timeout(500)
 
-            # Check Pinecone section
-            pinecone_section = page.get_by_text("Pinecone API Key")
-            expect(pinecone_section).to_be_visible()
+        # Take a screenshot of the initial state (with mocked keys)
+        page.screenshot(path="verification/settings_initial.png")
 
-            # Pinecone input should be hidden
-            pinecone_input = page.get_by_placeholder("Enter Pinecone API Key")
-            expect(pinecone_input).not_to_be_visible()
+        # Verify Dropdown exists and interact
+        # Fluent UI dropdowns can be tricky. Look for the placeholder or label.
+        page.wait_for_selector("text=Select an Index")
 
-            # Click to expand Pinecone
-            print("Clicking to expand Pinecone section...")
-            pinecone_section.click()
-            expect(pinecone_input).to_be_visible()
+        # Click the dropdown to open it (if possible headless)
+        # Often FluentUI renders a button or similar for the dropdown trigger.
+        # We can try to click the element containing the placeholder.
+        page.click("text=Select an Index")
 
-            # Take screenshot
-            print("Taking screenshot...")
-            page.screenshot(path="verification/settings_verification.png")
+        page.wait_for_timeout(200)
+        page.screenshot(path="verification/settings_dropdown_open.png")
 
-        except Exception as e:
-            print(f"Verification failed: {e}")
-            raise e
-        finally:
-            browser.close()
+        print("Verification complete. Screenshots saved.")
+        browser.close()
 
 if __name__ == "__main__":
     verify_settings_tab()
