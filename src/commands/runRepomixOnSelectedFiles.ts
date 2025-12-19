@@ -6,11 +6,13 @@ import { logger } from '../shared/logger.js';
 import { showTempNotification } from '../shared/showTempNotification.js';
 import * as path from 'path';
 import { RepomixConfigFile } from '../config/configSchema.js';
+import { DatabaseService } from '../core/storage/databaseService.js';
 
 export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
   overrideConfig: RepomixConfigFile = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  databaseService?: DatabaseService
 ) {
   const cwd = getCwd();
 
@@ -53,6 +55,16 @@ export async function runRepomixOnSelectedFiles(
   }
 
   logger.both.info(`Running repomix with calculated include patterns: ${includePatterns.join(', ')}`);
+
+  if (databaseService) {
+    try {
+      // Log the run to the database for debugging
+      const files = uris.map(uri => path.relative(cwd, uri.fsPath).replace(/\\/g, '/'));
+      await databaseService.saveDebugRun(files);
+    } catch (e) {
+      logger.both.error('Failed to save debug run', e);
+    }
+  }
 
   // TODO add test for config merging
   const finalOverrideConfig = {

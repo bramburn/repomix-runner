@@ -17,6 +17,7 @@ suite('runRepomix', () => {
 
   const baseTestConfig: MergedConfig = {
     cwd: '/fake/target',
+    version: false,
     runner: {
       verbose: false,
       keepOutputFile: true,

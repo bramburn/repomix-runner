@@ -146,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext) {
     'repomixRunner.runOnSelectedFiles',
     (uri: vscode.Uri, uris: vscode.Uri[]) => {
       const selectedUris = uris || (uri ? [uri] : []);
-      runRepomixOnSelectedFiles(selectedUris);
+      runRepomixOnSelectedFiles(selectedUris, {}, undefined, databaseService);
     }
   );
 

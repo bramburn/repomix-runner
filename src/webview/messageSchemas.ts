@@ -78,6 +78,15 @@ export const RegenerateAgentRunSchema = z.object({
   runId: z.string().min(1),
 });
 
+export const GetDebugRunsSchema = z.object({
+  command: z.literal('getDebugRuns'),
+});
+
+export const ReRunDebugSchema = z.object({
+  command: z.literal('reRunDebug'),
+  files: z.array(z.string()),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -111,6 +120,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetAgentHistorySchema,
   OpenFileSchema,
   RegenerateAgentRunSchema,
+  GetDebugRunsSchema,
+  ReRunDebugSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

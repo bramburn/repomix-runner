@@ -9,6 +9,7 @@ suite('CliFlagsBuilder', () => {
     baseConfig = {
       ...defaultConfig,
       cwd: '/path/to/test-dir',
+      version: false,
     };
   });
 
@@ -211,7 +212,7 @@ suite('CliFlagsBuilder', () => {
       remote: { ...baseConfig.remote, url: 'https://github.com/user/repo' },
     };
     const flags = cliFlagsBuilder(config);
-    assert.ok(flags.includes('--remote "https://github.com/user/repo"'));
+    assert.ok(flags.includes('--remote-url "https://github.com/user/repo"'));
   });
 
   test('should add "--remote-branch" flag when remote.branch is specified', () => {

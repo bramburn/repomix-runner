@@ -17,6 +17,12 @@ export interface AgentRunHistory {
   queryId?: string; // Reference to saved query if applicable
 }
 
+export interface DebugRun {
+  id: number;
+  timestamp: number;
+  files: string[];
+}
+
 export class DatabaseService {
   private db: Database | null = null;
   private dbPath: string;
@@ -117,11 +123,21 @@ export class DatabaseService {
         )
       `);
 
+      // Create debug_runs table
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS debug_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL,
+          files TEXT NOT NULL
+        )
+      `);
+
       // Create indexes for better performance
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_bundle_id ON agent_runs(bundle_id)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
 
       await this.saveDatabase();
     } catch (error) {
@@ -353,6 +369,67 @@ export class DatabaseService {
     } catch (error) {
       console.error('Failed to get agent run stats:', error);
       throw new Error(`Failed to get agent run stats: ${error}`);
+    }
+  }
+
+  async saveDebugRun(files: string[]): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO debug_runs (timestamp, files)
+        VALUES (?, ?)
+      `);
+
+      stmt.run([Date.now(), JSON.stringify(files)]);
+      stmt.free();
+      await this.saveDatabase();
+      console.log('Debug run saved to database');
+    } catch (error) {
+      console.error('Failed to save debug run:', error);
+      throw new Error(`Failed to save debug run: ${error}`);
+    }
+  }
+
+  async getDebugRuns(limit: number = 50, offset: number = 0): Promise<DebugRun[]> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM debug_runs
+        ORDER BY timestamp DESC
+        LIMIT ? OFFSET ?
+      `);
+
+      const result: DebugRun[] = [];
+      stmt.bind([limit, offset]);
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        result.push({
+          id: row.id as number,
+          timestamp: row.timestamp as number,
+          files: JSON.parse(row.files as string),
+        });
+      }
+
+      stmt.free();
+      return result;
+    } catch (error) {
+      console.error('Failed to get debug runs:', error);
+      throw new Error(`Failed to get debug runs: ${error}`);
     }
   }
 

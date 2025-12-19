@@ -14,6 +14,7 @@ import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
+import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -146,6 +147,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'openFile': {
           const { path } = message;
           await this._handleOpenFile(path);
+          break;
+        }
+        case 'getDebugRuns': {
+          await this._handleGetDebugRuns();
+          break;
+        }
+        case 'reRunDebug': {
+          const { files } = message;
+          await this._handleReRunDebug(files);
           break;
         }
       }
@@ -931,6 +941,27 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
     }
+  }
+
+  private async _handleGetDebugRuns(): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+    try {
+      const runs = await this._databaseService.getDebugRuns();
+      this._view.webview.postMessage({
+        command: 'updateDebugRuns',
+        runs,
+      });
+    } catch (error) {
+      console.error('Failed to get debug runs:', error);
+    }
+  }
+
+  private async _handleReRunDebug(files: string[]): Promise<void> {
+    const cwd = getCwd();
+    const uris = files.map(file => vscode.Uri.file(path.join(cwd, file)));
+    await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {

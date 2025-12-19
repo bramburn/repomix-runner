@@ -134,6 +134,11 @@ export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
   z.object({
     cwd: z.string(),
     version: z.boolean().default(false),
+    configFilePath: z.string().optional(),
+    remote: z.object({
+      url: z.string().optional(),
+      branch: z.string().optional(),
+    }).optional(),
   })
 );
 
