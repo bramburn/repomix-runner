@@ -22,6 +22,15 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--version'));
   });
 
+  test('should not add "--version" flag when version is false', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      version: false,
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(!flags.includes('--version'));
+  });
+
   test('should add "--output" file path flag when output.filePath is specified', () => {
     const config: MergedConfig = {
       ...baseConfig,
