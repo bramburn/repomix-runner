@@ -384,15 +384,47 @@ export class DatabaseService {
     }
 
     try {
-      const stmt = this.db.prepare(`
-        INSERT INTO debug_runs (timestamp, files)
-        VALUES (?, ?)
+      const filesJson = JSON.stringify(files);
+
+      // Check if the most recent run has the same files
+      const checkStmt = this.db.prepare(`
+        SELECT id, files FROM debug_runs
+        ORDER BY timestamp DESC
+        LIMIT 1
       `);
 
-      stmt.run([Date.now(), JSON.stringify(files)]);
-      stmt.free();
+      let lastRunId: number | undefined;
+      let lastRunFiles: string | undefined;
+
+      if (checkStmt.step()) {
+        const row = checkStmt.getAsObject();
+        lastRunId = row.id as number;
+        lastRunFiles = row.files as string;
+      }
+      checkStmt.free();
+
+      if (lastRunId !== undefined && lastRunFiles === filesJson) {
+        // Update timestamp of the existing run
+        const updateStmt = this.db.prepare(`
+          UPDATE debug_runs
+          SET timestamp = ?
+          WHERE id = ?
+        `);
+        updateStmt.run([Date.now(), lastRunId]);
+        updateStmt.free();
+        console.log('Updated existing debug run timestamp');
+      } else {
+        const stmt = this.db.prepare(`
+          INSERT INTO debug_runs (timestamp, files)
+          VALUES (?, ?)
+        `);
+
+        stmt.run([Date.now(), filesJson]);
+        stmt.free();
+        console.log('Debug run saved to database');
+      }
+
       await this.saveDatabase();
-      console.log('Debug run saved to database');
     } catch (error) {
       console.error('Failed to save debug run:', error);
       throw new Error(`Failed to save debug run: ${error}`);
