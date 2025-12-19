@@ -106,7 +106,7 @@ export async function readRepomixFileConfig(
   cwd: string,
   customConfigPathRelative?: string
 ): Promise<RepomixConfigFile | void> {
-  const configPath = path.join(cwd, customConfigPathRelative || 'repomix.config.json'); // TODO support --config flag
+  const configPath = path.join(cwd, customConfigPathRelative || 'repomix.config.json');
 
   try {
     await access(configPath);
@@ -146,7 +146,8 @@ export async function mergeConfigs(
   cwd: string,
   configFromRepomixFile: RepomixConfigFile | void,
   configFromRepomixRunnerVscode: RepomixRunnerConfigDefault,
-  overrideConfig: RepomixConfigFile | null = null
+  overrideConfig: RepomixConfigFile | null = null,
+  configFilePath?: string
 ): Promise<MergedConfig> {
   const baseConfig: RepomixRunnerConfigDefault = defaultConfig;
 
@@ -221,6 +222,7 @@ export async function mergeConfigs(
       ...overrideConfig?.tokenCount,
     },
     version: overrideConfig?.version ?? false,
+    configFilePath: configFilePath || configFromRepomixRunnerVscode.runner.configPath,
   };
 
   return mergedConfigSchema.parse(mergedConfig);

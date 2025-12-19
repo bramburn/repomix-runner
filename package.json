@@ -67,6 +67,12 @@
             "type": "boolean",
             "default": false,
             "description": "🔍 \n Verbose mode"
+          },
+          "repomix.runner.configPath": {
+            "order": 6,
+            "type": "string",
+            "default": "",
+            "description": "📁 \n Custom path to the configuration file (relative to workspace root)"
           }
         }
       },

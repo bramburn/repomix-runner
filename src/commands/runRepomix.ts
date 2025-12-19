@@ -54,12 +54,18 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
     const vscodeConfig = deps.readRepomixRunnerVscodeConfig();
     logger.setVerbose(vscodeConfig.runner.verbose);
 
-    const configFile = await deps.readRepomixFileConfig(cwd);
+    const configFile = await deps.readRepomixFileConfig(cwd, vscodeConfig.runner.configPath);
     if (!configFile) {
       logger.both.debug('No root repomix.config.json file found');
     }
 
-    const config = await deps.mergeConfigs(cwd, configFile, vscodeConfig, deps.mergeConfigOverride);
+    const config = await deps.mergeConfigs(
+      cwd,
+      configFile,
+      vscodeConfig,
+      deps.mergeConfigOverride,
+      vscodeConfig.runner.configPath
+    );
 
     // Security check: validate paths
     const workspaceRoot = cwd; // cwd is guaranteed to be workspace root or valid

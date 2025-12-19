@@ -112,6 +112,7 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
+          configPath: '',
         },
         output: {
           filePath: 'output.txt',
@@ -248,6 +249,7 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
+          configPath: '',
         },
         output: {
           filePath: 'output.txt',
