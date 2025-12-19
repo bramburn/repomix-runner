@@ -62,8 +62,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       let message;
       try {
         message = WebviewMessageSchema.parse(data);
+
+        // Manual refine check for SaveSecretSchema because discriminatedUnion
+        // uses the base schema which lacks the superRefine validation
+        if (message.command === 'saveSecret') {
+            const { SaveSecretSchema } = await import('./messageSchemas.js');
+            message = SaveSecretSchema.parse(data);
+        }
       } catch (error) {
         console.error('Invalid webview message:', error);
+        vscode.window.showErrorMessage(`Invalid message: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
 
@@ -113,6 +121,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'saveApiKey': {
           const { apiKey } = message;
           await this._handleSaveApiKey(apiKey);
+          break;
+        }
+        case 'saveSecret': {
+          const { key, value } = message;
+          await this._handleSaveSecret(key, value);
+          break;
+        }
+        case 'checkSecret': {
+          const { key } = message;
+          await this._handleCheckSecret(key);
           break;
         }
         case 'runSmartAgent': {
@@ -624,6 +642,38 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     if (apiKey) {
       await this._context.secrets.store('repomix.agent.googleApiKey', apiKey);
       vscode.window.showInformationMessage('API Key saved successfully!');
+    }
+  }
+
+  private async _handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey', value: string) {
+    try {
+      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+      await this._context.secrets.store(storageKey, value);
+      // Send updated status back to UI
+      await this._handleCheckSecret(key);
+      vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
+    } catch (error) {
+      console.error(`Failed to save secret for ${key}:`, error);
+      vscode.window.showErrorMessage(`Failed to save ${key}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async _handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey') {
+    try {
+      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+      const value = await this._context.secrets.get(storageKey);
+
+      if (this._view) {
+        this._view.webview.postMessage({
+          command: 'secretStatus',
+          key,
+          exists: !!value
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to check secret for ${key}:`, error);
+      // We don't show a UI error here to avoid spamming the user on load,
+      // but we log it and effectively report "missing"
     }
   }
 

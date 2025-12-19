@@ -14,6 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
+import { SettingsTab } from './components/SettingsTab.js';
 import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 
 // --- Helpers ---
@@ -253,6 +254,9 @@ const AgentView = () => {
       if (event.data.command === 'apiKeyStatus') {
         setHasKey(event.data.hasKey);
       }
+      if (event.data.command === 'secretStatus' && event.data.key === 'googleApiKey') {
+        setHasKey(event.data.exists);
+      }
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
       }
@@ -286,7 +290,8 @@ const AgentView = () => {
       }
     };
     window.addEventListener('message', handler);
-    vscode.postMessage({ command: 'checkApiKey' });
+    // Check both for compatibility/robustness
+    vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
     vscode.postMessage({ command: 'getAgentHistory' });
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -319,7 +324,7 @@ const AgentView = () => {
     if (!trimmedKey) {
         return;
     }
-    vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
+    vscode.postMessage({ command: 'saveSecret', key: 'googleApiKey', value: trimmedKey });
     setApiKey(''); // Clear input for security
   };
 
@@ -1073,13 +1078,7 @@ export const App = () => {
              </>
           )}
           {selectedTab === 'agent' && <AgentView />}
-          {selectedTab === 'settings' && (
-            <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-              <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
-                Settings Placeholder
-              </Text>
-            </div>
-          )}
+          {selectedTab === 'settings' && <SettingsTab />}
           {selectedTab === 'debug' && <DebugTab />}
         </div>
 

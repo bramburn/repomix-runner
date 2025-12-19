@@ -42,6 +42,35 @@ export const SaveApiKeySchema = z.object({
   apiKey: z.string().startsWith('AIza', "API Key must start with 'AIza'").min(30, "API Key is too short"),
 });
 
+export const SaveSecretBaseSchema = z.object({
+  command: z.literal('saveSecret'),
+  key: z.enum(['googleApiKey', 'pineconeApiKey']),
+  value: z.string().min(1),
+});
+
+export const SaveSecretSchema = SaveSecretBaseSchema.superRefine((data, ctx) => {
+  if (data.key === 'googleApiKey') {
+    if (!data.value.startsWith('AIza')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "API Key must start with 'AIza'",
+        path: ['value'],
+      });
+    }
+    if (data.value.length < 30) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "API Key is too short",
+        path: ['value'],
+      });
+    }
+  }
+});
+
+export const CheckSecretSchema = z.object({
+  command: z.literal('checkSecret'),
+  key: z.enum(['googleApiKey', 'pineconeApiKey']),
+});
 
 export const GetAgentHistorySchema = z.object({
   command: z.literal('getAgentHistory'),
@@ -117,6 +146,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyDefaultRepomixOutputSchema,
   CheckApiKeySchema,
   SaveApiKeySchema,
+  SaveSecretBaseSchema, // Use base schema for discrimination
+  CheckSecretSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
   CopyAgentOutputSchema,
