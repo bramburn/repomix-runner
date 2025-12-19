@@ -12,6 +12,7 @@ import { readRepomixFileConfig } from '../config/configLoader.js';
 import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { tempDirManager, TempDirManager } from '../core/files/tempDirManager.js';
 import { MergedConfig, RepomixConfigFile } from '../config/configSchema.js';
+import { redactConfig, redactCommand } from '../utils/redactConfig.js';
 
 let isRunning = false;
 
@@ -78,8 +79,12 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
     // config.cwd is quoted.
     const cmd = `npx -y repomix@latest "${config.cwd}" ${cliFlags}`;
 
-    logger.both.debug('config: \n', config);
-    logger.both.debug('cmd: \n', cmd);
+    if (vscodeConfig.runner.verbose) {
+      logger.both.warn('Note: Debug output may contain sensitive information. Please review before sharing.');
+    }
+
+    logger.both.debug('config: \n', redactConfig(config));
+    logger.both.debug('cmd: \n', redactCommand(cmd));
     logger.both.debug('cwd: \n', cwd);
     const cmdPromise = deps.execPromisify(cmd, { cwd: cwd, signal: deps.signal });
 

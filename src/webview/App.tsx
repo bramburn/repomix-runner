@@ -861,6 +861,11 @@ const DebugTab = () => {
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
+
+      <Text size={100} style={{ opacity: 0.7, fontStyle: 'italic', marginBottom: '5px' }}>
+          Debug output may contain sensitive data.
+      </Text>
+
       {runs.length === 0 ? (
         <Text style={{ opacity: 0.7 }}>No runs recorded yet.</Text>
       ) : (
