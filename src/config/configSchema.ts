@@ -50,12 +50,7 @@ export const repomixConfigBaseSchema = z.object({
       encoding: z.string().optional(),
     })
     .optional(),
-  remote: z
-    .object({
-      url: z.string().optional(),
-      branch: z.string().optional(),
-    })
-    .optional(),
+  version: z.boolean().optional(),
 });
 
 // Default config schema (avec valeurs par défaut)
@@ -99,12 +94,6 @@ export const repomixConfigDefaultSchema = z.object({
         .transform(val => val as TiktokenEncoding),
     })
     .default({}),
-  remote: z
-    .object({
-      url: z.string().default(''),
-      branch: z.string().default(''),
-    })
-    .default({}),
 });
 
 // Runner config schema (specific to the VS Code extension)
@@ -124,7 +113,6 @@ export const repomixRunnerConfigBaseSchema = z
       copyMode: runnerCopyModeSchema,
       useTargetAsOutput: z.boolean(),
       useBundleNameAsOutputName: z.boolean(),
-      configPath: z.string().optional(),
     }),
   })
   .and(repomixConfigBaseSchema);
@@ -137,7 +125,6 @@ export const repomixRunnerConfigDefaultSchema = z
       copyMode: runnerCopyModeSchema.default('file'),
       useTargetAsOutput: z.boolean().default(true),
       useBundleNameAsOutputName: z.boolean().default(true),
-      configPath: z.string().default('repomix.config.json'),
     }),
   })
   .and(repomixConfigDefaultSchema);
@@ -146,7 +133,7 @@ export const repomixRunnerConfigDefaultSchema = z
 export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
   z.object({
     cwd: z.string(),
-    configFilePath: z.string().optional(),
+    version: z.boolean().default(false),
   })
 );
 
@@ -162,6 +149,5 @@ export const defaultConfig = repomixRunnerConfigDefaultSchema.parse({
     copyMode: 'file',
     useTargetAsOutput: true,
     useBundleNameAsOutputName: true,
-    configPath: 'repomix.config.json',
   },
 });

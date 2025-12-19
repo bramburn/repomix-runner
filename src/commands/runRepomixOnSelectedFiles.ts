@@ -54,6 +54,7 @@ export async function runRepomixOnSelectedFiles(
 
   logger.both.info(`Running repomix with calculated include patterns: ${includePatterns.join(', ')}`);
 
+  // TODO add test for config merging
   const finalOverrideConfig = {
     ...overrideConfig,
     include: includePatterns,

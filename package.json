@@ -67,12 +67,6 @@
             "type": "boolean",
             "default": false,
             "description": "🔍 \n Verbose mode"
-          },
-          "repomix.runner.configPath": {
-            "order": 6,
-            "type": "string",
-            "default": "repomix.config.json",
-            "description": "⚙️ \n Custom path to the repomix configuration file"
           }
         }
       },

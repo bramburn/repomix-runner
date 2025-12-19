@@ -112,7 +112,6 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
-          configPath: 'repomix.config.json',
         },
         output: {
           filePath: 'output.txt',
@@ -141,10 +140,6 @@ suite('configLoader', () => {
         },
         tokenCount: {
           encoding: 'o200k_base',
-        },
-        remote: {
-          url: '',
-          branch: '',
         },
       };
       // stub the vscode settings
@@ -253,7 +248,6 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
-          configPath: 'repomix.config.json',
         },
         output: {
           filePath: 'output.txt',
@@ -282,10 +276,6 @@ suite('configLoader', () => {
         },
         tokenCount: {
           encoding: 'o200k_base',
-        },
-        remote: {
-          url: '',
-          branch: '',
         },
       };
 
@@ -528,6 +518,20 @@ suite('configLoader', () => {
       assert.strictEqual(merged.ignore.useDefaultPatterns, false);
       assert.deepStrictEqual(merged.ignore.customPatterns, ['**/*.override.ignore']);
       assert.strictEqual(merged.tokenCount.encoding, 'cl100k_base');
+    });
+
+    test('should merge version flag from override config', async () => {
+      const vscodeConfig = defaultConfig;
+      const fileConfig: RepomixConfigFile = {};
+      const overrideConfig: RepomixConfigFile = {
+        version: true,
+      };
+
+      const merged = await mergeConfigs(testCwd, fileConfig, vscodeConfig, overrideConfig);
+      assert.strictEqual(merged.version, true);
+
+      const mergedWithoutOverride = await mergeConfigs(testCwd, fileConfig, vscodeConfig, null);
+      assert.strictEqual(mergedWithoutOverride.version, false);
     });
 
     /**

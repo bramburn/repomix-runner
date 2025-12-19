@@ -120,6 +120,17 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--no-default-patterns'));
   });
 
+  test('should add "--token-count-encoding" flag when config.tokenCount.encoding is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      tokenCount: {
+        encoding: 'o200k_base',
+      },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--token-count-encoding o200k_base'));
+  });
+
   test('should add "--no-file-summary" flag when output.fileSummary is false', () => {
     const config: MergedConfig = {
       ...baseConfig,
@@ -184,6 +195,16 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--copy'));
   });
 
+  test('should not add "--copy" flag when output.copyToClipboard is true and runner.copyMode is "file"', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, copyToClipboard: true },
+      runner: { ...baseConfig.runner, copyMode: 'file' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(!flags.includes('--copy'));
+  });
+
   test('should add "--remote" flag when remote.url is specified', () => {
     const config: MergedConfig = {
       ...baseConfig,
@@ -209,15 +230,6 @@ suite('CliFlagsBuilder', () => {
     };
     const flags = cliFlagsBuilder(config);
     assert.ok(flags.includes('--no-security-check'));
-  });
-
-  test('should add "--token-count-encoding" flag when config.tokenCount.encoding is specified', () => {
-    const config: MergedConfig = {
-      ...baseConfig,
-      tokenCount: { encoding: 'o200k_base' },
-    };
-    const flags = cliFlagsBuilder(config);
-    assert.ok(flags.includes('--token-count-encoding o200k_base'));
   });
 
   test('should add "--verbose" flag when runner.verbose is true', () => {
@@ -278,5 +290,23 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--ignore "node_modules,dist"'));
     assert.ok(flags.includes('--no-security-check'));
     assert.ok(flags.includes('--compress'));
+  });
+
+  test('should normalize Windows paths with backslashes in config.include', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      include: [
+        'path\\to\\file.js',
+        'another\\path\\file.ts',
+        '\\root\\path.js',
+        'mixed/path\\with/backslash.js',
+      ],
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(
+      flags.includes(
+        '--include "path/to/file.js,another/path/file.ts,/root/path.js,mixed/path/with/backslash.js"'
+      )
+    );
   });
 });

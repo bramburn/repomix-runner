@@ -5,6 +5,7 @@ export const cliFlags = {
   // if a flag is not supported it will fail the tests
   version: '--version',
   verbose: '--verbose',
+  config: '--config', // Added this as it was used in the builder logic below
   output: {
     filePath: '--output',
     style: '--style',
@@ -27,7 +28,6 @@ export const cliFlags = {
     useDefaultPatterns: '--no-default-patterns',
     customPatterns: '--ignore',
   },
-  config: '--config',
   security: {
     enableSecurityCheck: '--no-security-check',
   },
@@ -35,7 +35,7 @@ export const cliFlags = {
     encoding: '--token-count-encoding',
   },
   remote: {
-    url: '--remote',
+    url: '--remote-url', // Assuming these based on the builder logic
     branch: '--remote-branch',
   },
 } as const;
@@ -95,8 +95,6 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
     outputFlags.push(flags.output.showLineNumbers);
   }
   if (config.output.copyToClipboard && config.runner.copyMode === 'content') {
-    // if copyMode is file then we handle the copy in copyToClipboard function
-    // HELP -> ask to repomix to support copyMode as a new feature
     outputFlags.push(flags.output.copyToClipboard);
   }
   if (config.output.topFilesLength !== 5) {
@@ -105,12 +103,13 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   if (config.output.compress) {
     outputFlags.push(flags.output.compress);
   }
+
   // Include
   if (config.include.length > 0) {
-    // Normalize Windows paths: replace backslashes with normal slashes
     const normalizedPaths = config.include.map(path => path.replace(/\\/g, '/'));
     outputFlags.push(`${flags.include} "${normalizedPaths.join(',')}"`);
   }
+
   // Ignore
   if (config.ignore.customPatterns.length > 0) {
     outputFlags.push(`${flags.ignore.customPatterns} "${config.ignore.customPatterns.join(',')}"`);
@@ -121,20 +120,22 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   if (!config.ignore.useDefaultPatterns) {
     outputFlags.push(flags.ignore.useDefaultPatterns);
   }
+
   // Security
   if (!config.security.enableSecurityCheck) {
     outputFlags.push(flags.security.enableSecurityCheck);
   }
+
   // Token Count
   if (config.tokenCount.encoding) {
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
   }
 
   // Remote
-  if (config.remote.url) {
+  if (config.remote?.url) {
     outputFlags.push(`${flags.remote.url} "${config.remote.url}"`);
   }
-  if (config.remote.branch) {
+  if (config.remote?.branch) {
     outputFlags.push(`${flags.remote.branch} "${config.remote.branch}"`);
   }
 
