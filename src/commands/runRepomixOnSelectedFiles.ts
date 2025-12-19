@@ -66,7 +66,6 @@ export async function runRepomixOnSelectedFiles(
     }
   }
 
-  // TODO add test for config merging
   const finalOverrideConfig = {
     ...overrideConfig,
     include: includePatterns,
