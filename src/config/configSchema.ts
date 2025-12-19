@@ -31,6 +31,7 @@ export const repomixConfigBaseSchema = z.object({
       includeEmptyDirectories: z.boolean().optional(),
       compress: z.boolean().optional(),
     })
+    .passthrough()
     .optional(),
   include: z.array(z.string()).optional(),
   ignore: z
@@ -39,19 +40,22 @@ export const repomixConfigBaseSchema = z.object({
       useDefaultPatterns: z.boolean().optional(),
       customPatterns: z.array(z.string()).optional(),
     })
+    .passthrough()
     .optional(),
   security: z
     .object({
       enableSecurityCheck: z.boolean().optional(),
     })
+    .passthrough()
     .optional(),
   tokenCount: z
     .object({
       encoding: z.string().optional(),
     })
+    .passthrough()
     .optional(),
   version: z.boolean().optional(),
-});
+}).passthrough();
 
 // Default config schema (avec valeurs par défaut)
 export const repomixConfigDefaultSchema = z.object({
@@ -72,6 +76,7 @@ export const repomixConfigDefaultSchema = z.object({
       includeEmptyDirectories: z.boolean().default(false),
       compress: z.boolean().default(false),
     })
+    .passthrough()
     .default({}),
   include: z.array(z.string()).default([]),
   ignore: z
@@ -80,11 +85,13 @@ export const repomixConfigDefaultSchema = z.object({
       useDefaultPatterns: z.boolean().default(true),
       customPatterns: z.array(z.string()).default([]),
     })
+    .passthrough()
     .default({}),
   security: z
     .object({
       enableSecurityCheck: z.boolean().default(true),
     })
+    .passthrough()
     .default({}),
   tokenCount: z
     .object({
@@ -93,8 +100,9 @@ export const repomixConfigDefaultSchema = z.object({
         .default('o200k_base')
         .transform(val => val as TiktokenEncoding),
     })
+    .passthrough()
     .default({}),
-});
+}).passthrough();
 
 // Runner config schema (specific to the VS Code extension)
 export const runnerCopyModeSchema = z.enum(['content', 'file']);
@@ -139,7 +147,7 @@ export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
       url: z.string().optional(),
       branch: z.string().optional(),
     }).optional(),
-  })
+  }).passthrough()
 );
 
 export type RepomixConfigFile = z.infer<typeof repomixConfigBaseSchema>;
