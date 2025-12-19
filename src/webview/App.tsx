@@ -14,8 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { CopyRegular, PlayRegular, ArrowClockwiseRegular } from '@fluentui/react-icons';
-import { SettingsTab } from './SettingsTab.js';
+import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 
 // --- Helpers ---
 
@@ -65,6 +64,12 @@ interface AgentRunHistoryItem {
   error?: string;
   duration?: number;
   outputPath?: string;
+}
+
+interface DebugRun {
+  id: number;
+  timestamp: number;
+  files: string[];
 }
 
 interface LongPressButtonProps {
@@ -227,15 +232,13 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   );
 };
 
-interface AgentViewProps {
-    onSwitchToSettings: () => void;
-}
-
-const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
+const AgentView = () => {
   const initialState = vscode.getState() || {};
 
   const [query, setQuery] = useState(initialState.agentQuery || '');
+  const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [agentState, setAgentState] = useState<AgentState>({
     lastOutputPath: initialState.agentLastRun?.lastOutputPath,
@@ -247,6 +250,9 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (event.data.command === 'apiKeyStatus') {
+        setHasKey(event.data.hasKey);
+      }
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
       }
@@ -280,6 +286,7 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       }
     };
     window.addEventListener('message', handler);
+    vscode.postMessage({ command: 'checkApiKey' });
     vscode.postMessage({ command: 'getAgentHistory' });
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -308,6 +315,15 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       return;
     }
     vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
+  };
+
+  const handleSaveKey = () => {
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+        return;
+    }
+    vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
+    setApiKey(''); // Clear input for security
   };
 
   return (
@@ -398,12 +414,44 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       <Divider />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-          <Text size={200} style={{ opacity: 0.8 }}>
-             Need to configure API keys?
-          </Text>
-          <Button appearance="subtle" onClick={onSwitchToSettings}>
-             Go to Settings
+        <Label weight="semibold">Smart Agent Configuration</Label>
+
+        {hasKey ? (
+           <Text size={200} style={{ color: '#4caf50' }}>
+             ✅ API Key Configured
+           </Text>
+        ) : (
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+             <Text size={200} style={{ color: '#ffb74d' }}>
+               ⚠️ API Key Missing
+             </Text>
+             <Text size={100} style={{ opacity: 0.8 }}>
+               Please configure your Google API Key below to use the Smart Agent.
+             </Text>
+           </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <Input
+            type="password"
+            placeholder="Paste Gemini API Key"
+            value={apiKey}
+            onChange={(e, data) => {
+              setApiKey(data.value);
+            }}
+            style={{ flexGrow: 1 }}
+          />
+          <Button
+            icon={<SaveRegular />}
+            onClick={handleSaveKey}
+            disabled={!apiKey.trim()}
+          >
+            Save
           </Button>
+        </div>
+        <Text size={100} style={{opacity: 0.7}}>
+          Key is stored securely in VS Code Secrets.
+        </Text>
       </div>
 
       <Divider />
@@ -787,6 +835,83 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
   );
 };
 
+const DebugTab = () => {
+  const [runs, setRuns] = useState<DebugRun[]>([]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (message.command === 'updateDebugRuns') {
+        setRuns(message.runs);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    vscode.postMessage({ command: 'getDebugRuns' });
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
+
+  const handleReRun = (files: string[]) => {
+    vscode.postMessage({ command: 'reRunDebug', files });
+  };
+
+  return (
+    <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <Text weight="semibold">Recent Runs (Run on Selection)</Text>
+      {runs.length === 0 ? (
+        <Text style={{ opacity: 0.7 }}>No runs recorded yet.</Text>
+      ) : (
+        runs.map((run) => (
+          <div
+            key={run.id}
+            style={{
+              padding: '10px',
+              backgroundColor: 'var(--vscode-editor-background)',
+              borderRadius: '4px',
+              border: '1px solid var(--vscode-widget-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '5px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text size={200} weight="semibold">
+                {new Date(run.timestamp).toLocaleString()}
+              </Text>
+              <Button
+                appearance="subtle"
+                icon={<ArrowCounterclockwiseRegular />}
+                onClick={() => handleReRun(run.files)}
+                title="Re-run this selection"
+              >
+                Re-run
+              </Button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                {run.files.map((file, idx) => (
+                    <Text key={idx} size={100} style={{
+                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                        padding: '2px 4px',
+                        borderRadius: '2px',
+                        opacity: 0.9
+                    }}>
+                        {file}
+                    </Text>
+                ))}
+            </div>
+            <Text size={100} style={{ opacity: 0.7 }}>
+                {run.files.length} items
+            </Text>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
 // --- MAIN APP ---
 
 export const App = () => {
@@ -921,17 +1046,15 @@ export const App = () => {
                 </div>
              </>
           )}
-          {selectedTab === 'agent' && <AgentView onSwitchToSettings={() => setSelectedTab('settings')} />}
+          {selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'settings' && (
-             <SettingsTab />
-          )}
-          {selectedTab === 'debug' && (
             <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
               <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
-                Debug Monitor Placeholder
+                Settings Placeholder
               </Text>
             </div>
           )}
+          {selectedTab === 'debug' && <DebugTab />}
         </div>
 
         {/* FOOTER */}

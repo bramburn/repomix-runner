@@ -14,6 +14,7 @@ import { tempDirManager } from '../core/files/tempDirManager.js';
 import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
+import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -101,28 +102,17 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCopyDefaultRepomixOutput();
           break;
         }
-        case 'checkSecret': {
-          const { key } = message;
-          const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
-          const val = await this._context.secrets.get(storageKey);
+        case 'checkApiKey': {
+          const key = await this._context.secrets.get('repomix.agent.googleApiKey');
           this._view?.webview.postMessage({
-            command: 'secretStatus',
-            key,
-            exists: !!val
+            command: 'apiKeyStatus',
+            hasKey: !!key
           });
           break;
         }
-        case 'saveSecret': {
-          const { key, value } = message;
-          const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
-          await this._context.secrets.store(storageKey, value);
-          vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
-          // Send status update back to webview immediately
-          this._view?.webview.postMessage({
-            command: 'secretStatus',
-            key,
-            exists: true
-          });
+        case 'saveApiKey': {
+          const { apiKey } = message;
+          await this._handleSaveApiKey(apiKey);
           break;
         }
         case 'runSmartAgent': {
@@ -157,6 +147,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'openFile': {
           const { path } = message;
           await this._handleOpenFile(path);
+          break;
+        }
+        case 'getDebugRuns': {
+          await this._handleGetDebugRuns();
+          break;
+        }
+        case 'reRunDebug': {
+          const { files } = message;
+          await this._handleReRunDebug(files);
           break;
         }
       }
@@ -612,6 +611,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     this._isProcessingQueue = false;
   }
 
+  private async _handleCheckApiKey(): Promise<boolean> {
+    const apiKey = await this._context.secrets.get('repomix.agent.googleApiKey');
+    return !!apiKey;
+  }
+
+  private async _handleSaveApiKey(apiKey: string) {
+    if (apiKey) {
+      await this._context.secrets.store('repomix.agent.googleApiKey', apiKey);
+      vscode.window.showInformationMessage('API Key saved successfully!');
+    }
+  }
+
   private async _handleRunSmartAgent(query: string) {
     const workspaceRoot = getCwd();
 
@@ -623,7 +634,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     if (!apiKey) {
-      vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Settings' tab.");
+      vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
       this._view?.webview.postMessage({ command: 'agentRunFailed' });
       return;
     }
@@ -738,9 +749,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             'Open Settings'
           );
           if (selection === 'Open Settings') {
-            // We can't switch tab directly from extension, but we can send message
-            // However, previous implementation used settings.json, now we use custom UI
-            vscode.window.showInformationMessage("Please go to the 'Settings' tab in Repomix Runner to configure your API key.");
+            vscode.commands.executeCommand(
+              'workbench.action.openSettings',
+              'repomix.agent.googleApiKey'
+            );
           }
         } else if (errorMessage.includes('cancelled')) {
            vscode.window.showInformationMessage("Agent run cancelled.");
@@ -808,7 +820,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       if (!apiKey) {
-        vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Settings' tab.");
+        vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
         return;
       }
 
@@ -929,6 +941,43 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
     }
+  }
+
+  private async _handleGetDebugRuns(): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+    try {
+      const runs = await this._databaseService.getDebugRuns();
+      this._view.webview.postMessage({
+        command: 'updateDebugRuns',
+        runs,
+      });
+    } catch (error) {
+      console.error('Failed to get debug runs:', error);
+    }
+  }
+
+  private async _handleReRunDebug(files: string[]): Promise<void> {
+    const cwd = getCwd();
+    // Validate and sanitize paths before execution
+    const safeFiles = files.filter(file => {
+      // Basic check: no '..' that escapes cwd, although simple string check isn't perfect
+      // Better: resolve path and check it starts with cwd
+      const resolved = path.resolve(cwd, file);
+      return resolved.startsWith(cwd);
+    });
+
+    if (safeFiles.length !== files.length) {
+      vscode.window.showWarningMessage('Some files were skipped due to security checks.');
+    }
+
+    if (safeFiles.length === 0) {
+      return;
+    }
+
+    const uris = safeFiles.map(file => vscode.Uri.file(path.join(cwd, file)));
+    await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
