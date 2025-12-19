@@ -964,10 +964,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   private async _handleReRunDebug(files: string[]): Promise<void> {
     const cwd = getCwd();
-    // Validate and sanitize paths before execution
     const safeFiles = files.filter(file => {
-      // Basic check: no '..' that escapes cwd, although simple string check isn't perfect
-      // Better: resolve path and check it starts with cwd
       const resolved = path.resolve(cwd, file);
       return resolved.startsWith(cwd);
     });
@@ -984,21 +981,31 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
   }
 
-  private async _handleCopyDebugOutput(): Promise<void> {
+  private async _handleCopyDebugOutput() {
     try {
       const outputPath = await this._resolveDefaultRepomixOutputPath();
-
       if (!fs.existsSync(outputPath)) {
-        vscode.window.showWarningMessage(`No debug output available to copy (File not found: ${outputPath})`);
+        vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
         return;
       }
 
-      const content = await fs.promises.readFile(outputPath, 'utf-8');
-      await vscode.env.clipboard.writeText(content);
-      vscode.window.showInformationMessage('Debug output copied to clipboard.');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      vscode.window.showErrorMessage(`Failed to copy debug output: ${errorMessage}`);
+      // Use original filename without timestamp prefix
+      const originalFilename = path.basename(outputPath);
+      const uniqueSubdir = `copy_${Date.now()}`;
+      const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+      // Ensure subdirectory exists
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+
+      await copyToClipboard(outputPath, tmpFilePath);
+      vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
+      await tempDirManager.cleanupFile(tmpFilePath);
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
     }
   }
 

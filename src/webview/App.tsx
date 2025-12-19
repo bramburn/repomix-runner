@@ -310,12 +310,9 @@ const AgentView = () => {
   };
 
   const handleCopyLastAgentOutput = () => {
-    if (!agentState.lastOutputPath) {
-      // Error will be handled by the webview provider
-      return;
-    }
-    vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
-  };
+  if (!agentState.lastOutputPath) return; // Already present in your code
+  vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
+};
 
   const handleSaveKey = () => {
     const trimmedKey = apiKey.trim();
@@ -885,29 +882,31 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                {index === 0 && (
-                  <Button
-                    appearance="subtle"
-                    icon={<CopyRegular />}
-                    onClick={handleCopy}
-                    title="Copy output from default repomix file"
-                  >
-                    Copy
-                  </Button>
-                )}
-                <Button
-                  appearance="subtle"
-                  icon={<ArrowCounterclockwiseRegular />}
-                  onClick={() => handleReRun(run.files)}
-                  title="Re-run this selection"
-                >
-                  Re-run
-                </Button>
-              </div>
+              <div style={{ display: 'flex', gap: '5px' }}>
+  {/* Logic from bugfix branch: only show Copy on the latest run */}
+  {index === 0 && (
+    <Button
+      appearance="subtle"
+      icon={<CopyRegular />}
+      onClick={handleCopy}
+      title="Copy output from default repomix file"
+    >
+      Copy
+    </Button>
+  )}
+  {/* Logic from main branch: updated styling and icon */}
+  <Button
+    appearance="subtle"
+    icon={<ArrowCounterclockwiseRegular />}
+    onClick={() => handleReRun(run.files)}
+    title="Re-run this selection"
+  >
+    Re-run
+  </Button>
+</div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                {run.files.map((file, idx) => (
+                {run.files.slice(0, 3).map((file, idx) => (
                     <Text key={idx} size={100} style={{
                         backgroundColor: 'var(--vscode-textBlockQuote-background)',
                         padding: '2px 4px',
@@ -917,6 +916,17 @@ const DebugTab = () => {
                         {file}
                     </Text>
                 ))}
+                {run.files.length > 3 && (
+                    <Text size={100} style={{
+                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                        padding: '2px 4px',
+                        borderRadius: '2px',
+                        opacity: 0.9,
+                        fontStyle: 'italic'
+                    }}>
+                        +{run.files.length - 3} selection
+                    </Text>
+                )}
             </div>
             <Text size={100} style={{ opacity: 0.7 }}>
                 {run.files.length} items

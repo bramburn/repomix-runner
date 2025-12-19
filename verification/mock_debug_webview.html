@@ -41,6 +41,11 @@
                             id: 2,
                             timestamp: Date.now() - 3600000,
                             files: ["README.md"]
+                        },
+                        {
+                            id: 3,
+                            timestamp: Date.now() - 7200000,
+                            files: Array.from({length: 15}, (_, i) => `file${i + 1}.ts`)
                         }
                     ]
                 }, "*");

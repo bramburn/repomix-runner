@@ -16,7 +16,10 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=ROOT_DIR, **kwargs)
 
 def run_server():
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+    class ReusableTCPServer(socketserver.TCPServer):
+        allow_reuse_address = True
+
+    with ReusableTCPServer(("", PORT), Handler) as httpd:
         print(f"Serving at port {PORT}")
         httpd.serve_forever()
 
@@ -47,6 +50,19 @@ def verify_debug_tab():
         expect(page.get_by_text("src/file1.ts")).to_be_visible()
         expect(page.get_by_text("src/file2.ts")).to_be_visible()
         expect(page.get_by_text("README.md")).to_be_visible()
+
+        # Check for truncated list with label
+        print("Checking for truncated list logic...")
+        # 3rd run has 15 files. Should show first 3 and +12 selection
+        expect(page.get_by_text("file1.ts", exact=True)).to_be_visible()
+        expect(page.get_by_text("file2.ts", exact=True)).to_be_visible()
+        expect(page.get_by_text("file3.ts", exact=True)).to_be_visible()
+        expect(page.get_by_text("+12 selection")).to_be_visible()
+
+        # Verify file4.ts is NOT visible (since we only show 3)
+        # Note: Playwright's to_be_visible() might return true if it's in the DOM but hidden?
+        # But here we are not rendering it at all in the loop.
+        expect(page.get_by_text("file4.ts")).not_to_be_visible()
 
         # Check for Re-run button
         print("Checking for Re-run button...")
