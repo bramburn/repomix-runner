@@ -87,6 +87,10 @@ export const ReRunDebugSchema = z.object({
   files: z.array(z.string()),
 });
 
+export const CopyDebugOutputSchema = z.object({
+  command: z.literal('copyDebugOutput'),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -122,6 +126,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   RegenerateAgentRunSchema,
   GetDebugRunsSchema,
   ReRunDebugSchema,
+  CopyDebugOutputSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

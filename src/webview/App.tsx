@@ -858,6 +858,10 @@ const DebugTab = () => {
     vscode.postMessage({ command: 'reRunDebug', files });
   };
 
+  const handleCopy = () => {
+    vscode.postMessage({ command: 'copyDebugOutput' });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
@@ -881,14 +885,24 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              <Button
-                appearance="subtle"
-                icon={<ArrowCounterclockwiseRegular />}
-                onClick={() => handleReRun(run.files)}
-                title="Re-run this selection"
-              >
-                Re-run
-              </Button>
+              <div style={{ display: 'flex', gap: '5px' }}>
+                <Button
+                    appearance="subtle"
+                    icon={<CopyRegular />}
+                    onClick={handleCopy}
+                    title="Copy Output"
+                >
+                    Copy
+                </Button>
+                <Button
+                    appearance="subtle"
+                    icon={<ArrowCounterclockwiseRegular />}
+                    onClick={() => handleReRun(run.files)}
+                    title="Re-run this selection"
+                >
+                    Re-run
+                </Button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                 {run.files.map((file, idx) => (

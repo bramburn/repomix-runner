@@ -158,6 +158,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleReRunDebug(files);
           break;
         }
+        case 'copyDebugOutput': {
+          await this._handleCopyDebugOutput();
+          break;
+        }
       }
     });
 
@@ -978,6 +982,34 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     const uris = safeFiles.map(file => vscode.Uri.file(path.join(cwd, file)));
     await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
+  }
+
+  private async _handleCopyDebugOutput() {
+    try {
+      const outputPath = await this._resolveDefaultRepomixOutputPath();
+      if (!fs.existsSync(outputPath)) {
+        vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
+        return;
+      }
+
+      // Use original filename without timestamp prefix
+      const originalFilename = path.basename(outputPath);
+      const uniqueSubdir = `copy_${Date.now()}`;
+      const tmpDir = path.join(tempDirManager.getTempDir(), uniqueSubdir);
+
+      // Ensure subdirectory exists
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+
+      await copyToClipboard(outputPath, tmpFilePath);
+      vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
+      await tempDirManager.cleanupFile(tmpFilePath);
+
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
