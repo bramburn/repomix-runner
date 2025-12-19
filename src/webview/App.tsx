@@ -888,7 +888,8 @@ const DebugTab = () => {
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
               <div style={{ display: 'flex', gap: '5px' }}>
-  {/* Logic from bugfix branch: only show Copy on the latest run */}
+<div style={{ display: 'flex', gap: '5px' }}>
+  {/* Only show Copy on the latest run */}
   {index === 0 && (
     <Button
       appearance="subtle"
@@ -896,10 +897,9 @@ const DebugTab = () => {
       onClick={handleCopy}
       title="Copy output from default repomix file"
     >
-      Copy
+      Copy Output
     </Button>
   )}
-  {/* Logic from main branch: updated styling and icon */}
   <Button
     appearance="subtle"
     icon={<ArrowCounterclockwiseRegular />}

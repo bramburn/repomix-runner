@@ -51,6 +51,23 @@
                 }, "*");
             }, 100);
         }
+        if (msg.command === "copyDefaultRepomixOutput") {
+             console.log("Mock: Copying default output...");
+             // Fetch the mock file created by the python script
+             fetch('/verification/temp_debug_output_for_test/repomix-output-test.log')
+                .then(res => {
+                    if (!res.ok) throw new Error("Failed to fetch mock output file");
+                    return res.text();
+                })
+                .then(text => {
+                    navigator.clipboard.writeText(text).then(() => {
+                        console.log("Mock: Copied text to clipboard");
+                    }).catch(err => {
+                        console.error("Mock: Failed to write to clipboard", err);
+                    });
+                })
+                .catch(err => console.error("Mock: Copy failed", err));
+        }
       },
       getState: () => ({ selectedTab: 'debug' }), // Start on debug tab
       setState: () => {}
