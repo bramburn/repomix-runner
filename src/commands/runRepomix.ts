@@ -68,7 +68,7 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
          throw new Error(`Security Violation: Output path "${config.output.filePath}" attempts to traverse outside the workspace.`);
     }
 
-    const cliFlags = deps.cliFlagsBuilder(config);
+    const cliFlags = deps.cliFlagsBuilder(config, undefined, (msg) => logger.both.warn(msg));
 
     // Security: Validate config.cwd usage if it differs from workspaceRoot (though mergeConfigs sets it to cwd usually)
     // config.cwd is derived from getCwd().
