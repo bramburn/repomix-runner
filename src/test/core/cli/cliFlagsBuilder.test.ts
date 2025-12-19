@@ -113,17 +113,6 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--no-default-patterns'));
   });
 
-  test('shouldf add "--token-count-encoding" flag when config.tokenCountEncoding is specified', () => {
-    const config: MergedConfig = {
-      ...baseConfig,
-      tokenCount: {
-        encoding: 'o200k_base',
-      },
-    };
-    const flags = cliFlagsBuilder(config);
-    assert.ok(flags.includes('--token-count-encoding o200k_base'));
-  });
-
   test('should add "--no-file-summary" flag when output.fileSummary is false', () => {
     const config: MergedConfig = {
       ...baseConfig,
@@ -225,7 +214,16 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--no-security-check'));
   });
 
-  //TODO --token-count-encoding
+  test('should add "--token-count-encoding" flag when config.tokenCountEncoding is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      tokenCount: {
+        encoding: 'o200k_base',
+      },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--token-count-encoding o200k_base'));
+  });
 
   //TODO --verbose
 
