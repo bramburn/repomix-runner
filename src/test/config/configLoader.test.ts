@@ -141,6 +141,10 @@ suite('configLoader', () => {
         tokenCount: {
           encoding: 'o200k_base',
         },
+        remote: {
+          url: '',
+          branch: ''
+        },
       };
       // stub the vscode settings
       const configStub = sinon
@@ -276,6 +280,10 @@ suite('configLoader', () => {
         },
         tokenCount: {
           encoding: 'o200k_base',
+        },
+        remote: {
+          url: '',
+          branch: ''
         },
       };
 
