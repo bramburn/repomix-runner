@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/massdo/repomix-runner.git"
   },
-  "version": "0.6.11",
+  "version": "0.6.15",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -67,6 +67,12 @@
             "type": "boolean",
             "default": false,
             "description": "🔍 \n Verbose mode"
+          },
+          "repomix.runner.configPath": {
+            "order": 6,
+            "type": "string",
+            "default": "repomix.config.json",
+            "description": "⚙️ \n Custom path to the repomix configuration file"
           }
         }
       },
