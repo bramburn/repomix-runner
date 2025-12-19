@@ -23,6 +23,7 @@ suite('runRepomix', () => {
       copyMode: 'file' as const,
       useTargetAsOutput: false,
       useBundleNameAsOutputName: true,
+      configPath: 'repomix.config.json',
     },
     output: {
       filePath: '/fake/output.txt',
@@ -44,6 +45,7 @@ suite('runRepomix', () => {
     ignore: { useGitignore: true, useDefaultPatterns: true, customPatterns: [] },
     security: { enableSecurityCheck: true },
     tokenCount: { encoding: 'o200k_base' },
+    remote: { url: '', branch: '' },
   };
 
   test('should call copyToClipboard when config.output.copyToClipboard is true and config.runner.copyMode is file', async () => {

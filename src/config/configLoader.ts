@@ -106,7 +106,22 @@ export async function readRepomixFileConfig(
   cwd: string,
   customConfigPathRelative?: string
 ): Promise<RepomixConfigFile | void> {
-  const configPath = path.join(cwd, customConfigPathRelative || 'repomix.config.json'); // TODO support --config flag
+  let relativePath = customConfigPathRelative;
+
+  if (!relativePath) {
+    // If no custom config path is provided, try to get it from VS Code settings
+    try {
+      const vscodeConfig = readRepomixRunnerVscodeConfig();
+      if (vscodeConfig.runner.configPath && vscodeConfig.runner.configPath !== 'repomix.config.json') {
+        relativePath = vscodeConfig.runner.configPath;
+      }
+    } catch (error) {
+      // If we can't read the VS Code config, we'll fall back to the default
+      logger.both.debug(`Could not read VS Code config: ${error}`);
+    }
+  }
+
+  const configPath = path.join(cwd, relativePath || 'repomix.config.json');
 
   try {
     await access(configPath);
@@ -123,9 +138,9 @@ export async function readRepomixFileConfig(
     const config = JSON.parse(stripJsonComments(data));
     return repomixConfigBaseSchema.parse(config);
   } catch (error) {
-    logger.both.error('Invalid repomix.config.json format');
-    vscode.window.showErrorMessage(`Invalid repomix.config.json format: ${error}`);
-    throw new Error('Invalid repomix.config.json format');
+    logger.both.error(`Invalid format for config file at ${configPath}`);
+    vscode.window.showErrorMessage(`Invalid format for config file at ${configPath}: ${error}`);
+    throw new Error(`Invalid format for config file at ${configPath}`);
   }
 }
 
@@ -182,6 +197,18 @@ export async function mergeConfigs(
 
   outputFilePath = addFileExtension(outputFilePath, outputStyle);
 
+  const remote =
+    overrideConfig?.remote ||
+    configFromRepomixFile?.remote ||
+    configFromRepomixRunnerVscode.remote ||
+    baseConfig.remote;
+
+  const remoteBranch =
+    overrideConfig?.remoteBranch ||
+    configFromRepomixFile?.remoteBranch ||
+    configFromRepomixRunnerVscode.remoteBranch ||
+    baseConfig.remoteBranch;
+
   const mergedConfig = {
     cwd,
     runner: {
@@ -220,6 +247,8 @@ export async function mergeConfigs(
       ...configFromRepomixFile?.tokenCount,
       ...overrideConfig?.tokenCount,
     },
+    remote,
+    remoteBranch,
   };
 
   return mergedConfigSchema.parse(mergedConfig);

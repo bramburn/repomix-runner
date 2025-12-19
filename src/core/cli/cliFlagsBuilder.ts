@@ -3,6 +3,8 @@ import { MergedConfig } from '../../config/configSchema.js';
 export const cliFlags = {
   // keep this up to date with repomix official cli flags
   // if a flag is not supported it will fail the tests
+  version: '--version',
+  verbose: '--verbose',
   output: {
     filePath: '--output',
     style: '--style',
@@ -25,19 +27,38 @@ export const cliFlags = {
     useDefaultPatterns: '--no-default-patterns',
     customPatterns: '--ignore',
   },
+  config: '--config',
   security: {
     enableSecurityCheck: '--no-security-check',
   },
   tokenCount: {
     encoding: '--token-count-encoding',
   },
-  verbose: '--verbose',
+  remote: {
+    url: '--remote',
+    branch: '--remote-branch',
+  },
 } as const;
 
 export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string {
   const outputFlags: string[] = [];
 
   // TODO si une clée de config n'est pas dans le la flagsmapping alors on le log en disant la config n'est pas supportée
+
+  // Version
+  if (config.version) {
+    outputFlags.push(flags.version);
+  }
+
+  // Verbose
+  if (config.runner.verbose) {
+    outputFlags.push(flags.verbose);
+  }
+
+  // Config
+  if (config.configFilePath) {
+    outputFlags.push(`${flags.config} "${config.configFilePath}"`);
+  }
 
   // Output
   if (config.output.filePath) {
@@ -109,9 +130,12 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
   }
 
-  // Verbose
-  if (config.runner.verbose) {
-    outputFlags.push(flags.verbose);
+  // Remote
+  if (config.remote.url) {
+    outputFlags.push(`${flags.remote.url} "${config.remote.url}"`);
+  }
+  if (config.remote.branch) {
+    outputFlags.push(`${flags.remote.branch} "${config.remote.branch}"`);
   }
 
   return outputFlags.join(' ');

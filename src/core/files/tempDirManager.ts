@@ -42,7 +42,6 @@ export class TempDirManager {
   }
 
   public async cleanupFile(tmpFilePath: string, delay: number = 3 * 60_000): Promise<void> {
-    // TODO integration test
     try {
       await setTimeout(delay);
       try {
