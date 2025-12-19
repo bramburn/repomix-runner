@@ -113,6 +113,7 @@ export const repomixRunnerConfigBaseSchema = z
       copyMode: runnerCopyModeSchema,
       useTargetAsOutput: z.boolean(),
       useBundleNameAsOutputName: z.boolean(),
+      configPath: z.string().optional(),
     }),
   })
   .and(repomixConfigBaseSchema);
@@ -125,6 +126,7 @@ export const repomixRunnerConfigDefaultSchema = z
       copyMode: runnerCopyModeSchema.default('file'),
       useTargetAsOutput: z.boolean().default(true),
       useBundleNameAsOutputName: z.boolean().default(true),
+      configPath: z.string().default(''),
     }),
   })
   .and(repomixConfigDefaultSchema);

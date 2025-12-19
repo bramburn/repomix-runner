@@ -227,8 +227,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private async _resolveDefaultRepomixOutputPath(): Promise<string> {
       const cwd = getCwd();
       const vscodeConfig = readRepomixRunnerVscodeConfig();
-      const configFile = await readRepomixFileConfig(cwd);
-      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null);
+      const configFile = await readRepomixFileConfig(cwd, vscodeConfig.runner.configPath);
+      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null, vscodeConfig.runner.configPath);
       return mergedConfig.output.filePath;
   }
 
