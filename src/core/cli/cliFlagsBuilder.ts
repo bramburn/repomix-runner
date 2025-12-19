@@ -25,6 +25,7 @@ export const cliFlags = {
     useDefaultPatterns: '--no-default-patterns',
     customPatterns: '--ignore',
   },
+  config: '--config',
   security: {
     enableSecurityCheck: '--no-security-check',
   },
@@ -37,6 +38,11 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   const outputFlags: string[] = [];
 
   // TODO si une clée de config n'est pas dans le la flagsmapping alors on le log en disant la config n'est pas supportée
+
+  // Config
+  if (config.configFilePath) {
+    outputFlags.push(`${flags.config} "${config.configFilePath}"`);
+  }
 
   // Output
   if (config.output.filePath) {
