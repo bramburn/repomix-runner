@@ -12,16 +12,19 @@ import pyperclip
 # --- Configuration ---
 HOST = "localhost"
 PORT = 9008 # Use a different port than verify_debug_tab
-ROOT_DIR = os.getcwd()
+# Derive ROOT_DIR from the script location to ensure consistency
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class VerificationHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT_DIR, **kwargs)
 
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
 def run_server():
     try:
-        with socketserver.TCPServer((HOST, PORT), VerificationHandler) as httpd:
-            httpd.allow_reuse_address = True
+        with ReusableTCPServer((HOST, PORT), VerificationHandler) as httpd:
             print(f"Serving at http://{HOST}:{PORT}")
             httpd.serve_forever()
     except Exception as e:
