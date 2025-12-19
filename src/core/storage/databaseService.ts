@@ -80,6 +80,8 @@ export class DatabaseService {
           const buffer = fs.readFileSync(this.dbPath);
           this.db = new this.SQL.Database(buffer);
           console.log('Loaded existing database from:', this.dbPath);
+          // Ensure tables exist even if loading an existing DB
+          await this.createTables();
         } catch (error) {
           console.warn('Failed to load existing database, creating new one:', error);
           this.db = new this.SQL.Database();

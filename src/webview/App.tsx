@@ -14,15 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
-import { 
-  CopyRegular, 
-  PlayRegular, 
-  SaveRegular, 
-  DeleteRegular, 
-  ArrowClockwiseRegular, 
-  ArrowCounterclockwiseRegular 
-} from '@fluentui/react-icons';
-import { SettingsTab } from './SettingsTab.js';
+import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 
 // --- Helpers ---
 
@@ -240,15 +232,13 @@ const LongPressButton: React.FC<LongPressButtonProps> = ({
   );
 };
 
-interface AgentViewProps {
-    onSwitchToSettings: () => void;
-}
-
-const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
+const AgentView = () => {
   const initialState = vscode.getState() || {};
 
   const [query, setQuery] = useState(initialState.agentQuery || '');
+  const [apiKey, setApiKey] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [agentState, setAgentState] = useState<AgentState>({
     lastOutputPath: initialState.agentLastRun?.lastOutputPath,
@@ -260,6 +250,9 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (event.data.command === 'apiKeyStatus') {
+        setHasKey(event.data.hasKey);
+      }
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
       }
@@ -293,6 +286,7 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       }
     };
     window.addEventListener('message', handler);
+    vscode.postMessage({ command: 'checkApiKey' });
     vscode.postMessage({ command: 'getAgentHistory' });
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -321,6 +315,15 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       return;
     }
     vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
+  };
+
+  const handleSaveKey = () => {
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+        return;
+    }
+    vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
+    setApiKey(''); // Clear input for security
   };
 
   return (
@@ -411,12 +414,44 @@ const AgentView: React.FC<AgentViewProps> = ({ onSwitchToSettings }) => {
       <Divider />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-          <Text size={200} style={{ opacity: 0.8 }}>
-              Need to configure API keys?
-          </Text>
-          <Button appearance="subtle" onClick={onSwitchToSettings}>
-              Go to Settings
+        <Label weight="semibold">Smart Agent Configuration</Label>
+
+        {hasKey ? (
+           <Text size={200} style={{ color: '#4caf50' }}>
+             ✅ API Key Configured
+           </Text>
+        ) : (
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+             <Text size={200} style={{ color: '#ffb74d' }}>
+               ⚠️ API Key Missing
+             </Text>
+             <Text size={100} style={{ opacity: 0.8 }}>
+               Please configure your Google API Key below to use the Smart Agent.
+             </Text>
+           </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <Input
+            type="password"
+            placeholder="Paste Gemini API Key"
+            value={apiKey}
+            onChange={(e, data) => {
+              setApiKey(data.value);
+            }}
+            style={{ flexGrow: 1 }}
+          />
+          <Button
+            icon={<SaveRegular />}
+            onClick={handleSaveKey}
+            disabled={!apiKey.trim()}
+          >
+            Save
           </Button>
+        </div>
+        <Text size={100} style={{opacity: 0.7}}>
+          Key is stored securely in VS Code Secrets.
+        </Text>
       </div>
 
       <Divider />
@@ -903,12 +938,12 @@ export const App = () => {
            break;
         case 'executionStateChange':
           if (message.bundleId === '__default__') {
-              setDefaultRepomixState(message.status);
+             setDefaultRepomixState(message.status);
           } else {
-              setBundleStates(prev => ({
-                ...prev,
-                [message.bundleId]: message.status
-              }));
+             setBundleStates(prev => ({
+               ...prev,
+               [message.bundleId]: message.status
+             }));
           }
           break;
         case 'updateVersion':
@@ -1011,9 +1046,13 @@ export const App = () => {
                 </div>
              </>
           )}
-          {selectedTab === 'agent' && <AgentView onSwitchToSettings={() => setSelectedTab('settings')} />}
+          {selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'settings' && (
-             <SettingsTab />
+            <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
+                Settings Placeholder
+              </Text>
+            </div>
           )}
           {selectedTab === 'debug' && <DebugTab />}
         </div>
