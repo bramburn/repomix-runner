@@ -33,16 +33,15 @@ export const CopyDefaultRepomixOutputSchema = z.object({
   command: z.literal('copyDefaultRepomixOutput'),
 });
 
-export const CheckSecretSchema = z.object({
-  command: z.literal('checkSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey']),
+export const CheckApiKeySchema = z.object({
+  command: z.literal('checkApiKey'),
 });
 
-export const SaveSecretSchema = z.object({
-  command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey']),
-  value: z.string().min(1),
+export const SaveApiKeySchema = z.object({
+  command: z.literal('saveApiKey'),
+  apiKey: z.string().startsWith('AIza', "API Key must start with 'AIza'").min(30, "API Key is too short"),
 });
+
 
 export const GetAgentHistorySchema = z.object({
   command: z.literal('getAgentHistory'),
@@ -79,6 +78,15 @@ export const RegenerateAgentRunSchema = z.object({
   runId: z.string().min(1),
 });
 
+export const GetDebugRunsSchema = z.object({
+  command: z.literal('getDebugRuns'),
+});
+
+export const ReRunDebugSchema = z.object({
+  command: z.literal('reRunDebug'),
+  files: z.array(z.string()),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -103,8 +111,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   RunDefaultRepomixSchema,
   CancelDefaultRepomixSchema,
   CopyDefaultRepomixOutputSchema,
-  CheckSecretSchema,
-  SaveSecretSchema,
+  CheckApiKeySchema,
+  SaveApiKeySchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
   CopyAgentOutputSchema,
@@ -112,6 +120,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetAgentHistorySchema,
   OpenFileSchema,
   RegenerateAgentRunSchema,
+  GetDebugRunsSchema,
+  ReRunDebugSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
