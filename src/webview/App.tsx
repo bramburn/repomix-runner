@@ -864,6 +864,10 @@ const DebugTab = () => {
     vscode.postMessage({ command: 'copyDebugOutput' });
   };
 
+  const handleDelete = (id: number) => {
+    vscode.postMessage({ command: 'deleteDebugRun', id });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
@@ -892,7 +896,6 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              
 <div style={{ display: 'flex', gap: '5px' }}>
   {/* Only show Copy on the latest run */}
   {index === 0 && (
@@ -912,6 +915,14 @@ const DebugTab = () => {
     title="Re-run this selection"
   >
     Re-run
+  </Button>
+  <Button
+    appearance="subtle"
+    icon={<DeleteRegular />}
+    onClick={() => handleDelete(run.id)}
+    title="Delete this run"
+  >
+    Delete
   </Button>
 </div>
             </div>

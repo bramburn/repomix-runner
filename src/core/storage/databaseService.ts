@@ -21,6 +21,7 @@ export interface DebugRun {
   id: number;
   timestamp: number;
   files: string[];
+  repoName?: string;
 }
 
 export class DatabaseService {
@@ -134,12 +135,22 @@ export class DatabaseService {
         )
       `);
 
+      // Migrate: Add repo_name column if not exists
+      try {
+        this.db.run("ALTER TABLE debug_runs ADD COLUMN repo_name TEXT");
+        // Backfill existing NULLs with default
+        this.db.run("UPDATE debug_runs SET repo_name = 'bramburn/audio-lesson' WHERE repo_name IS NULL");
+      } catch (e) {
+        // Column likely exists, ignore
+      }
+
       // Create indexes for better performance
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_bundle_id ON agent_runs(bundle_id)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
 
       await this.saveDatabase();
     } catch (error) {
@@ -374,7 +385,7 @@ export class DatabaseService {
     }
   }
 
-  async saveDebugRun(files: string[]): Promise<void> {
+  async saveDebugRun(files: string[], repoName: string): Promise<void> {
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -386,12 +397,14 @@ export class DatabaseService {
     try {
       const filesJson = JSON.stringify(files);
 
-      // Check if the most recent run has the same files
+      // Check if the most recent run has the same files AND same repo
       const checkStmt = this.db.prepare(`
-        SELECT id, files FROM debug_runs
+        SELECT id, files, repo_name FROM debug_runs
+        WHERE repo_name = ?
         ORDER BY timestamp DESC
         LIMIT 1
       `);
+      checkStmt.bind([repoName]);
 
       let lastRunId: number | undefined;
       let lastRunFiles: string | undefined;
@@ -415,11 +428,11 @@ export class DatabaseService {
         console.log('Updated existing debug run timestamp');
       } else {
         const stmt = this.db.prepare(`
-          INSERT INTO debug_runs (timestamp, files)
-          VALUES (?, ?)
+          INSERT INTO debug_runs (timestamp, files, repo_name)
+          VALUES (?, ?, ?)
         `);
 
-        stmt.run([Date.now(), filesJson]);
+        stmt.run([Date.now(), filesJson, repoName]);
         stmt.free();
         console.log('Debug run saved to database');
       }
@@ -431,7 +444,7 @@ export class DatabaseService {
     }
   }
 
-  async getDebugRuns(limit: number = 50, offset: number = 0): Promise<DebugRun[]> {
+  async getDebugRuns(repoName: string, limit: number = 50, offset: number = 0): Promise<DebugRun[]> {
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -443,12 +456,13 @@ export class DatabaseService {
     try {
       const stmt = this.db.prepare(`
         SELECT * FROM debug_runs
+        WHERE repo_name = ?
         ORDER BY timestamp DESC
         LIMIT ? OFFSET ?
       `);
 
       const result: DebugRun[] = [];
-      stmt.bind([limit, offset]);
+      stmt.bind([repoName, limit, offset]);
 
       while (stmt.step()) {
         const row = stmt.getAsObject();
@@ -456,6 +470,7 @@ export class DatabaseService {
           id: row.id as number,
           timestamp: row.timestamp as number,
           files: JSON.parse(row.files as string),
+          repoName: row.repo_name as string
         });
       }
 
@@ -464,6 +479,32 @@ export class DatabaseService {
     } catch (error) {
       console.error('Failed to get debug runs:', error);
       throw new Error(`Failed to get debug runs: ${error}`);
+    }
+  }
+
+  async deleteDebugRun(id: number): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+        DELETE FROM debug_runs WHERE id = ?
+      `);
+
+      stmt.bind([id]);
+      stmt.step();
+      stmt.free();
+
+      await this.saveDatabase();
+      console.log('Debug run deleted from database:', id);
+    } catch (error) {
+      console.error('Failed to delete debug run:', error);
+      throw new Error(`Failed to delete debug run: ${error}`);
     }
   }
 
