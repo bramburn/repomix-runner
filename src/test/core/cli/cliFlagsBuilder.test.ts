@@ -67,6 +67,15 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--config "custom-config.json"'));
   });
 
+  test('should handle spaces in configFilePath', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      configFilePath: 'folder/my config.json',
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--config "folder/my config.json"'));
+  });
+
   test('should add "--style" flag when output.style is specified', () => {
     const config: MergedConfig = {
       ...baseConfig,
