@@ -892,7 +892,7 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              <div style={{ display: 'flex', gap: '5px' }}>
+              
 <div style={{ display: 'flex', gap: '5px' }}>
   {/* Only show Copy on the latest run */}
   {index === 0 && (
