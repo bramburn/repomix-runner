@@ -31,6 +31,7 @@ export const cliFlags = {
   tokenCount: {
     encoding: '--token-count-encoding',
   },
+  verbose: '--verbose',
 } as const;
 
 export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string {
@@ -106,6 +107,11 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   // Token Count
   if (config.tokenCount.encoding) {
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
+  }
+
+  // Verbose
+  if (config.runner.verbose) {
+    outputFlags.push(flags.verbose);
   }
 
   return outputFlags.join(' ');

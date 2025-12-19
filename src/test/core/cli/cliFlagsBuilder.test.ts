@@ -206,7 +206,14 @@ suite('CliFlagsBuilder', () => {
 
   //TODO --token-count-encoding
 
-  //TODO --verbose
+  test('should add "--verbose" flag when runner.verbose is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      runner: { ...baseConfig.runner, verbose: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--verbose'));
+  });
 
   //HELP  no flag yet for this config in repomix ?
   //   test('should add "--no-gitignore" flag when ignore.useGitignore is false', () => {
