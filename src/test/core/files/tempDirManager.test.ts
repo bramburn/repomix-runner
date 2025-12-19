@@ -20,7 +20,8 @@ suite('TempDirManager Integration Test', () => {
     sinon.stub(logger.both, 'error');
 
     // Create a new instance for each test
-    tempDirManager = new TempDirManager('test_repomix_runner');
+    const uniqueSuffix = Math.random().toString(36).substring(2, 9);
+    tempDirManager = new TempDirManager(`test_repomix_runner_${uniqueSuffix}`);
     testTempDir = tempDirManager.getTempDir();
   });
 
