@@ -22,9 +22,12 @@ export async function runBundle(
 
   // Load bundle config if exists
   let overrideConfig: RepomixConfigFile = {};
-  if (bundle.configPath) {
+  const vscodeConfig = readRepomixRunnerVscodeConfig();
+  const configPath = bundle.configPath || vscodeConfig.runner.configPath;
+
+  if (configPath) {
     try {
-      const bundleConfig = await readRepomixFileConfig(cwd, bundle.configPath);
+      const bundleConfig = await readRepomixFileConfig(cwd, configPath);
       overrideConfig = bundleConfig || {};
     } catch (error: any) {
       logger.both.error('Failed to parse bundle config:', error);
@@ -51,11 +54,10 @@ export async function runBundle(
   }
 
   // Calculate final output path
-  const config = readRepomixRunnerVscodeConfig();
   overrideConfig.output ??= {}; // Ensure output object exists
 
-  const baseFilePath = overrideConfig.output.filePath || config.output.filePath;
-  const useBundleNameAsOutputName = config.runner.useBundleNameAsOutputName;
+  const baseFilePath = overrideConfig.output.filePath || vscodeConfig.output.filePath;
+  const useBundleNameAsOutputName = vscodeConfig.runner.useBundleNameAsOutputName;
 
   const outputFilename = generateOutputFilename(
     bundle,
@@ -126,7 +128,7 @@ export async function runBundle(
     }
 
     // Run Repomix on the bundle files
-    await runRepomixOnSelectedFiles(validUris, overrideConfig, signal);
+    await runRepomixOnSelectedFiles(validUris, overrideConfig, signal, undefined, configPath);
 
     if (signal?.aborted) {
       return;

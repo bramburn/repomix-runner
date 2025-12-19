@@ -14,6 +14,7 @@ import {
   Divider,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
+import { SettingsTab } from './components/SettingsTab.js';
 import { CopyRegular, PlayRegular, SaveRegular, DeleteRegular, ArrowClockwiseRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 
 // --- Helpers ---
@@ -253,6 +254,9 @@ const AgentView = () => {
       if (event.data.command === 'apiKeyStatus') {
         setHasKey(event.data.hasKey);
       }
+      if (event.data.command === 'secretStatus' && event.data.key === 'googleApiKey') {
+        setHasKey(event.data.exists);
+      }
       if (event.data.command === 'agentStateChange') {
         setIsRunning(event.data.status === 'running');
       }
@@ -286,7 +290,8 @@ const AgentView = () => {
       }
     };
     window.addEventListener('message', handler);
-    vscode.postMessage({ command: 'checkApiKey' });
+    // Check both for compatibility/robustness
+    vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
     vscode.postMessage({ command: 'getAgentHistory' });
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -310,19 +315,16 @@ const AgentView = () => {
   };
 
   const handleCopyLastAgentOutput = () => {
-    if (!agentState.lastOutputPath) {
-      // Error will be handled by the webview provider
-      return;
-    }
-    vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
-  };
+  if (!agentState.lastOutputPath) return; // Already present in your code
+  vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
+};
 
   const handleSaveKey = () => {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) {
         return;
     }
-    vscode.postMessage({ command: 'saveApiKey', apiKey: trimmedKey });
+    vscode.postMessage({ command: 'saveSecret', key: 'googleApiKey', value: trimmedKey });
     setApiKey(''); // Clear input for security
   };
 
@@ -858,6 +860,10 @@ const DebugTab = () => {
     vscode.postMessage({ command: 'reRunDebug', files });
   };
 
+  const handleCopy = () => {
+    vscode.postMessage({ command: 'copyDebugOutput' });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
@@ -869,7 +875,7 @@ const DebugTab = () => {
       {runs.length === 0 ? (
         <Text style={{ opacity: 0.7 }}>No runs recorded yet.</Text>
       ) : (
-        runs.map((run) => (
+        runs.map((run, index) => (
           <div
             key={run.id}
             style={{
@@ -886,17 +892,31 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              <Button
-                appearance="subtle"
-                icon={<ArrowCounterclockwiseRegular />}
-                onClick={() => handleReRun(run.files)}
-                title="Re-run this selection"
-              >
-                Re-run
-              </Button>
+              <div style={{ display: 'flex', gap: '5px' }}>
+  {/* Logic from bugfix branch: only show Copy on the latest run */}
+  {index === 0 && (
+    <Button
+      appearance="subtle"
+      icon={<CopyRegular />}
+      onClick={handleCopy}
+      title="Copy output from default repomix file"
+    >
+      Copy
+    </Button>
+  )}
+  {/* Logic from main branch: updated styling and icon */}
+  <Button
+    appearance="subtle"
+    icon={<ArrowCounterclockwiseRegular />}
+    onClick={() => handleReRun(run.files)}
+    title="Re-run this selection"
+  >
+    Re-run
+  </Button>
+</div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                {run.files.map((file, idx) => (
+                {run.files.slice(0, 3).map((file, idx) => (
                     <Text key={idx} size={100} style={{
                         backgroundColor: 'var(--vscode-textBlockQuote-background)',
                         padding: '2px 4px',
@@ -906,6 +926,17 @@ const DebugTab = () => {
                         {file}
                     </Text>
                 ))}
+                {run.files.length > 3 && (
+                    <Text size={100} style={{
+                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                        padding: '2px 4px',
+                        borderRadius: '2px',
+                        opacity: 0.9,
+                        fontStyle: 'italic'
+                    }}>
+                        +{run.files.length - 3} selection
+                    </Text>
+                )}
             </div>
             <Text size={100} style={{ opacity: 0.7 }}>
                 {run.files.length} items
@@ -1052,13 +1083,7 @@ export const App = () => {
              </>
           )}
           {selectedTab === 'agent' && <AgentView />}
-          {selectedTab === 'settings' && (
-            <div style={{ padding: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-              <Text size={300} weight="semibold" style={{ opacity: 0.5 }}>
-                Settings Placeholder
-              </Text>
-            </div>
-          )}
+          {selectedTab === 'settings' && <SettingsTab />}
           {selectedTab === 'debug' && <DebugTab />}
         </div>
 

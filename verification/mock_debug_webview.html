@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mock Debug Webview</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.process = { env: { NODE_ENV: "development" } };
+  </script>
+  <script>
+    // Mock VS Code API BEFORE loading the app
+    window.acquireVsCodeApi = () => ({
+      postMessage: (msg) => {
+        console.log("VSCode Message:", msg);
+        if (msg.command === "webviewLoaded") {
+           setTimeout(() => {
+               window.postMessage({
+                 command: "updateBundles",
+                 bundles: []
+               }, "*");
+               window.postMessage({
+                 command: "updateVersion",
+                 version: "1.0.0-test"
+               }, "*");
+           }, 100);
+        }
+        if (msg.command === "getDebugRuns") {
+            setTimeout(() => {
+                window.postMessage({
+                    command: "updateDebugRuns",
+                    runs: [
+                        {
+                            id: 1,
+                            timestamp: Date.now(),
+                            files: ["src/file1.ts", "src/file2.ts"]
+                        },
+                        {
+                            id: 2,
+                            timestamp: Date.now() - 3600000,
+                            files: ["README.md"]
+                        },
+                        {
+                            id: 3,
+                            timestamp: Date.now() - 7200000,
+                            files: Array.from({length: 15}, (_, i) => `file${i + 1}.ts`)
+                        }
+                    ]
+                }, "*");
+            }, 100);
+        }
+      },
+      getState: () => ({ selectedTab: 'debug' }), // Start on debug tab
+      setState: () => {}
+    });
+  </script>
+  <script type="module" src="/dist/webview.js"></script>
+</body>
+</html>

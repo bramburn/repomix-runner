@@ -12,7 +12,8 @@ export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
   overrideConfig: RepomixConfigFile = {},
   signal?: AbortSignal,
-  databaseService?: DatabaseService
+  databaseService?: DatabaseService,
+  configFilePath?: string
 ) {
   const cwd = getCwd();
 
@@ -66,7 +67,6 @@ export async function runRepomixOnSelectedFiles(
     }
   }
 
-  // TODO add test for config merging
   const finalOverrideConfig = {
     ...overrideConfig,
     include: includePatterns,
@@ -76,5 +76,6 @@ export async function runRepomixOnSelectedFiles(
     ...defaultRunRepomixDeps,
     mergeConfigOverride: finalOverrideConfig,
     signal,
+    configFilePath,
   });
 }
