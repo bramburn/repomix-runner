@@ -12,7 +12,14 @@ suite('CliFlagsBuilder', () => {
     };
   });
 
-  //TODO --version
+  test('should add "--version" flag when version is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      version: true,
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--version'));
+  });
 
   test('should add "--output" file path flag when output.filePath is specified', () => {
     const config: MergedConfig = {
@@ -140,4 +147,136 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--remove-comments'));
   });
 
-  test('should add "--remove-empty-lines" flag when output
+  test('should add "--remove-empty-lines" flag when output.removeEmptyLines is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, removeEmptyLines: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remove-empty-lines'));
+  });
+
+  test('should add "--top-files-len" flag when output.topFilesLength is not default', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, topFilesLength: 10 },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--top-files-len 10'));
+  });
+
+  test('should add "--output-show-line-numbers" flag when output.showLineNumbers is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, showLineNumbers: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--output-show-line-numbers'));
+  });
+
+  test('should add "--copy" flag when output.copyToClipboard is true and runner.copyMode is "content"', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, copyToClipboard: true },
+      runner: { ...baseConfig.runner, copyMode: 'content' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--copy'));
+  });
+
+  test('should add "--remote" flag when remote.url is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, url: 'https://github.com/user/repo' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote "https://github.com/user/repo"'));
+  });
+
+  test('should add "--remote-branch" flag when remote.branch is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, branch: 'develop' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote-branch "develop"'));
+  });
+
+  test('should add "--no-security-check" flag when config.security.enableSecurityCheck is false', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      security: { enableSecurityCheck: false },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--no-security-check'));
+  });
+
+  test('should add "--token-count-encoding" flag when config.tokenCount.encoding is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      tokenCount: { encoding: 'o200k_base' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--token-count-encoding o200k_base'));
+  });
+
+  test('should add "--verbose" flag when runner.verbose is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      runner: { ...baseConfig.runner, verbose: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--verbose'));
+  });
+
+  test('should add "--compress" flag when output.compress is true', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: { ...baseConfig.output, compress: true },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--compress'));
+  });
+
+  test('should combine all flags correctly', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      output: {
+        ...baseConfig.output,
+        filePath: 'output.txt',
+        style: 'markdown',
+        fileSummary: false,
+        directoryStructure: false,
+        removeComments: true,
+        removeEmptyLines: true,
+        topFilesLength: 10,
+        showLineNumbers: true,
+        copyToClipboard: true,
+        compress: true,
+      },
+      include: ['*.ts', '*.js'],
+      ignore: {
+        ...baseConfig.ignore,
+        useGitignore: false,
+        useDefaultPatterns: false,
+        customPatterns: ['node_modules', 'dist'],
+      },
+      security: {
+        enableSecurityCheck: false,
+      },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--output "output.txt"'));
+    assert.ok(flags.includes('--style markdown'));
+    assert.ok(flags.includes('--no-file-summary'));
+    assert.ok(flags.includes('--no-directory-structure'));
+    assert.ok(flags.includes('--remove-comments'));
+    assert.ok(flags.includes('--remove-empty-lines'));
+    assert.ok(flags.includes('--top-files-len 10'));
+    assert.ok(flags.includes('--output-show-line-numbers'));
+    assert.ok(flags.includes('--include "*.ts,*.js"'));
+    assert.ok(flags.includes('--ignore "node_modules,dist"'));
+    assert.ok(flags.includes('--no-security-check'));
+    assert.ok(flags.includes('--compress'));
+  });
+});

@@ -3,6 +3,8 @@ import { MergedConfig } from '../../config/configSchema.js';
 export const cliFlags = {
   // keep this up to date with repomix official cli flags
   // if a flag is not supported it will fail the tests
+  version: '--version',
+  verbose: '--verbose',
   output: {
     filePath: '--output',
     style: '--style',
@@ -42,6 +44,16 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   const outputFlags: string[] = [];
 
   // TODO si une clée de config n'est pas dans le la flagsmapping alors on le log en disant la config n'est pas supportée
+
+  // Version
+  if (config.version) {
+    outputFlags.push(flags.version);
+  }
+
+  // Verbose
+  if (config.runner.verbose) {
+    outputFlags.push(flags.verbose);
+  }
 
   // Config
   if (config.configFilePath) {
@@ -118,7 +130,7 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
   }
 
-  // Remote (Corrected to use the nested structure from configSchema)
+  // Remote
   if (config.remote.url) {
     outputFlags.push(`${flags.remote.url} "${config.remote.url}"`);
   }
