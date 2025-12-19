@@ -124,6 +124,7 @@ export const repomixRunnerConfigBaseSchema = z
       copyMode: runnerCopyModeSchema,
       useTargetAsOutput: z.boolean(),
       useBundleNameAsOutputName: z.boolean(),
+      configPath: z.string().optional(),
     }),
   })
   .and(repomixConfigBaseSchema);
@@ -136,6 +137,7 @@ export const repomixRunnerConfigDefaultSchema = z
       copyMode: runnerCopyModeSchema.default('file'),
       useTargetAsOutput: z.boolean().default(true),
       useBundleNameAsOutputName: z.boolean().default(true),
+      configPath: z.string().default('repomix.config.json'),
     }),
   })
   .and(repomixConfigDefaultSchema);
@@ -144,6 +146,7 @@ export const repomixRunnerConfigDefaultSchema = z
 export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
   z.object({
     cwd: z.string(),
+    configFilePath: z.string().optional(),
   })
 );
 
@@ -159,5 +162,6 @@ export const defaultConfig = repomixRunnerConfigDefaultSchema.parse({
     copyMode: 'file',
     useTargetAsOutput: true,
     useBundleNameAsOutputName: true,
+    configPath: 'repomix.config.json',
   },
 });

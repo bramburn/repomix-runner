@@ -112,6 +112,7 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
+          configPath: 'repomix.config.json',
         },
         output: {
           filePath: 'output.txt',
@@ -252,6 +253,7 @@ suite('configLoader', () => {
           copyMode: 'file',
           useTargetAsOutput: true,
           useBundleNameAsOutputName: true,
+          configPath: 'repomix.config.json',
         },
         output: {
           filePath: 'output.txt',
