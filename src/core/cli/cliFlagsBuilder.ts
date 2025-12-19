@@ -32,8 +32,10 @@ export const cliFlags = {
   tokenCount: {
     encoding: '--token-count-encoding',
   },
-  remote: '--remote',
-  remoteBranch: '--remote-branch',
+  remote: {
+    url: '--remote',
+    branch: '--remote-branch',
+  },
 } as const;
 
 export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string {
@@ -116,12 +118,12 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
   }
 
-  // Remote
-  if (config.remote) {
-    outputFlags.push(`${flags.remote} "${config.remote}"`);
+  // Remote (Corrected to use the nested structure from configSchema)
+  if (config.remote.url) {
+    outputFlags.push(`${flags.remote.url} "${config.remote.url}"`);
   }
-  if (config.remoteBranch) {
-    outputFlags.push(`${flags.remoteBranch} "${config.remoteBranch}"`);
+  if (config.remote.branch) {
+    outputFlags.push(`${flags.remote.branch} "${config.remote.branch}"`);
   }
 
   return outputFlags.join(' ');

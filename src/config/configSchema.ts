@@ -50,8 +50,12 @@ export const repomixConfigBaseSchema = z.object({
       encoding: z.string().optional(),
     })
     .optional(),
-  remote: z.string().optional(),
-  remoteBranch: z.string().optional(),
+  remote: z
+    .object({
+      url: z.string().optional(),
+      branch: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Default config schema (avec valeurs par défaut)
@@ -95,8 +99,12 @@ export const repomixConfigDefaultSchema = z.object({
         .transform(val => val as TiktokenEncoding),
     })
     .default({}),
-  remote: z.string().default(''),
-  remoteBranch: z.string().default(''),
+  remote: z
+    .object({
+      url: z.string().default(''),
+      branch: z.string().default(''),
+    })
+    .default({}),
 });
 
 // Runner config schema (specific to the VS Code extension)
