@@ -41,7 +41,14 @@ suite('CliFlagsBuilder', () => {
     assert.ok(flags.includes('--ignore "node_modules,dist"'));
   });
 
-  //TODO config
+  test('should add "--config" flag when configFilePath is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      configFilePath: 'custom-config.json',
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--config "custom-config.json"'));
+  });
 
   test('should add "--style" flag when output.style is specified', () => {
     const config: MergedConfig = {

@@ -132,6 +132,7 @@ export const repomixRunnerConfigDefaultSchema = z
 export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
   z.object({
     cwd: z.string(),
+    configFilePath: z.string().optional(),
   })
 );
 
