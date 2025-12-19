@@ -310,12 +310,9 @@ const AgentView = () => {
   };
 
   const handleCopyLastAgentOutput = () => {
-    if (!agentState.lastOutputPath) {
-      // Error will be handled by the webview provider
-      return;
-    }
-    vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
-  };
+  if (!agentState.lastOutputPath) return; // Already present in your code
+  vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
+};
 
   const handleSaveKey = () => {
     const trimmedKey = apiKey.trim();
@@ -868,7 +865,7 @@ const DebugTab = () => {
       {runs.length === 0 ? (
         <Text style={{ opacity: 0.7 }}>No runs recorded yet.</Text>
       ) : (
-        runs.map((run) => (
+        runs.map((run, index) => (
           <div
             key={run.id}
             style={{
@@ -886,23 +883,27 @@ const DebugTab = () => {
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
               <div style={{ display: 'flex', gap: '5px' }}>
-                <Button
-                    appearance="subtle"
-                    icon={<CopyRegular />}
-                    onClick={handleCopy}
-                    title="Copy Output"
-                >
-                    Copy
-                </Button>
-                <Button
-                    appearance="subtle"
-                    icon={<ArrowCounterclockwiseRegular />}
-                    onClick={() => handleReRun(run.files)}
-                    title="Re-run this selection"
-                >
-                    Re-run
-                </Button>
-              </div>
+  {/* Logic from bugfix branch: only show Copy on the latest run */}
+  {index === 0 && (
+    <Button
+      appearance="subtle"
+      icon={<CopyRegular />}
+      onClick={handleCopy}
+      title="Copy output from default repomix file"
+    >
+      Copy
+    </Button>
+  )}
+  {/* Logic from main branch: updated styling and icon */}
+  <Button
+    appearance="subtle"
+    icon={<ArrowCounterclockwiseRegular />}
+    onClick={() => handleReRun(run.files)}
+    title="Re-run this selection"
+  >
+    Re-run
+  </Button>
+</div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                 {run.files.slice(0, 3).map((file, idx) => (

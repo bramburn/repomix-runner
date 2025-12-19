@@ -964,10 +964,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   private async _handleReRunDebug(files: string[]): Promise<void> {
     const cwd = getCwd();
-    // Validate and sanitize paths before execution
     const safeFiles = files.filter(file => {
-      // Basic check: no '..' that escapes cwd, although simple string check isn't perfect
-      // Better: resolve path and check it starts with cwd
       const resolved = path.resolve(cwd, file);
       return resolved.startsWith(cwd);
     });
