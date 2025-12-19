@@ -32,6 +32,8 @@ export const cliFlags = {
   tokenCount: {
     encoding: '--token-count-encoding',
   },
+  remote: '--remote',
+  remoteBranch: '--remote-branch',
 } as const;
 
 export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string {
@@ -112,6 +114,14 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   // Token Count
   if (config.tokenCount.encoding) {
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
+  }
+
+  // Remote
+  if (config.remote) {
+    outputFlags.push(`${flags.remote} "${config.remote}"`);
+  }
+  if (config.remoteBranch) {
+    outputFlags.push(`${flags.remoteBranch} "${config.remoteBranch}"`);
   }
 
   return outputFlags.join(' ');
