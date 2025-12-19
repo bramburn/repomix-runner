@@ -128,7 +128,7 @@ export async function runBundle(
     }
 
     // Run Repomix on the bundle files
-    await runRepomixOnSelectedFiles(validUris, overrideConfig, signal);
+    await runRepomixOnSelectedFiles(validUris, overrideConfig, signal, undefined, configPath);
 
     if (signal?.aborted) {
       return;

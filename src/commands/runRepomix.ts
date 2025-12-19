@@ -27,6 +27,7 @@ export type RunRepomixDeps = {
   execPromisify: typeof execPromisify;
   mergeConfigOverride: RepomixConfigFile | null;
   signal?: AbortSignal;
+  configFilePath?: string;
 };
 
 export const defaultRunRepomixDeps: RunRepomixDeps = {
@@ -40,6 +41,7 @@ export const defaultRunRepomixDeps: RunRepomixDeps = {
   cliFlagsBuilder,
   execPromisify,
   mergeConfigOverride: null,
+  configFilePath: undefined,
 } as const;
 
 export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): Promise<void> {
@@ -54,7 +56,9 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
     const vscodeConfig = deps.readRepomixRunnerVscodeConfig();
     logger.setVerbose(vscodeConfig.runner.verbose);
 
-    const configFile = await deps.readRepomixFileConfig(cwd, vscodeConfig.runner.configPath);
+    const configFilePath = deps.configFilePath || vscodeConfig.runner.configPath;
+
+    const configFile = await deps.readRepomixFileConfig(cwd, configFilePath);
     if (!configFile) {
       logger.both.debug('No root repomix.config.json file found');
     }
@@ -64,7 +68,7 @@ export async function runRepomix(deps: RunRepomixDeps = defaultRunRepomixDeps): 
       configFile,
       vscodeConfig,
       deps.mergeConfigOverride,
-      vscodeConfig.runner.configPath
+      configFilePath
     );
 
     // Security check: validate paths
