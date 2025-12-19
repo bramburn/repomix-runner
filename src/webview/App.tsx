@@ -858,13 +858,17 @@ const DebugTab = () => {
     vscode.postMessage({ command: 'reRunDebug', files });
   };
 
+  const handleCopy = () => {
+    vscode.postMessage({ command: 'copyDebugOutput' });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
       {runs.length === 0 ? (
         <Text style={{ opacity: 0.7 }}>No runs recorded yet.</Text>
       ) : (
-        runs.map((run) => (
+        runs.map((run, index) => (
           <div
             key={run.id}
             style={{
@@ -881,14 +885,26 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-              <Button
-                appearance="subtle"
-                icon={<ArrowCounterclockwiseRegular />}
-                onClick={() => handleReRun(run.files)}
-                title="Re-run this selection"
-              >
-                Re-run
-              </Button>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {index === 0 && (
+                  <Button
+                    appearance="subtle"
+                    icon={<CopyRegular />}
+                    onClick={handleCopy}
+                    title="Copy output from default repomix file"
+                  >
+                    Copy
+                  </Button>
+                )}
+                <Button
+                  appearance="subtle"
+                  icon={<ArrowCounterclockwiseRegular />}
+                  onClick={() => handleReRun(run.files)}
+                  title="Re-run this selection"
+                >
+                  Re-run
+                </Button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                 {run.files.map((file, idx) => (

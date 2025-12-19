@@ -158,6 +158,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleReRunDebug(files);
           break;
         }
+        case 'copyDebugOutput': {
+          await this._handleCopyDebugOutput();
+          break;
+        }
       }
     });
 
@@ -978,6 +982,24 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     const uris = safeFiles.map(file => vscode.Uri.file(path.join(cwd, file)));
     await runRepomixOnSelectedFiles(uris, {}, undefined, this._databaseService);
+  }
+
+  private async _handleCopyDebugOutput(): Promise<void> {
+    try {
+      const outputPath = await this._resolveDefaultRepomixOutputPath();
+
+      if (!fs.existsSync(outputPath)) {
+        vscode.window.showWarningMessage(`No debug output available to copy (File not found: ${outputPath})`);
+        return;
+      }
+
+      const content = await fs.promises.readFile(outputPath, 'utf-8');
+      await vscode.env.clipboard.writeText(content);
+      vscode.window.showInformationMessage('Debug output copied to clipboard.');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to copy debug output: ${errorMessage}`);
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
