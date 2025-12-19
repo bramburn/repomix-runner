@@ -20,19 +20,32 @@ export function redactCommand(cmd: string): string {
   // We can reuse the redactUrl logic but applied to substrings found via regex.
 
   // Regex for URL with potential credentials:
-  // (https?|git|ssh):\/\/([^\s@]+)@
-  // We match the protocol and the part before @.
+  // ([a-zA-Z0-9+.-]+):\/\/([^\s@]+)@
+  // We match the protocol (alphanumeric, plus, dot, dash) and the part before @.
   // Then we can analyze the part before @ to mask it.
 
-  return cmd.replace(/((?:https?|git|ssh):\/\/)([^\s@]+)(@)/g, (match, protocol, credentials, at) => {
+  return cmd.replace(/([a-zA-Z0-9+.-]+:\/\/)([^\s@]+)(@)/g, (match, protocol, credentials, at) => {
       // credentials can be "user:pass" or "token" or "user"
       if (credentials.includes(':')) {
           const [user, pass] = credentials.split(':');
-          return `${protocol}${user}:*****${at}`;
+          // If password is 'x-oauth-basic', the user is the token. Mask it.
+          // Or if user is NOT 'git', maybe mask it too?
+          // Safest default: Mask both if not 'git'.
+          // If user IS 'git', likely just ssh auth or standard.
+
+          let newUser = user;
+          if (user !== 'git') {
+              // Check if password suggests user is token?
+              // Or just aggressively mask user if it's not 'git'.
+              // But 'user:pass' is valid.
+              // Let's check the comment: "Consider treating token-like usernames as sensitive even when a password is present."
+              // We'll mask username if it's not 'git'.
+              newUser = '*****';
+          }
+
+          return `${protocol}${newUser}:*****${at}`;
       } else {
-          // If it's just a token/username, mask it completely or partially?
-          // For safety, if it looks like a token (long), mask it.
-          // If it's "git", leave it.
+          // If it's just a token/username
           if (credentials === 'git') {
               return match;
           }
@@ -46,14 +59,12 @@ function redactUrl(urlStr: string): string {
         const url = new URL(urlStr);
         if (url.password) {
             url.password = '*****';
+            // Also mask username if it's likely a token or sensitive
+            if (url.username && url.username !== 'git') {
+                url.username = '*****';
+            }
         }
         if (url.username && url.username !== 'git') {
-            // Check if it looks like a token?
-            // For now, if there is no password, treat username as potentially sensitive if it's not 'git'.
-            // However, usually https://github.com/user/repo, the user is part of path, not auth.
-            // Auth is only if it's before @. URL object handles this.
-            // If we have username but NO password, it prints as username@host.
-            // We should mask it if we want to be safe.
              if (!url.password) {
                  url.username = '*****';
              }

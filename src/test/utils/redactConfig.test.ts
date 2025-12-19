@@ -13,7 +13,8 @@ suite('redactConfig', () => {
     } as MergedConfig;
 
     const redacted = redactConfig(config);
-    assert.strictEqual(redacted.remote?.url, 'https://user:*****@github.com/repo.git');
+    // User is masked too if not git
+    assert.strictEqual(redacted.remote?.url, 'https://*****:*****@github.com/repo.git');
     // Ensure original is not modified
     assert.strictEqual(config.remote?.url, 'https://user:password123@github.com/repo.git');
   });
@@ -29,6 +30,19 @@ suite('redactConfig', () => {
 
     const redacted = redactConfig(config);
     assert.strictEqual(redacted.remote?.url, 'https://*****@github.com/repo.git');
+  });
+
+  test('should redact token AND password (x-oauth-basic) from remote.url', () => {
+    const config = {
+      remote: {
+        url: 'https://ghp_token:x-oauth-basic@github.com/repo.git',
+      },
+      cwd: '/tmp',
+      version: false,
+    } as MergedConfig;
+
+    const redacted = redactConfig(config);
+    assert.strictEqual(redacted.remote?.url, 'https://*****:*****@github.com/repo.git');
   });
 
   test('should NOT redact "git" username from remote.url', () => {
@@ -78,7 +92,8 @@ suite('redactCommand', () => {
     test('should redact credentials in command string', () => {
         const cmd = 'npx repomix --remote https://user:pass@github.com/repo.git';
         const redacted = redactCommand(cmd);
-        assert.strictEqual(redacted, 'npx repomix --remote https://user:*****@github.com/repo.git');
+        // User masked too
+        assert.strictEqual(redacted, 'npx repomix --remote https://*****:*****@github.com/repo.git');
     });
 
     test('should redact token in command string', () => {
@@ -87,16 +102,31 @@ suite('redactCommand', () => {
         assert.strictEqual(redacted, 'npx repomix --remote https://*****@github.com/repo.git');
     });
 
+    test('should redact git+ssh scheme with user:pass', () => {
+        const cmd = 'npx repomix --remote git+ssh://user:pass@github.com/repo.git';
+        const redacted = redactCommand(cmd);
+        assert.strictEqual(redacted, 'npx repomix --remote git+ssh://*****:*****@github.com/repo.git');
+    });
+
     test('should NOT redact git user in command string', () => {
         const cmd = 'npx repomix --remote ssh://git@github.com/repo.git';
         const redacted = redactCommand(cmd);
         assert.strictEqual(redacted, 'npx repomix --remote ssh://git@github.com/repo.git');
     });
 
+    test('should NOT redact git user with fake password (unlikely but safe check)', () => {
+         // If user is git, we keep it visible?
+         // Logic: if user !== 'git', mask it.
+         // So git:pass -> git:*****
+         const cmd = 'npx repomix --remote https://git:somepass@github.com/repo.git';
+         const redacted = redactCommand(cmd);
+         assert.strictEqual(redacted, 'npx repomix --remote https://git:*****@github.com/repo.git');
+    });
+
     test('should handle multiple URLs', () => {
         const cmd = 'echo https://user:pass@a.com && echo https://token@b.com';
         const redacted = redactCommand(cmd);
-        assert.strictEqual(redacted, 'echo https://user:*****@a.com && echo https://*****@b.com');
+        assert.strictEqual(redacted, 'echo https://*****:*****@a.com && echo https://*****@b.com');
     });
 
     test('should not affect normal flags', () => {
