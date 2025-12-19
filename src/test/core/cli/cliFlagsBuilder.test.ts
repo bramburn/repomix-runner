@@ -191,9 +191,23 @@ suite('CliFlagsBuilder', () => {
     assert.ok(!flags.includes('--copy'));
   });
 
-  //TODO --remote
+  test('should add "--remote" flag when remote.url is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, url: 'https://github.com/user/repo' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote "https://github.com/user/repo"'));
+  });
 
-  //TODO --remote-branch
+  test('should add "--remote-branch" flag when remote.branch is specified', () => {
+    const config: MergedConfig = {
+      ...baseConfig,
+      remote: { ...baseConfig.remote, branch: 'develop' },
+    };
+    const flags = cliFlagsBuilder(config);
+    assert.ok(flags.includes('--remote-branch "develop"'));
+  });
 
   test('should add "--no-security-check" flag when config.security.enableSecurityCheck is false', () => {
     const config: MergedConfig = {

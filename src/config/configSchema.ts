@@ -50,6 +50,12 @@ export const repomixConfigBaseSchema = z.object({
       encoding: z.string().optional(),
     })
     .optional(),
+  remote: z
+    .object({
+      url: z.string().optional(),
+      branch: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Default config schema (avec valeurs par défaut)
@@ -91,6 +97,12 @@ export const repomixConfigDefaultSchema = z.object({
         .string()
         .default('o200k_base')
         .transform(val => val as TiktokenEncoding),
+    })
+    .default({}),
+  remote: z
+    .object({
+      url: z.string().default(''),
+      branch: z.string().default(''),
     })
     .default({}),
 });
