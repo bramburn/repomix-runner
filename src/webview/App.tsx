@@ -891,7 +891,7 @@ const DebugTab = () => {
               </Button>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                {run.files.map((file, idx) => (
+                {run.files.slice(0, 3).map((file, idx) => (
                     <Text key={idx} size={100} style={{
                         backgroundColor: 'var(--vscode-textBlockQuote-background)',
                         padding: '2px 4px',
@@ -901,6 +901,17 @@ const DebugTab = () => {
                         {file}
                     </Text>
                 ))}
+                {run.files.length > 3 && (
+                    <Text size={100} style={{
+                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                        padding: '2px 4px',
+                        borderRadius: '2px',
+                        opacity: 0.9,
+                        fontStyle: 'italic'
+                    }}>
+                        +{run.files.length - 3} selection
+                    </Text>
+                )}
             </div>
             <Text size={100} style={{ opacity: 0.7 }}>
                 {run.files.length} items
