@@ -102,17 +102,28 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCopyDefaultRepomixOutput();
           break;
         }
-        case 'checkApiKey': {
-          const key = await this._context.secrets.get('repomix.agent.googleApiKey');
+        case 'checkSecret': {
+          const { key } = message;
+          const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+          const val = await this._context.secrets.get(storageKey);
           this._view?.webview.postMessage({
-            command: 'apiKeyStatus',
-            hasKey: !!key
+            command: 'secretStatus',
+            key,
+            exists: !!val
           });
           break;
         }
-        case 'saveApiKey': {
-          const { apiKey } = message;
-          await this._handleSaveApiKey(apiKey);
+        case 'saveSecret': {
+          const { key, value } = message;
+          const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+          await this._context.secrets.store(storageKey, value);
+          vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
+          // Send status update back to webview immediately
+          this._view?.webview.postMessage({
+            command: 'secretStatus',
+            key,
+            exists: true
+          });
           break;
         }
         case 'runSmartAgent': {
@@ -611,18 +622,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     this._isProcessingQueue = false;
   }
 
-  private async _handleCheckApiKey(): Promise<boolean> {
-    const apiKey = await this._context.secrets.get('repomix.agent.googleApiKey');
-    return !!apiKey;
-  }
-
-  private async _handleSaveApiKey(apiKey: string) {
-    if (apiKey) {
-      await this._context.secrets.store('repomix.agent.googleApiKey', apiKey);
-      vscode.window.showInformationMessage('API Key saved successfully!');
-    }
-  }
-
   private async _handleRunSmartAgent(query: string) {
     const workspaceRoot = getCwd();
 
@@ -634,7 +633,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     if (!apiKey) {
-      vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
+      vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Settings' tab.");
       this._view?.webview.postMessage({ command: 'agentRunFailed' });
       return;
     }
@@ -749,10 +748,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             'Open Settings'
           );
           if (selection === 'Open Settings') {
-            vscode.commands.executeCommand(
-              'workbench.action.openSettings',
-              'repomix.agent.googleApiKey'
-            );
+            // We can't switch tab directly from extension, but we can send message
+            // However, previous implementation used settings.json, now we use custom UI
+            vscode.window.showInformationMessage("Please go to the 'Settings' tab in Repomix Runner to configure your API key.");
           }
         } else if (errorMessage.includes('cancelled')) {
            vscode.window.showInformationMessage("Agent run cancelled.");
@@ -820,7 +818,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       if (!apiKey) {
-        vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Smart Agent' tab.");
+        vscode.window.showErrorMessage("Google API Key missing. Please set it in the 'Settings' tab.");
         return;
       }
 

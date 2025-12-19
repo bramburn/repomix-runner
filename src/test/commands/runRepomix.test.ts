@@ -45,6 +45,8 @@ suite('runRepomix', () => {
     ignore: { useGitignore: true, useDefaultPatterns: true, customPatterns: [] },
     security: { enableSecurityCheck: true },
     tokenCount: { encoding: 'o200k_base' },
+    version: false,
+    remote: { url: '', branch: '' },
   };
 
   test('should call copyToClipboard when config.output.copyToClipboard is true and config.runner.copyMode is file', async () => {

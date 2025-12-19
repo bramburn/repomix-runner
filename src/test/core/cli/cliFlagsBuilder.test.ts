@@ -9,6 +9,7 @@ suite('CliFlagsBuilder', () => {
     baseConfig = {
       ...defaultConfig,
       cwd: '/path/to/test-dir',
+      remote: { url: '', branch: '' },
       version: false,
     };
   });
