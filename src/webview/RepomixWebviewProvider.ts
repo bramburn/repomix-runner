@@ -115,6 +115,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleSaveApiKey(apiKey);
           break;
         }
+        case 'saveSecret': {
+          const { key, value } = message;
+          await this._handleSaveSecret(key, value);
+          break;
+        }
+        case 'checkSecret': {
+          const { key } = message;
+          await this._handleCheckSecret(key);
+          break;
+        }
         case 'runSmartAgent': {
           const { query } = message;
           await this._handleRunSmartAgent(query);
@@ -624,6 +634,27 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     if (apiKey) {
       await this._context.secrets.store('repomix.agent.googleApiKey', apiKey);
       vscode.window.showInformationMessage('API Key saved successfully!');
+    }
+  }
+
+  private async _handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey', value: string) {
+    const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+    await this._context.secrets.store(storageKey, value);
+    // Send updated status back to UI
+    await this._handleCheckSecret(key);
+    vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
+  }
+
+  private async _handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey') {
+    const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+    const value = await this._context.secrets.get(storageKey);
+
+    if (this._view) {
+      this._view.webview.postMessage({
+        command: 'secretStatus',
+        key,
+        exists: !!value
+      });
     }
   }
 
