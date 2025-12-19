@@ -120,6 +120,11 @@ export const CopyDebugOutputSchema = z.object({
   command: z.literal('copyDebugOutput'),
 });
 
+export const DeleteDebugRunSchema = z.object({
+  command: z.literal('deleteDebugRun'),
+  id: z.number(),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -158,6 +163,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetDebugRunsSchema,
   ReRunDebugSchema,
   CopyDebugOutputSchema,
+  DeleteDebugRunSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

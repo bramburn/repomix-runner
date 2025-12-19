@@ -7,6 +7,7 @@ import { showTempNotification } from '../shared/showTempNotification.js';
 import * as path from 'path';
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
+import { getRepoName } from '../utils/repoName.js';
 
 export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
@@ -61,7 +62,8 @@ export async function runRepomixOnSelectedFiles(
     try {
       // Log the run to the database for debugging
       const files = uris.map(uri => path.relative(cwd, uri.fsPath).replace(/\\/g, '/'));
-      await databaseService.saveDebugRun(files);
+      const repoName = await getRepoName(cwd);
+      await databaseService.saveDebugRun(files, repoName);
     } catch (e) {
       logger.both.error('Failed to save debug run', e);
     }
