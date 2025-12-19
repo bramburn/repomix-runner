@@ -26,16 +26,11 @@ export const cliFlags = {
     useDefaultPatterns: '--no-default-patterns',
     customPatterns: '--ignore',
   },
-  config: '--config',
   security: {
     enableSecurityCheck: '--no-security-check',
   },
   tokenCount: {
     encoding: '--token-count-encoding',
-  },
-  remote: {
-    url: '--remote',
-    branch: '--remote-branch',
   },
 } as const;
 
@@ -47,11 +42,6 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   // Version
   if (config.version) {
     outputFlags.push(flags.version);
-  }
-
-  // Config
-  if (config.configFilePath) {
-    outputFlags.push(`${flags.config} "${config.configFilePath}"`);
   }
 
   // Output
@@ -122,14 +112,6 @@ export function cliFlagsBuilder(config: MergedConfig, flags = cliFlags): string 
   // Token Count
   if (config.tokenCount.encoding) {
     outputFlags.push(`${flags.tokenCount.encoding} ${config.tokenCount.encoding}`);
-  }
-
-  // Remote
-  if (config.remote.url) {
-    outputFlags.push(`${flags.remote.url} "${config.remote.url}"`);
-  }
-  if (config.remote.branch) {
-    outputFlags.push(`${flags.remote.branch} "${config.remote.branch}"`);
   }
 
   return outputFlags.join(' ');
