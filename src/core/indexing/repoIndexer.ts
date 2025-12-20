@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from '../storage/databaseService.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
-import ignore from 'ignore';
 
 /**
  * Indexes the repository files into the database.
@@ -21,22 +20,19 @@ export async function indexRepository(cwd: string, databaseService: DatabaseServ
 
     // 2. Prepare ignore patterns
     const gitignorePath = path.join(cwd, '.gitignore');
-    const ignoreInstance = ignore();
+    const ignorePatterns: string[] = ['.git', 'node_modules', '.DS_Store'];
 
     if (fs.existsSync(gitignorePath)) {
       const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
-      ignoreInstance.add(gitignoreContent);
+      ignorePatterns.push(...gitignoreContent.split(/\r?\n/));
     }
-
-    // Add default ignore patterns (e.g. .git, node_modules)
-    ignoreInstance.add(['.git', 'node_modules', '.DS_Store']);
 
     // 3. Find files using glob-gitignore
     // Note: glob-gitignore's `glob` function usually returns Promise<string[]>
-    // We use the 'ignore' option which accepts an ignore instance or file path
+    // We use the 'ignore' option which accepts an ignore instance or file path, or an array of strings
     const files = await glob('**/*', {
       cwd: cwd,
-      ignore: ignoreInstance,
+      ignore: ignorePatterns,
       nodir: true,
       dot: true
     });
