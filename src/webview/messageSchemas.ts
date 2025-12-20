@@ -144,6 +144,11 @@ export const GetPineconeIndexSchema = z.object({
   command: z.literal('getPineconeIndex'),
 });
 
+export const DeleteDebugRunSchema = z.object({
+  command: z.literal('deleteDebugRun'),
+  id: z.number(),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -185,6 +190,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   FetchPineconeIndexesSchema,
   SavePineconeIndexSchema,
   GetPineconeIndexSchema,
+  DeleteDebugRunSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

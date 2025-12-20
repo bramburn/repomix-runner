@@ -16,6 +16,7 @@ import { WebviewMessageSchema } from './messageSchemas.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
 import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles.js';
 import { Pinecone } from '@pinecone-database/pinecone';
+import { getRepoName } from '../utils/repoName.js';
 
 const DEFAULT_REPOMIX_ID = '__default__';
 
@@ -194,6 +195,11 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
         case 'getPineconeIndex': {
           await this._handleGetPineconeIndex();
+          break;
+        }
+        case 'deleteDebugRun': {
+          const { id } = message;
+          await this._handleDeleteDebugRun(id);
           break;
         }
       }
@@ -606,8 +612,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             await runRepomix({
               ...defaultRunRepomixDeps,
               mergeConfigOverride: compress ? { output: { compress: true } } : null,
-              signal: controller.signal,
-            });
+              signal: controller.signal,            });
             this._sendDefaultRepomixState();
         } else {
             // Need to update runBundle signature to accept overrides or compress flag
@@ -1075,13 +1080,24 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
-      const runs = await this._databaseService.getDebugRuns();
+      const repoName = await getRepoName(getCwd());
+      const runs = await this._databaseService.getDebugRuns(repoName);
       this._view.webview.postMessage({
         command: 'updateDebugRuns',
         runs,
       });
     } catch (error) {
       console.error('Failed to get debug runs:', error);
+    }
+  }
+
+  private async _handleDeleteDebugRun(id: number): Promise<void> {
+    try {
+      await this._databaseService.deleteDebugRun(id);
+      await this._handleGetDebugRuns();
+    } catch (error) {
+      console.error('Failed to delete debug run:', error);
+      vscode.window.showErrorMessage(`Failed to delete debug run: ${error}`);
     }
   }
 
