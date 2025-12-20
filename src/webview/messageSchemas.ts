@@ -119,6 +119,28 @@ export const ReRunDebugSchema = z.object({
 export const CopyDebugOutputSchema = z.object({
   command: z.literal('copyDebugOutput'),
 });
+export const FetchPineconeIndexesSchema = z.object({
+  command: z.literal('fetchPineconeIndexes'),
+  apiKey: z.string().optional(),
+});
+
+export const SavePineconeIndexSchema = z.object({
+  command: z.literal('savePineconeIndex'),
+  index: z.object({
+    name: z.string(),
+    host: z.string(),
+    dimension: z.number().optional(),
+    metric: z.string().optional(),
+    spec: z.record(z.unknown()).optional(),
+    status: z.record(z.unknown()).optional(),
+  }),
+});
+
+export const GetPineconeIndexSchema = z.object({
+  command: z.literal('getPineconeIndex'),
+});
+
+// --- Repository Indexing Schemas (Merged from main branch) ---
 
 export const DeleteDebugRunSchema = z.object({
   command: z.literal('deleteDebugRun'),
@@ -137,6 +159,8 @@ export const GetRepoIndexCountSchema = z.object({
   command: z.literal('getRepoIndexCount'),
 });
 
+// --- UI Notification Schemas ---
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -153,6 +177,21 @@ export const AgentRunFailedSchema = z.object({
   command: z.literal('agentRunFailed')
 });
 
+export const AgentStateChangeSchema = z.object({
+  command: z.literal('agentStateChange'),
+  status: z.enum(['running', 'idle'])
+});
+
+export const AgentRunCompleteSchema = z.object({
+  command: z.literal('agentRunComplete'),
+  outputPath: z.string(),
+  fileCount: z.number(),
+  query: z.string()
+});
+
+export const AgentRunFailedSchema = z.object({
+  command: z.literal('agentRunFailed')
+});
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -163,7 +202,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyDefaultRepomixOutputSchema,
   CheckApiKeySchema,
   SaveApiKeySchema,
-  SaveSecretBaseSchema, // Use base schema for discrimination
+  SaveSecretBaseSchema,
   CheckSecretSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
@@ -175,7 +214,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetDebugRunsSchema,
   ReRunDebugSchema,
   CopyDebugOutputSchema,
-DeleteDebugRunSchema,
+  DeleteDebugRunSchema,
+  // Feature branch additions
+  FetchPineconeIndexesSchema,
+  SavePineconeIndexSchema,
+  GetPineconeIndexSchema,
+  // Main branch additions
   IndexRepoSchema,
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,

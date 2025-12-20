@@ -1,0 +1,50 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repomix Settings Mock</title>
+    <style>
+        body { background-color: #1e1e1e; color: #cccccc; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module">
+        // Mock VS Code API
+        window.acquireVsCodeApi = () => ({
+            postMessage: (msg) => {
+                console.log("VS Code Message:", msg);
+                // Mock responses
+                if (msg.command === 'webviewLoaded') {
+                     window.postMessage({ command: 'updateVersion', version: '0.0.0-test' }, '*');
+                }
+                if (msg.command === 'checkSecret') {
+                    // Simulate keys existing
+                    window.postMessage({ command: 'secretStatus', key: msg.key, exists: true }, '*');
+                }
+                if (msg.command === 'fetchPineconeIndexes') {
+                    // Simulate fetching indexes
+                    setTimeout(() => {
+                        window.postMessage({
+                            command: 'updatePineconeIndexes',
+                            indexes: [
+                                { name: 'test-index-1', host: 'test-host-1', dimension: 1536 },
+                                { name: 'test-index-2', host: 'test-host-2', dimension: 768 }
+                            ]
+                        }, '*');
+                    }, 100);
+                }
+                if (msg.command === 'savePineconeIndex') {
+                    // Simulate confirming selection
+                    window.postMessage({ command: 'updateSelectedIndex', index: msg.index }, '*');
+                }
+            },
+            getState: () => ({ selectedTab: 'settings' }),
+            setState: () => {}
+        });
+    </script>
+    <script type="module" src="/dist/webview.js"></script>
+</body>
+</html>

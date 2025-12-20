@@ -15,7 +15,9 @@ import { mergeConfigs, readRepomixFileConfig, readRepomixRunnerVscodeConfig } fr
 import { WebviewMessageSchema } from './messageSchemas.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
 import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles.js';
+import { Pinecone } from '@pinecone-database/pinecone';
 import { getRepoName } from '../utils/repoName.js';
+
 import { indexRepository } from '../core/indexing/repoIndexer.js';
 import { getRepoId } from '../utils/repoIdentity.js';
 
@@ -83,6 +85,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._sendBundles();
           await this._sendDefaultRepomixState();
           await this._sendVersion();
+          await this._handleGetPineconeIndex();
           break;
         }
         case 'runBundle': {
@@ -183,7 +186,40 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCopyDebugOutput();
           break;
         }
-      case 'deleteDebugRun': {
+case 'openFile': {
+          const { path } = message;
+          await this._handleOpenFile(path);
+          break;
+        }
+        case 'getDebugRuns': {
+          await this._handleGetDebugRuns();
+          break;
+        }
+        case 'reRunDebug': {
+          const { files } = message;
+          await this._handleReRunDebug(files);
+          break;
+        }
+        case 'copyDebugOutput': {
+          await this._handleCopyDebugOutput();
+          break;
+        }
+        // Combined cases from both branches
+        case 'fetchPineconeIndexes': {
+          const { apiKey } = message;
+          await this._handleFetchPineconeIndexes(apiKey);
+          break;
+        }
+        case 'savePineconeIndex': {
+          const { index } = message;
+          await this._handleSavePineconeIndex(index);
+          break;
+        }
+        case 'getPineconeIndex': {
+          await this._handleGetPineconeIndex();
+          break;
+        }
+        case 'deleteDebugRun': {
           const { id } = message;
           await this._handleDeleteDebugRun(id);
           break;
@@ -198,6 +234,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         }
         case 'getRepoIndexCount': {
           await this._handleGetRepoIndexCount();
+          break;
+        }
           break;
         }
       }
@@ -610,8 +648,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             await runRepomix({
               ...defaultRunRepomixDeps,
               mergeConfigOverride: compress ? { output: { compress: true } } : null,
-              signal: controller.signal,
-            });
+              signal: controller.signal,            });
             this._sendDefaultRepomixState();
         } else {
             // Need to update runBundle signature to accept overrides or compress flag
@@ -1000,6 +1037,63 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
+    }
+  }
+
+  private async _handleFetchPineconeIndexes(explicitKey?: string) {
+    try {
+      let apiKey = explicitKey;
+      if (!apiKey) {
+          apiKey = await this._context.secrets.get('repomix.agent.pineconeApiKey');
+      }
+
+      if (!apiKey) {
+        this._view?.webview.postMessage({
+          command: 'updatePineconeIndexes',
+          indexes: [],
+          error: 'Missing Pinecone API Key'
+        });
+        return;
+      }
+
+      const pc = new Pinecone({ apiKey });
+      const indexList = await pc.listIndexes();
+
+      this._view?.webview.postMessage({
+        command: 'updatePineconeIndexes',
+        indexes: indexList.indexes || [],
+      });
+    } catch (error: unknown) {
+      console.error('Failed to fetch Pinecone indexes:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this._view?.webview.postMessage({
+        command: 'updatePineconeIndexes',
+        indexes: [],
+        error: errorMessage
+      });
+    }
+  }
+
+  private async _handleSavePineconeIndex(index: any) {
+    try {
+      await this._context.globalState.update('repomix.pinecone.selectedIndex', index);
+      // Optional: Confirm save back to UI?
+      // For now, let's just assume it saved.
+    } catch (error) {
+      console.error('Failed to save Pinecone index:', error);
+      vscode.window.showErrorMessage(`Failed to save selected index: ${error}`);
+    }
+  }
+
+  private async _handleGetPineconeIndex() {
+    try {
+      const index = this._context.globalState.get('repomix.pinecone.selectedIndex');
+      this._view?.webview.postMessage({
+        command: 'updateSelectedIndex',
+        index
+      });
+    } catch (error) {
+      console.error('Failed to get Pinecone index:', error);
     }
   }
 

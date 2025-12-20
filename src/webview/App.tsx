@@ -7,6 +7,8 @@ import {
   Tab,
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
+
+// Clean imports from main
 import { SettingsTab } from './components/SettingsTab.js';
 import { SearchTab } from './components/SearchTab.js';
 import { BundleItem } from './components/BundleItem.js';
@@ -38,16 +40,16 @@ export const App = () => {
           setBundles(message.bundles);
           break;
         case 'updateDefaultRepomix':
-           setDefaultRepomixInfo(message.data);
-           break;
+          setDefaultRepomixInfo(message.data);
+          break;
         case 'executionStateChange':
           if (message.bundleId === '__default__') {
-             setDefaultRepomixState(message.status);
+            setDefaultRepomixState(message.status);
           } else {
-             setBundleStates(prev => ({
-               ...prev,
-               [message.bundleId]: message.status
-             }));
+            setBundleStates(prev => ({
+              ...prev,
+              [message.bundleId]: message.status
+            }));
           }
           break;
         case 'updateVersion':
@@ -77,22 +79,22 @@ export const App = () => {
   };
 
   const handleRunDefault = (compress = false) => {
-     vscode.postMessage({ command: 'runDefaultRepomix', compress });
+    vscode.postMessage({ command: 'runDefaultRepomix', compress });
   };
 
   const handleCancelDefault = () => {
-     vscode.postMessage({ command: 'cancelDefaultRepomix' });
+    vscode.postMessage({ command: 'cancelDefaultRepomix' });
   };
 
   const handleCopyDefault = () => {
-     vscode.postMessage({ command: 'copyDefaultRepomixOutput' });
+    vscode.postMessage({ command: 'copyDefaultRepomixOutput' });
   };
 
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
       <div
         style={{
-          padding: '10px', // Reduced padding slightly to save space
+          padding: '10px',
           display: 'flex',
           flexDirection: 'column',
           height: '100vh',
@@ -103,7 +105,6 @@ export const App = () => {
           Repomix Runner
         </Text>
 
-        {/* TAB HEADER */}
         <TabList
           selectedValue={selectedTab}
           onTabSelect={(_, data) => {
@@ -120,36 +121,35 @@ export const App = () => {
           <Tab value="debug">Debug</Tab>
         </TabList>
 
-        {/* TAB CONTENT */}
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {selectedTab === 'bundles' && (
-             <>
-                <DefaultRepomixItem
-                    state={defaultRepomixState}
-                    info={defaultRepomixInfo}
-                    onRun={handleRunDefault}
-                    onCancel={handleCancelDefault}
-                    onCopy={handleCopyDefault}
-                />
+            <>
+              <DefaultRepomixItem
+                state={defaultRepomixState}
+                info={defaultRepomixInfo}
+                onRun={handleRunDefault}
+                onCancel={handleCancelDefault}
+                onCopy={handleCopyDefault}
+              />
 
-                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  <Text weight="semibold">Your Bundles</Text>
-                  {bundles.length === 0 ? (
-                    <Text style={{ opacity: 0.7 }}>No bundles found.</Text>
-                  ) : (
-                    bundles.map((bundle) => (
-                      <BundleItem
-                        key={bundle.id}
-                        bundle={bundle}
-                        state={bundleStates[bundle.id] || 'idle'}
-                        onRun={handleRun}
-                        onCancel={handleCancel}
-                        onCopy={handleCopy}
-                      />
-                    ))
-                  )}
-                </div>
-             </>
+              <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <Text weight="semibold">Your Bundles</Text>
+                {bundles.length === 0 ? (
+                  <Text style={{ opacity: 0.7 }}>No bundles found.</Text>
+                ) : (
+                  bundles.map((bundle) => (
+                    <BundleItem
+                      key={bundle.id}
+                      bundle={bundle}
+                      state={bundleStates[bundle.id] || 'idle'}
+                      onRun={handleRun}
+                      onCancel={handleCancel}
+                      onCopy={handleCopy}
+                    />
+                  ))
+                )}
+              </div>
+            </>
           )}
           {selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'search' && <SearchTab />}
@@ -157,17 +157,8 @@ export const App = () => {
           {selectedTab === 'debug' && <DebugTab />}
         </div>
 
-        {/* FOOTER */}
         {version && (
-          <div
-            style={{
-              marginTop: '10px',
-              alignSelf: 'center',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              opacity: 0.5
-            }}
-          >
+          <div style={{ marginTop: '10px', alignSelf: 'center', opacity: 0.5 }}>
             <Text size={100}>v{version}</Text>
           </div>
         )}
