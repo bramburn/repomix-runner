@@ -135,7 +135,7 @@ export class DatabaseService {
         )
       `);
 
-      // Migrate: Add repo_name column if not exists
+    // Migrate: Add repo_name column if not exists
       try {
         this.db.run("ALTER TABLE debug_runs ADD COLUMN repo_name TEXT");
         // Backfill existing NULLs with default
@@ -144,6 +144,16 @@ export class DatabaseService {
         // Column likely exists, ignore
       }
 
+      // Create repo_files table
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS repo_files (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          repo_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       // Create indexes for better performance
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_timestamp ON agent_runs(timestamp)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_success ON agent_runs(success)`);
@@ -151,6 +161,7 @@ export class DatabaseService {
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_query_id ON agent_runs(query_id)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
       this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
+      this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_id ON repo_files(repo_id)`);
 
       await this.saveDatabase();
     } catch (error) {
@@ -496,6 +507,64 @@ export class DatabaseService {
         DELETE FROM debug_runs WHERE id = ?
       `);
 
+      stmt.run([id]);
+      stmt.free();
+      await this.saveDatabase();
+    } catch (error) {
+      console.error('Failed to delete debug run:', error);
+      throw new Error(`Failed to delete debug run: ${error}`);
+    }
+  }
+
+  async saveRepoFilesBatch(repoId: string, filePaths: string[]): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Start transaction
+      this.db.run('BEGIN TRANSACTION');
+
+      const stmt = this.db.prepare(`
+        INSERT INTO repo_files (repo_id, file_path)
+        VALUES (?, ?)
+      `);
+
+      for (const filePath of filePaths) {
+        stmt.run([repoId, filePath]);
+      }
+
+      stmt.free();
+      this.db.run('COMMIT');
+      await this.saveDatabase();
+      console.log(`Saved ${filePaths.length} files for repo: ${repoId}`);
+    } catch (error) {
+      this.db.run('ROLLBACK');
+      console.error('Failed to save repo files batch:', error);
+      throw new Error(`Failed to save repo files batch: ${error}`);
+    }
+  }
+
+  async clearRepoFiles(repoId: string): Promise<void> {
+>>>>>>> ddb3262 (Add repository indexing feature with glob-gitignore and Search tab)
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+<<<<<<< HEAD
+        DELETE FROM debug_runs WHERE id = ?
+      `);
+
       stmt.bind([id]);
       stmt.step();
       stmt.free();
@@ -505,6 +574,48 @@ export class DatabaseService {
     } catch (error) {
       console.error('Failed to delete debug run:', error);
       throw new Error(`Failed to delete debug run: ${error}`);
+=======
+        DELETE FROM repo_files WHERE repo_id = ?
+      `);
+
+      stmt.run([repoId]);
+      stmt.free();
+
+      await this.saveDatabase();
+      console.log(`Cleared files for repo: ${repoId}`);
+    } catch (error) {
+      console.error('Failed to clear repo files:', error);
+      throw new Error(`Failed to clear repo files: ${error}`);
+    }
+  }
+
+  async getRepoFileCount(repoId: string): Promise<number> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count FROM repo_files WHERE repo_id = ?
+      `);
+
+      stmt.bind([repoId]);
+      let count = 0;
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        count = row.count as number;
+      }
+
+      stmt.free();
+      return count;
+    } catch (error) {
+      console.error('Failed to get repo file count:', error);
+      throw new Error(`Failed to get repo file count: ${error}`);
+>>>>>>> ddb3262 (Add repository indexing feature with glob-gitignore and Search tab)
     }
   }
 
