@@ -17,6 +17,7 @@ import { DatabaseService } from '../core/storage/databaseService.js';
 import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles.js';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { getRepoName } from '../utils/repoName.js';
+import { getRepomixOutputPath } from '../utils/repomix_output_detector.js';
 
 import { indexRepository } from '../core/indexing/repoIndexer.js';
 import { getRepoId } from '../utils/repoIdentity.js';
@@ -280,12 +281,33 @@ case 'openFile': {
       }
   }
 
+  /**
+   * Resolves the default Repomix output path.
+   * Priority:
+   * 1. 'repomix.config.json' file (if 'output.filePath' is defined)
+   * 2. Fallback to auto-detection (getRepomixOutputPath)
+   */
   private async _resolveDefaultRepomixOutputPath(): Promise<string> {
       const cwd = getCwd();
-      const vscodeConfig = readRepomixRunnerVscodeConfig();
-      const configFile = await readRepomixFileConfig(cwd, vscodeConfig.runner.configPath);
-      const mergedConfig = await mergeConfigs(cwd, configFile, vscodeConfig, null, vscodeConfig.runner.configPath);
-      return mergedConfig.output.filePath;
+      const configPath = path.join(cwd, 'repomix.config.json');
+
+      // Strategy A: Try to read from repomix.config.json
+      if (fs.existsSync(configPath)) {
+          try {
+              const configContent = await fs.promises.readFile(configPath, 'utf-8');
+              const config = JSON.parse(configContent);
+              
+              if (config.output && config.output.filePath) {
+                  // Resolve relative path against CWD
+                  return path.resolve(cwd, config.output.filePath);
+              }
+          } catch (e) {
+              console.warn('Repomix Runner: Failed to parse repomix.config.json, falling back to detector.', e);
+          }
+      }
+
+      // Strategy B: Fallback to the standard detector (defaults)
+      return getRepomixOutputPath(cwd);
   }
 
   private _debouncedSendDefaultRepomixState() {

@@ -113,7 +113,100 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_files_repo_id ON repo_files(repo_id)`);
 
+    // Run migrations for existing databases
+    await this.runMigrations();
+
     await this.saveDatabase();
+  }
+
+  private async runMigrations(): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      // Check if repo_name column exists in debug_runs table
+      const stmt = this.db.prepare(`PRAGMA table_info(debug_runs)`);
+      const columns: any[] = [];
+      while (stmt.step()) {
+        columns.push(stmt.getAsObject());
+      }
+      stmt.free();
+
+      const hasRepoNameColumn = columns.some((col: any) => col.name === 'repo_name');
+
+      // If repo_name column doesn't exist, add it
+      if (!hasRepoNameColumn) {
+        this.db.run(`ALTER TABLE debug_runs ADD COLUMN repo_name TEXT`);
+      }
+    } catch (error) {
+      // Migration errors are non-fatal - the table might not exist yet
+      console.debug('Migration check completed:', error);
+    }
+  }
+
+  async saveDebugRun(files: string[], repoName?: string): Promise<number> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO debug_runs (timestamp, files, repo_name)
+      VALUES (?, ?, ?)
+    `);
+
+    const filesJson = JSON.stringify(files);
+    stmt.run([Date.now(), filesJson, repoName || null]);
+    stmt.free();
+
+    await this.saveDatabase();
+
+    // Return the last inserted ID
+    const lastIdStmt = this.db.prepare(`SELECT last_insert_rowid() as id`);
+    lastIdStmt.step();
+    const result = lastIdStmt.getAsObject();
+    lastIdStmt.free();
+
+    return (result.id as number) || 0;
+  }
+
+  async getDebugRuns(repoName?: string): Promise<DebugRun[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const runs: DebugRun[] = [];
+
+    try {
+      let query = `SELECT id, timestamp, files, repo_name FROM debug_runs`;
+      const params: any[] = [];
+
+      if (repoName) {
+        query += ` WHERE repo_name = ?`;
+        params.push(repoName);
+      }
+
+      query += ` ORDER BY timestamp DESC LIMIT 50`;
+
+      const stmt = this.db.prepare(query);
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        runs.push({
+          id: row.id as number,
+          timestamp: row.timestamp as number,
+          files: JSON.parse(row.files as string),
+          repoName: row.repo_name as string | undefined,
+        });
+      }
+
+      stmt.free();
+    } catch (error) {
+      console.error('Error fetching debug runs:', error);
+      // Return empty array on error instead of throwing
+      return [];
+    }
+
+    return runs;
   }
 
   async deleteDebugRun(id: number): Promise<void> {
@@ -125,6 +218,109 @@ export class DatabaseService {
     stmt.free();
 
     await this.saveDatabase();
+  }
+
+  async saveAgentRun(run: AgentRunHistory): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO agent_runs (id, timestamp, query, files, file_count, output_path, success, error, duration, bundle_id, query_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const filesJson = JSON.stringify(run.files);
+    stmt.run([
+      run.id,
+      run.timestamp,
+      run.query,
+      filesJson,
+      run.fileCount,
+      run.outputPath || null,
+      run.success ? 1 : 0,
+      run.error || null,
+      run.duration || null,
+      run.bundleId || null,
+      run.queryId || null,
+    ]);
+    stmt.free();
+
+    await this.saveDatabase();
+  }
+
+  async getAgentRunById(id: string): Promise<AgentRunHistory | null> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, timestamp, query, files, file_count, output_path, success, error, duration, bundle_id, query_id
+      FROM agent_runs WHERE id = ?
+    `);
+
+    stmt.bind([id]);
+    let run: AgentRunHistory | null = null;
+
+    if (stmt.step()) {
+      const row = stmt.getAsObject();
+      run = {
+        id: row.id as string,
+        timestamp: row.timestamp as number,
+        query: row.query as string,
+        files: JSON.parse(row.files as string),
+        fileCount: row.file_count as number,
+        outputPath: row.output_path as string | undefined,
+        success: (row.success as number) === 1,
+        error: row.error as string | undefined,
+        duration: row.duration as number | undefined,
+        bundleId: row.bundle_id as string | undefined,
+        queryId: row.query_id as string | undefined,
+      };
+    }
+
+    stmt.free();
+    return run;
+  }
+
+  async getAgentRunHistory(limit: number = 50): Promise<AgentRunHistory[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const runs: AgentRunHistory[] = [];
+
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, timestamp, query, files, file_count, output_path, success, error, duration, bundle_id, query_id
+        FROM agent_runs
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `);
+
+      stmt.bind([limit]);
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        runs.push({
+          id: row.id as string,
+          timestamp: row.timestamp as number,
+          query: row.query as string,
+          files: JSON.parse(row.files as string),
+          fileCount: row.file_count as number,
+          outputPath: row.output_path as string | undefined,
+          success: (row.success as number) === 1,
+          error: row.error as string | undefined,
+          duration: row.duration as number | undefined,
+          bundleId: row.bundle_id as string | undefined,
+          queryId: row.query_id as string | undefined,
+        });
+      }
+
+      stmt.free();
+    } catch (error) {
+      console.error('Error fetching agent run history:', error);
+      return [];
+    }
+
+    return runs;
   }
 
   async saveRepoFilesBatch(repoId: string, filePaths: string[]): Promise<void> {
