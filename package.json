@@ -528,6 +528,7 @@
     "@langchain/langgraph": "^1.0.4",
     "@types/sql.js": "^1.4.9",
     "fast-xml-parser": "^5.3.3",
+    "glob-gitignore": "^1.0.15",
     "ignore": "^7.0.5",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

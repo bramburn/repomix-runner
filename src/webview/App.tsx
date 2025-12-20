@@ -8,6 +8,7 @@ import {
 } from '@fluentui/react-components';
 import { vscode } from './vscode-api.js';
 import { SettingsTab } from './components/SettingsTab.js';
+import { SearchTab } from './components/SearchTab.js';
 import { BundleItem } from './components/BundleItem.js';
 import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
@@ -114,6 +115,7 @@ export const App = () => {
         >
           <Tab value="bundles">Bundles</Tab>
           <Tab value="agent">Smart Agent</Tab>
+          <Tab value="search">Search</Tab>
           <Tab value="settings">Settings</Tab>
           <Tab value="debug">Debug</Tab>
         </TabList>
@@ -150,6 +152,7 @@ export const App = () => {
              </>
           )}
           {selectedTab === 'agent' && <AgentView />}
+          {selectedTab === 'search' && <SearchTab />}
           {selectedTab === 'settings' && <SettingsTab />}
           {selectedTab === 'debug' && <DebugTab />}
         </div>

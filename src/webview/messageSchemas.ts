@@ -125,6 +125,18 @@ export const DeleteDebugRunSchema = z.object({
   id: z.number(),
 });
 
+export const IndexRepoSchema = z.object({
+  command: z.literal('indexRepo'),
+});
+
+export const DeleteRepoIndexSchema = z.object({
+  command: z.literal('deleteRepoIndex'),
+});
+
+export const GetRepoIndexCountSchema = z.object({
+  command: z.literal('getRepoIndexCount'),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -163,7 +175,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetDebugRunsSchema,
   ReRunDebugSchema,
   CopyDebugOutputSchema,
-  DeleteDebugRunSchema,
+DeleteDebugRunSchema,
+  IndexRepoSchema,
+  DeleteRepoIndexSchema,
+  GetRepoIndexCountSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
