@@ -748,7 +748,7 @@ interface DefaultRepomixItemProps {
   state: 'idle' | 'queued' | 'running';
   info: DefaultRepomixInfo;
   onRun: (compress?: boolean) => void;
-  onCancel: () => void;
+  onCancel: (id?: string) => void;
   onCopy: () => void;
 }
 
@@ -805,7 +805,7 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
         {disabled ? (
           <Button
             appearance="secondary"
-            onClick={onCancel}
+            onClick={() => onCancel()}
             style={{ minWidth: '80px', color: 'var(--vscode-errorForeground)', backgroundColor: 'var(--vscode-editor-background)' }}
             title="Cancel execution"
           >
@@ -864,6 +864,10 @@ const DebugTab = () => {
     vscode.postMessage({ command: 'copyDebugOutput' });
   };
 
+  const handleDelete = (id: number) => {
+    vscode.postMessage({ command: 'deleteDebugRun', id });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
@@ -911,6 +915,14 @@ const DebugTab = () => {
                   title="Re-run this selection"
                 >
                   Re-run
+                </Button>
+                <Button
+                  appearance="subtle"
+                  icon={<DeleteRegular />}
+                  onClick={() => handleDelete(run.id)}
+                  title="Delete this run"
+                >
+                  Delete
                 </Button>
               </div>
             </div>
