@@ -748,7 +748,7 @@ interface DefaultRepomixItemProps {
   state: 'idle' | 'queued' | 'running';
   info: DefaultRepomixInfo;
   onRun: (compress?: boolean) => void;
-  onCancel: () => void;
+  onCancel: (id?: string) => void;
   onCopy: () => void;
 }
 
@@ -805,7 +805,7 @@ const DefaultRepomixItem: React.FC<DefaultRepomixItemProps> = ({ state, info, on
         {disabled ? (
           <Button
             appearance="secondary"
-            onClick={onCancel}
+            onClick={() => onCancel()}
             style={{ minWidth: '80px', color: 'var(--vscode-errorForeground)', backgroundColor: 'var(--vscode-editor-background)' }}
             title="Cancel execution"
           >
@@ -896,35 +896,35 @@ const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-<div style={{ display: 'flex', gap: '5px' }}>
-  {/* Only show Copy on the latest run */}
-  {index === 0 && (
-    <Button
-      appearance="subtle"
-      icon={<CopyRegular />}
-      onClick={handleCopy}
-      title="Copy output from default repomix file"
-    >
-      Copy Output
-    </Button>
-  )}
-  <Button
-    appearance="subtle"
-    icon={<ArrowCounterclockwiseRegular />}
-    onClick={() => handleReRun(run.files)}
-    title="Re-run this selection"
-  >
-    Re-run
-  </Button>
-  <Button
-    appearance="subtle"
-    icon={<DeleteRegular />}
-    onClick={() => handleDelete(run.id)}
-    title="Delete this run"
-  >
-    Delete
-  </Button>
-</div>
+              <div style={{ display: 'flex', gap: '5px' }}>
+                {/* Only show Copy on the latest run */}
+                {index === 0 && (
+                  <Button
+                    appearance="subtle"
+                    icon={<CopyRegular />}
+                    onClick={handleCopy}
+                    title="Copy output from default repomix file"
+                  >
+                    Copy Output
+                  </Button>
+                )}
+                <Button
+                  appearance="subtle"
+                  icon={<ArrowCounterclockwiseRegular />}
+                  onClick={() => handleReRun(run.files)}
+                  title="Re-run this selection"
+                >
+                  Re-run
+                </Button>
+                <Button
+                  appearance="subtle"
+                  icon={<DeleteRegular />}
+                  onClick={() => handleDelete(run.id)}
+                  title="Delete this run"
+                >
+                  Delete
+                </Button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                 {run.files.slice(0, 3).map((file, idx) => (

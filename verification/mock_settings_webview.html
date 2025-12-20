@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mock Settings Webview</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.process = { env: { NODE_ENV: "development" } };
+  </script>
+  <script>
+    // Mock VS Code API BEFORE loading the app
+    window.acquireVsCodeApi = () => ({
+      postMessage: (msg) => {
+        console.log("VSCode Message:", msg);
+        if (msg.command === "webviewLoaded") {
+           setTimeout(() => {
+               window.postMessage({
+                 command: "updateBundles",
+                 bundles: []
+               }, "*");
+           }, 100);
+        }
+        if (msg.command === "checkSecret") {
+          // Simulate missing keys initially, or existing keys
+          // Let's verify with missing keys first, then maybe simulate one existing
+          setTimeout(() => {
+            window.postMessage({
+              command: "secretStatus",
+              key: msg.key,
+              exists: false
+            }, "*");
+          }, 50);
+        }
+        if (msg.command === "saveSecret") {
+          console.log(`Saving secret ${msg.key}: ${msg.value}`);
+          // Simulate successful save
+          setTimeout(() => {
+            window.postMessage({
+              command: "secretStatus",
+              key: msg.key,
+              exists: true
+            }, "*");
+          }, 50);
+        }
+      },
+      getState: () => ({ selectedTab: 'settings' }), // Start on settings tab
+      setState: () => {}
+    });
+  </script>
+  <script type="module" src="/dist/webview.js"></script>
+</body>
+</html>
