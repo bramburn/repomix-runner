@@ -46,6 +46,8 @@ export interface DebugRun {
   id: number;
   timestamp: number;
   files: string[];
+  output?: string;
+  error?: string;
 }
 
 export interface LongPressButtonProps {
@@ -74,4 +76,12 @@ export interface DefaultRepomixItemProps {
   onRun: (compress?: boolean) => void;
   onCancel: () => void;
   onCopy: () => void;
+}
+
+// --- WebView State ---
+
+export interface WebViewState {
+  selectedTab?: string;
+  agentQuery?: string;
+  agentLastRun?: AgentState;
 }

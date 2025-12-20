@@ -17,7 +17,7 @@ export const AgentConfiguration: React.FC<AgentConfigurationProps> = ({
 }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-      <Label weight="semibold">Smart Agent Configuration</Label>
+      <Label weight="semibold" htmlFor="api-key-input">Smart Agent Configuration</Label>
 
       {hasKey ? (
          <Text size={200} style={{ color: '#4caf50' }}>
@@ -36,6 +36,7 @@ export const AgentConfiguration: React.FC<AgentConfigurationProps> = ({
 
       <div style={{ display: 'flex', gap: '5px' }}>
         <Input
+          id="api-key-input"
           type="password"
           placeholder="Paste Gemini API Key"
           value={apiKey}
