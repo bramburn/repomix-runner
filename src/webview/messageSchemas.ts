@@ -137,6 +137,28 @@ export const GetRepoIndexCountSchema = z.object({
   command: z.literal('getRepoIndexCount'),
 });
 
+// Pinecone Schemas
+export const FetchPineconeIndexesSchema = z.object({
+  command: z.literal('fetchPineconeIndexes'),
+  apiKey: z.string().optional(),
+});
+
+export const SavePineconeIndexSchema = z.object({
+  command: z.literal('savePineconeIndex'),
+  index: z.object({
+    name: z.string(),
+    host: z.string(),
+    dimension: z.number().optional(),
+    metric: z.string().optional(),
+    spec: z.record(z.unknown()).optional(),
+    status: z.record(z.unknown()).optional(),
+  }),
+});
+
+export const GetPineconeIndexSchema = z.object({
+  command: z.literal('getPineconeIndex'),
+});
+
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
   status: z.enum(['running', 'idle'])
@@ -175,10 +197,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetDebugRunsSchema,
   ReRunDebugSchema,
   CopyDebugOutputSchema,
-DeleteDebugRunSchema,
-  IndexRepoSchema,
+IndexRepoSchema,
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,
+  FetchPineconeIndexesSchema,
+  SavePineconeIndexSchema,
+  GetPineconeIndexSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

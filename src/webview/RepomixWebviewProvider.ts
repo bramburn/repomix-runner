@@ -217,6 +217,23 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleGetPineconeIndex();
           break;
         }
+        case 'indexRepo': {
+          await this._handleIndexRepo();
+          break;
+        }
+        case 'deleteRepoIndex': {
+          await this._handleDeleteRepoIndex();
+          break;
+        }
+        case 'getRepoIndexCount': {
+          await this._handleGetRepoIndexCount();
+          break;
+        }
+        case 'deleteDebugRun': {
+          const { id } = message;
+          await this._handleDeleteDebugRun(id);
+          break;
+        }
       }
     });
 
@@ -627,8 +644,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             await runRepomix({
               ...defaultRunRepomixDeps,
               mergeConfigOverride: compress ? { output: { compress: true } } : null,
-              signal: controller.signal,
-            });
+              signal: controller.signal,            });
             this._sendDefaultRepomixState();
         } else {
             // Need to update runBundle signature to accept overrides or compress flag
