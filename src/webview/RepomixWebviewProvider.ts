@@ -236,8 +236,6 @@ case 'openFile': {
           await this._handleGetRepoIndexCount();
           break;
         }
-          break;
-        }
       }
     });
 

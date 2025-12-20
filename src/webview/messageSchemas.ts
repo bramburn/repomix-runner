@@ -177,21 +177,8 @@ export const AgentRunFailedSchema = z.object({
   command: z.literal('agentRunFailed')
 });
 
-export const AgentStateChangeSchema = z.object({
-  command: z.literal('agentStateChange'),
-  status: z.enum(['running', 'idle'])
-});
 
-export const AgentRunCompleteSchema = z.object({
-  command: z.literal('agentRunComplete'),
-  outputPath: z.string(),
-  fileCount: z.number(),
-  query: z.string()
-});
 
-export const AgentRunFailedSchema = z.object({
-  command: z.literal('agentRunFailed')
-});
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
