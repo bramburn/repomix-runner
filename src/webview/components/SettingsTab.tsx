@@ -45,7 +45,11 @@ export const SettingsTab = () => {
 
   // Debounce logic for Pinecone key validation
   useEffect(() => {
-    if (!pineconeKey) return;
+    if (!pineconeKey) {
+        setIsFetchingIndexes(false);
+        setIndexError(null);
+        return;
+    }
     setIsFetchingIndexes(true);
     setIndexError(null);
     const timer = setTimeout(() => {
@@ -65,8 +69,10 @@ export const SettingsTab = () => {
           } else if (message.key === 'pineconeApiKey') {
             setPineconeKeyExists(message.exists);
             if (message.exists) {
-                // Key exists, fetch indexes
-                fetchIndexes();
+                // Key exists, fetch indexes. We call explicitly to bypass the state guard since we know it exists.
+                setIsFetchingIndexes(true);
+                setIndexError(null);
+                vscode.postMessage({ command: 'fetchPineconeIndexes' });
             } else {
                 setPineconeIndexes([]);
                 setSelectedPineconeIndex(null);
