@@ -1,12 +1,13 @@
-
 import http.server
 import socketserver
 import threading
 import os
-from playwright.sync_api import sync_playwright
+import time
+from playwright.sync_api import sync_playwright, expect
 
-# Define the port for the mock server
-PORT = 8000
+# --- Configuration ---
+# Using PORT 8081 and serve from current directory to access /dist and /verification
+PORT = 8081
 DIRECTORY = os.getcwd()
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -14,26 +15,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
 def start_server():
+    # allow_reuse_address is essential for stable test reruns
+    socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print(f"Serving at port {PORT}")
         httpd.serve_forever()
 
-# Start the server in a separate thread
-thread = threading.Thread(target=start_server, daemon=True)
-thread.start()
-
 def verify_settings_tab():
+    # Start the server in a separate thread
+    thread = threading.Thread(target=start_server, daemon=True)
+    thread.start()
+
+    # Give the server a moment to start
+    time.sleep(1)
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
 
-        # Load the mocked webview HTML which will load our compiled webview.js
-        # We need a mock HTML file that mimics the webview environment
-
-        # Since we don't have a dedicated mock html for settings, we can reuse or create one.
-        # Let's create a temporary HTML file for this test
-
+        # --- Setup Mock Environment ---
+        # Ensure the directory exists
+        os.makedirs("verification", exist_ok=True)
+        
         with open("verification/mock_settings.html", "w") as f:
             f.write("""
 <!DOCTYPE html>
@@ -49,20 +53,16 @@ def verify_settings_tab():
 <body>
     <div id="root"></div>
     <script type="module">
-        // Mock VS Code API
         window.acquireVsCodeApi = () => ({
             postMessage: (msg) => {
                 console.log("VS Code Message:", msg);
-                // Mock responses
                 if (msg.command === 'webviewLoaded') {
                      window.postMessage({ command: 'updateVersion', version: '0.0.0-test' }, '*');
                 }
                 if (msg.command === 'checkSecret') {
-                    // Simulate keys existing
                     window.postMessage({ command: 'secretStatus', key: msg.key, exists: true }, '*');
                 }
                 if (msg.command === 'fetchPineconeIndexes') {
-                    // Simulate fetching indexes
                     setTimeout(() => {
                         window.postMessage({
                             command: 'updatePineconeIndexes',
@@ -74,7 +74,6 @@ def verify_settings_tab():
                     }, 100);
                 }
                 if (msg.command === 'savePineconeIndex') {
-                    // Simulate confirming selection
                     window.postMessage({ command: 'updateSelectedIndex', index: msg.index }, '*');
                 }
             },
@@ -87,31 +86,22 @@ def verify_settings_tab():
 </html>
             """)
 
+        # --- Verification Steps ---
         page.goto(f"http://localhost:{PORT}/verification/mock_settings.html")
 
-        # Wait for the tab to be visible (should default to settings due to mock state)
-        page.wait_for_selector("text=Configuration")
+        # Use expect for more resilient assertions
+        expect(page.get_by_text("Configuration")).to_be_visible()
+        expect(page.get_by_text("API Configuration")).to_be_visible()
+        expect(page.get_by_text("Pinecone API Key")).to_be_visible()
 
-        # Verify the Accordion exists
-        page.wait_for_selector("text=API Configuration")
-
-        # Verify Pinecone API Key section
-        page.wait_for_selector("text=Pinecone API Key")
-
-        # Wait for indexes to load (simulated)
+        # Wait for simulated async loads
         page.wait_for_timeout(500)
-
-        # Take a screenshot of the initial state (with mocked keys)
         page.screenshot(path="verification/settings_initial.png")
 
-        # Verify Dropdown exists and interact
-        # Fluent UI dropdowns can be tricky. Look for the placeholder or label.
-        page.wait_for_selector("text=Select an Index")
-
-        # Click the dropdown to open it (if possible headless)
-        # Often FluentUI renders a button or similar for the dropdown trigger.
-        # We can try to click the element containing the placeholder.
-        page.click("text=Select an Index")
+        # Interact with the index dropdown
+        dropdown = page.get_by_text("Select an Index")
+        expect(dropdown).to_be_visible()
+        dropdown.click()
 
         page.wait_for_timeout(200)
         page.screenshot(path="verification/settings_dropdown_open.png")

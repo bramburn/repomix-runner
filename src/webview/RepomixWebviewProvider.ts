@@ -18,6 +18,9 @@ import { runRepomixOnSelectedFiles } from '../commands/runRepomixOnSelectedFiles
 import { Pinecone } from '@pinecone-database/pinecone';
 import { getRepoName } from '../utils/repoName.js';
 
+import { indexRepository } from '../core/indexing/repoIndexer.js';
+import { getRepoId } from '../utils/repoIdentity.js';
+
 const DEFAULT_REPOMIX_ID = '__default__';
 
 export interface QueueItem {
@@ -183,6 +186,25 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           await this._handleCopyDebugOutput();
           break;
         }
+case 'openFile': {
+          const { path } = message;
+          await this._handleOpenFile(path);
+          break;
+        }
+        case 'getDebugRuns': {
+          await this._handleGetDebugRuns();
+          break;
+        }
+        case 'reRunDebug': {
+          const { files } = message;
+          await this._handleReRunDebug(files);
+          break;
+        }
+        case 'copyDebugOutput': {
+          await this._handleCopyDebugOutput();
+          break;
+        }
+        // Combined cases from both branches
         case 'fetchPineconeIndexes': {
           const { apiKey } = message;
           await this._handleFetchPineconeIndexes(apiKey);
@@ -200,6 +222,20 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         case 'deleteDebugRun': {
           const { id } = message;
           await this._handleDeleteDebugRun(id);
+          break;
+        }
+        case 'indexRepo': {
+          await this._handleIndexRepo();
+          break;
+        }
+        case 'deleteRepoIndex': {
+          await this._handleDeleteRepoIndex();
+          break;
+        }
+        case 'getRepoIndexCount': {
+          await this._handleGetRepoIndexCount();
+          break;
+        }
           break;
         }
       }
@@ -1145,6 +1181,73 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`Failed to copy output: ${errorMessage}`);
+    }
+  }
+
+  private async _handleIndexRepo() {
+    if (!this._view) { return; }
+
+    try {
+      const cwd = getCwd();
+
+      // Notify starting
+      vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Indexing Repository...",
+        cancellable: false
+      }, async () => {
+        const count = await indexRepository(cwd, this._databaseService);
+
+        this._view?.webview.postMessage({
+          command: 'repoIndexComplete',
+          count
+        });
+
+        vscode.window.showInformationMessage(`Successfully indexed ${count} files.`);
+      });
+
+    } catch (error) {
+      console.error('Failed to index repo:', error);
+      vscode.window.showErrorMessage(`Failed to index repository: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async _handleDeleteRepoIndex() {
+    if (!this._view) { return; }
+
+    try {
+      const cwd = getCwd();
+      const repoId = await getRepoId(cwd);
+
+      await this._databaseService.clearRepoFiles(repoId);
+
+      this._view.webview.postMessage({
+        command: 'repoIndexDeleted'
+      });
+
+      vscode.window.showInformationMessage('Repository index cleared.');
+
+    } catch (error) {
+      console.error('Failed to delete repo index:', error);
+      vscode.window.showErrorMessage(`Failed to delete index: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async _handleGetRepoIndexCount() {
+    if (!this._view) { return; }
+
+    try {
+      const cwd = getCwd();
+      const repoId = await getRepoId(cwd);
+      const count = await this._databaseService.getRepoFileCount(repoId);
+
+      this._view.webview.postMessage({
+        command: 'repoIndexCount',
+        count
+      });
+
+    } catch (error) {
+      console.error('Failed to get repo index count:', error);
     }
   }
 

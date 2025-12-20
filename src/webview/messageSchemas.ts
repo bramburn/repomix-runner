@@ -119,15 +119,11 @@ export const ReRunDebugSchema = z.object({
 export const CopyDebugOutputSchema = z.object({
   command: z.literal('copyDebugOutput'),
 });
-
-// Pinecone Schemas
-
 export const FetchPineconeIndexesSchema = z.object({
   command: z.literal('fetchPineconeIndexes'),
   apiKey: z.string().optional(),
 });
 
-// Assuming the index object structure, using a generic object for now but can be refined
 export const SavePineconeIndexSchema = z.object({
   command: z.literal('savePineconeIndex'),
   index: z.object({
@@ -144,10 +140,26 @@ export const GetPineconeIndexSchema = z.object({
   command: z.literal('getPineconeIndex'),
 });
 
+// --- Repository Indexing Schemas (Merged from main branch) ---
+
 export const DeleteDebugRunSchema = z.object({
   command: z.literal('deleteDebugRun'),
   id: z.number(),
 });
+
+export const IndexRepoSchema = z.object({
+  command: z.literal('indexRepo'),
+});
+
+export const DeleteRepoIndexSchema = z.object({
+  command: z.literal('deleteRepoIndex'),
+});
+
+export const GetRepoIndexCountSchema = z.object({
+  command: z.literal('getRepoIndexCount'),
+});
+
+// --- UI Notification Schemas ---
 
 export const AgentStateChangeSchema = z.object({
   command: z.literal('agentStateChange'),
@@ -165,6 +177,21 @@ export const AgentRunFailedSchema = z.object({
   command: z.literal('agentRunFailed')
 });
 
+export const AgentStateChangeSchema = z.object({
+  command: z.literal('agentStateChange'),
+  status: z.enum(['running', 'idle'])
+});
+
+export const AgentRunCompleteSchema = z.object({
+  command: z.literal('agentRunComplete'),
+  outputPath: z.string(),
+  fileCount: z.number(),
+  query: z.string()
+});
+
+export const AgentRunFailedSchema = z.object({
+  command: z.literal('agentRunFailed')
+});
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -175,7 +202,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyDefaultRepomixOutputSchema,
   CheckApiKeySchema,
   SaveApiKeySchema,
-  SaveSecretBaseSchema, // Use base schema for discrimination
+  SaveSecretBaseSchema,
   CheckSecretSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
@@ -187,10 +214,15 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetDebugRunsSchema,
   ReRunDebugSchema,
   CopyDebugOutputSchema,
+  DeleteDebugRunSchema,
+  // Feature branch additions
   FetchPineconeIndexesSchema,
   SavePineconeIndexSchema,
   GetPineconeIndexSchema,
-  DeleteDebugRunSchema,
+  // Main branch additions
+  IndexRepoSchema,
+  DeleteRepoIndexSchema,
+  GetRepoIndexCountSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
