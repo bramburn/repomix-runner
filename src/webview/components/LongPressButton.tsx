@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@fluentui/react-components';
 import { LongPressButtonProps } from '../types.js';
 
@@ -19,6 +19,13 @@ export const LongPressButton: React.FC<LongPressButtonProps> = ({
   const bufferTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressRequestRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      clearTimers();
+    };
+  }, []);
 
   const clearTimers = () => {
     if (bufferTimerRef.current) {
@@ -43,7 +50,7 @@ export const LongPressButton: React.FC<LongPressButtonProps> = ({
 
       const animate = () => {
         const elapsed = Date.now() - startTimeRef.current;
-        const totalProgressDuration = holdDuration - bufferDuration;
+        const totalProgressDuration = Math.max(1, holdDuration - bufferDuration);
         const p = Math.min((elapsed / totalProgressDuration) * 100, 100);
 
         setProgress(p);
@@ -65,9 +72,8 @@ export const LongPressButton: React.FC<LongPressButtonProps> = ({
     if (disabled) return;
 
     if (isHolding) {
-      // If we were holding but released before completion, treat as click
+      // If we were holding but released before completion, just cancel
       clearTimers();
-      onClick();
     } else {
       // Normal click
       if (bufferTimerRef.current) {

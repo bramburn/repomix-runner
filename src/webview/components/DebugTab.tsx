@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Text } from '@fluentui/react-components';
+import { Button, Text, Accordion, AccordionHeader, AccordionPanel } from '@fluentui/react-components';
 import { CopyRegular, DeleteRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 import { DebugRun } from '../types.js';
 
 export const DebugTab = () => {
   const [runs, setRuns] = useState<DebugRun[]>([]);
+  const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -27,8 +28,23 @@ export const DebugTab = () => {
     vscode.postMessage({ command: 'reRunDebug', files });
   };
 
-  const handleCopy = () => {
-    vscode.postMessage({ command: 'copyDebugOutput' });
+  const handleCopy = (runId?: number) => {
+    if (runId !== undefined) {
+      vscode.postMessage({ command: 'copyDebugOutput', runId });
+    } else {
+      // Fallback for latest run if no ID provided
+      vscode.postMessage({ command: 'copyDebugOutput' });
+    }
+  };
+
+  const toggleExpanded = (runId: number) => {
+    const newExpanded = new Set(expandedRuns);
+    if (newExpanded.has(runId)) {
+      newExpanded.delete(runId);
+    } else {
+      newExpanded.add(runId);
+    }
+    setExpandedRuns(newExpanded);
   };
 
   const handleDelete = (id: number) => {
@@ -64,17 +80,14 @@ export const DebugTab = () => {
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
 <div style={{ display: 'flex', gap: '5px' }}>
-  {/* Only show Copy on the latest run */}
-  {index === 0 && (
-    <Button
-      appearance="subtle"
-      icon={<CopyRegular />}
-      onClick={handleCopy}
-      title="Copy output from default repomix file"
-    >
-      Copy Output
-    </Button>
-  )}
+  <Button
+    appearance="subtle"
+    icon={<CopyRegular />}
+    onClick={() => handleCopy(run.id)}
+    title="Copy output from this run"
+  >
+    Copy Output
+  </Button>
   <Button
     appearance="subtle"
     icon={<ArrowCounterclockwiseRegular />}
@@ -119,6 +132,39 @@ export const DebugTab = () => {
             <Text size={100} style={{ opacity: 0.7 }}>
                 {run.files.length} items
             </Text>
+
+            {/* Show output/error if available */}
+            {(run.output || run.error) && (
+              <Accordion
+                openItems={expandedRuns.has(run.id) ? [run.id.toString()] : []}
+                onToggle={() => toggleExpanded(run.id)}
+                size="small"
+                collapsible
+              >
+                <AccordionHeader value={run.id.toString()}>
+                  <Text size={100} weight="semibold">
+                    {run.error ? 'Error Details' : 'Output'}
+                  </Text>
+                </AccordionHeader>
+                <AccordionPanel value={run.id.toString()}>
+                  <div style={{
+                    padding: '8px',
+                    backgroundColor: run.error
+                      ? 'var(--vscode-inputValidation-errorBackground)'
+                      : 'var(--vscode-inputValidation-infoBackground)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    maxHeight: '200px',
+                    overflowY: 'auto'
+                  }}>
+                    {run.error || run.output}
+                  </div>
+                </AccordionPanel>
+              </Accordion>
+            )}
           </div>
         ))
       )}
