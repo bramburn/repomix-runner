@@ -9,7 +9,8 @@
 /* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
     "skipLibCheck": true,
     "strict": true, /* enable all strict type-checking options */
-    
+    "downlevelIteration": true, /* Enable support for iterating over generators, Maps, Sets, etc. when targeting ES5 or below */
+
     /* Additional Checks */
     // "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
     // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
