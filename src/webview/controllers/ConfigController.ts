@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { BaseController } from './BaseController.js';
+import { getRepoId } from '../../utils/repoIdentity.js';
 
 export class ConfigController extends BaseController {
   constructor(context: any, private readonly extensionContext: vscode.ExtensionContext) {
@@ -112,9 +113,29 @@ export class ConfigController extends BaseController {
 
   private async handleSavePineconeIndex(index: any) {
     try {
-      await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', index);
-      // Optional: Confirm save back to UI?
-      // For now, let's just assume it saved.
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        throw new Error('No workspace folder open');
+      }
+
+      if (workspaceFolders.length > 1) {
+        vscode.window.showWarningMessage('Multiple workspace roots detected. Saving Pinecone index for the first root only.');
+      }
+
+      const rootPath = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(rootPath);
+
+      // Get existing map or initialize new one
+      const repoConfigs: Record<string, any> = this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
+
+      // Update for this repo
+      repoConfigs[repoId] = index;
+
+      await this.extensionContext.globalState.update('repomix.pinecone.selectedIndexByRepo', repoConfigs);
+
+      // Also clear the legacy global key to avoid confusion
+      await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', undefined);
+
     } catch (error) {
       console.error('Failed to save Pinecone index:', error);
       vscode.window.showErrorMessage(`Failed to save selected index: ${error}`);
@@ -123,13 +144,25 @@ export class ConfigController extends BaseController {
 
   private async handleGetPineconeIndex() {
     try {
-      const index = this.extensionContext.globalState.get('repomix.pinecone.selectedIndex');
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        this.context.postMessage({ command: 'updateSelectedIndex', index: null });
+        return;
+      }
+
+      const rootPath = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(rootPath);
+
+      const repoConfigs: Record<string, any> = this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
+      const index = repoConfigs[repoId] || null;
+
       this.context.postMessage({
         command: 'updateSelectedIndex',
         index
       });
     } catch (error) {
       console.error('Failed to get Pinecone index:', error);
+      this.context.postMessage({ command: 'updateSelectedIndex', index: null });
     }
   }
 }
