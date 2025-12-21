@@ -1,9 +1,36 @@
 import { Pinecone, Index } from '@pinecone-database/pinecone';
 
+/**
+ * Metadata attached to each vector in Pinecone.
+ * Includes repo scoping and chunk information for filtering and debugging.
+ */
+export interface VectorMetadata {
+  // Required: Repository identifier for scoping
+  repoId: string;
+
+  // Required: File path relative to repo root
+  filePath: string;
+
+  // Required: Index of this chunk within the file
+  chunkIndex: number;
+
+  // Optional: Source system identifier (e.g., "repomix")
+  source?: string;
+
+  // Optional: SHA256 hash of chunk text for integrity checking
+  textHash?: string;
+
+  // Optional: ISO timestamp of when this vector was created/updated
+  updatedAt?: string;
+
+  // Optional: Additional metadata for future use
+  [key: string]: any;
+}
+
 export interface Vector {
   id: string;
   values: number[];
-  metadata: Record<string, any>;
+  metadata: VectorMetadata;
 }
 
 export class PineconeService {

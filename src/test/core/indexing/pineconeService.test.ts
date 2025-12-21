@@ -50,7 +50,16 @@ suite('PineconeService', () => {
     const indexName = 'test-index';
     const repoId = 'test-repo-id';
     const vectors = [
-      { id: '1', values: [0.1, 0.2], metadata: { foo: 'bar' } }
+      {
+        id: '1',
+        values: [0.1, 0.2],
+        metadata: {
+          repoId: 'test-repo-id',
+          filePath: 'src/test.ts',
+          chunkIndex: 0,
+          foo: 'bar'
+        }
+      }
     ];
 
     await pineconeService.upsertVectors(apiKey, indexName, repoId, vectors);

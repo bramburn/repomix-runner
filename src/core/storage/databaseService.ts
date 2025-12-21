@@ -380,6 +380,25 @@ export class DatabaseService {
     return count;
   }
 
+  async getRepoFiles(repoId: string): Promise<string[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT file_path FROM repo_files WHERE repo_id = ? ORDER BY file_path
+    `);
+
+    stmt.bind([repoId]);
+    const files: string[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      files.push(row.file_path as string);
+    }
+    stmt.free();
+
+    return files;
+  }
+
   private async saveDatabase(): Promise<void> {
     if (!this.db) return;
 
