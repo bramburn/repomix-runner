@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { addFileExtension } from './fileExtensions.js';
+import { normalizeOutputStyle } from './normalizeOutputStyle.js';
 
 /**
  * Interface representing the structure of repomix.config.json
@@ -14,7 +16,7 @@ interface RepomixConfig {
 /**
  * Detects the output file path for Repomix based on configuration or defaults.
  * * Logic Priority:
- * 1. checks repomix.config.json for specific `output.filePath`
+ * 1. checks repomix.config.json for specific `output.filePath` (with style-based extension applied)
  * 2. checks repomix.config.json for `output.style` and derives extension
  * 3. Fallbacks to checking file existence on disk (md -> txt -> json -> xml)
  * 4. Defaults to 'repomix-output.xml'
@@ -23,7 +25,7 @@ interface RepomixConfig {
  */
 export function getRepomixOutputPath(workspaceRoot: string): string {
   const configPath = path.join(workspaceRoot, 'repomix.config.json');
-  
+
   // 1. Try to read the configuration file
   if (fs.existsSync(configPath)) {
     try {
@@ -32,12 +34,18 @@ export function getRepomixOutputPath(workspaceRoot: string): string {
 
       // Case A: User explicitly defined a custom file path (e.g., "my-bundle.md")
       if (config.output?.filePath) {
-        return path.resolve(workspaceRoot, config.output.filePath);
+        // Apply style-based extension if style is defined
+        let filePath = config.output.filePath;
+        if (config.output?.style) {
+          const normalizedStyle = normalizeOutputStyle(config.output.style);
+          filePath = addFileExtension(filePath, normalizedStyle);
+        }
+        return path.resolve(workspaceRoot, filePath);
       }
 
       // Case B: User defined a style, so we infer the extension
       if (config.output?.style) {
-        const style = config.output.style;
+        const style = normalizeOutputStyle(config.output.style);
         switch (style) {
           case 'markdown':
             return path.join(workspaceRoot, 'repomix-output.md');

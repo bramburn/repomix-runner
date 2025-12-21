@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { addFileExtension } from '../utils/fileExtensions.js';
+import { normalizeOutputStyle } from '../utils/normalizeOutputStyle.js';
 
 interface RepomixConfig {
     output?: {
@@ -59,7 +61,7 @@ export async function copyRepomixOutput() {
 /**
  * Determines the expected output file path.
  * Priority:
- * 1. 'output.filePath' from repomix.config.json
+ * 1. 'output.filePath' from repomix.config.json (with style-based extension applied)
  * 2. Common default filenames (fallback)
  */
 async function resolveRepomixOutput(rootPath: string): Promise<string> {
@@ -73,8 +75,15 @@ async function resolveRepomixOutput(rootPath: string): Promise<string> {
             const config = JSON.parse(configContent) as RepomixConfig;
 
             if (config.output && config.output.filePath) {
+                // Normalize the output style from config
+                const outputStyle = normalizeOutputStyle(config.output?.style);
+
+                // Apply file extension based on style to ensure consistency
+                let filePath = config.output.filePath;
+                filePath = addFileExtension(filePath, outputStyle);
+
                 // Resolve relative path against workspace root
-                return path.resolve(rootPath, config.output.filePath);
+                return path.resolve(rootPath, filePath);
             }
         } catch (e) {
             console.warn('Repomix Copy: Failed to parse repomix.config.json. Falling back to defaults.', e);

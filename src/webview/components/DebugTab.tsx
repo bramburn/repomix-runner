@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Text, Accordion, AccordionHeader, AccordionPanel } from '@fluentui/react-components';
+import { Button, Text, Accordion, AccordionItem, AccordionHeader, AccordionPanel } from '@fluentui/react-components';
 import { CopyRegular, DeleteRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 import { DebugRun } from '../types.js';
@@ -138,31 +138,32 @@ export const DebugTab = () => {
               <Accordion
                 openItems={expandedRuns.has(run.id) ? [run.id.toString()] : []}
                 onToggle={() => toggleExpanded(run.id)}
-                size="small"
                 collapsible
               >
-                <AccordionHeader value={run.id.toString()}>
-                  <Text size={100} weight="semibold">
-                    {run.error ? 'Error Details' : 'Output'}
-                  </Text>
-                </AccordionHeader>
-                <AccordionPanel value={run.id.toString()}>
-                  <div style={{
-                    padding: '8px',
-                    backgroundColor: run.error
-                      ? 'var(--vscode-inputValidation-errorBackground)'
-                      : 'var(--vscode-inputValidation-infoBackground)',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    fontFamily: 'monospace',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    maxHeight: '200px',
-                    overflowY: 'auto'
-                  }}>
-                    {run.error || run.output}
-                  </div>
-                </AccordionPanel>
+                <AccordionItem value={run.id.toString()}>
+                  <AccordionHeader>
+                    <Text size={100} weight="semibold">
+                      {run.error ? 'Error Details' : 'Output'}
+                    </Text>
+                  </AccordionHeader>
+                  <AccordionPanel>
+                    <div style={{
+                      padding: '8px',
+                      backgroundColor: run.error
+                        ? 'var(--vscode-inputValidation-errorBackground)'
+                        : 'var(--vscode-inputValidation-infoBackground)',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: '200px',
+                      overflowY: 'auto'
+                    }}>
+                      {run.error || run.output}
+                    </div>
+                  </AccordionPanel>
+                </AccordionItem>
               </Accordion>
             )}
           </div>

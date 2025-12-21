@@ -8,6 +8,7 @@ import { readRepomixRunnerVscodeConfig, readRepomixFileConfig } from '../config/
 import { RepomixConfigFile } from '../config/configSchema.js';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { generateOutputFilename } from '../utils/generateOutputFilename.js';
+import { addFileExtension } from '../utils/fileExtensions.js';
 import { deepMerge } from '../utils/deepMerge.js'; // Added from main
 import { validateOutputFilePath } from '../utils/pathValidation.js'; // Added from main
 
@@ -59,11 +60,16 @@ export async function runBundle(
   const baseFilePath = overrideConfig.output.filePath || vscodeConfig.output.filePath;
   const useBundleNameAsOutputName = vscodeConfig.runner.useBundleNameAsOutputName;
 
-  const outputFilename = generateOutputFilename(
+  const outputStyle = overrideConfig.output.style || vscodeConfig.output.style;
+
+  let outputFilename = generateOutputFilename(
     bundle,
     baseFilePath,
     useBundleNameAsOutputName
   );
+
+  // Apply file extension based on output style to ensure consistency
+  outputFilename = addFileExtension(outputFilename, outputStyle);
 
   const finalOutputFilePath = path.resolve(cwd, outputFilename);
 

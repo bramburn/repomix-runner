@@ -8,6 +8,9 @@ import { getRepoName } from '../../utils/repoName.js';
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
+import { addFileExtension } from '../../utils/fileExtensions.js';
+import { normalizeOutputStyle } from '../../utils/normalizeOutputStyle.js';
+import { readRepomixRunnerVscodeConfig } from '../../config/configLoader.js';
 
 export class DebugController extends BaseController {
   constructor(
@@ -115,10 +118,13 @@ export class DebugController extends BaseController {
    * Priority:
    * 1. 'repomix.config.json' file (if 'output.filePath' is defined)
    * 2. Fallback to auto-detection (getRepomixOutputPath)
+   *
+   * Note: The output style is applied to ensure the file extension matches the configured style.
    */
   private async _resolveDefaultRepomixOutputPath(): Promise<string> {
     const cwd = getCwd();
     const configPath = path.join(cwd, 'repomix.config.json');
+    const vscodeConfig = readRepomixRunnerVscodeConfig();
 
     // Strategy A: Try to read from repomix.config.json
     if (fs.existsSync(configPath)) {
@@ -127,8 +133,15 @@ export class DebugController extends BaseController {
         const config = JSON.parse(configContent);
 
         if (config.output && config.output.filePath) {
+          // Get the output style from config or VS Code settings and normalize it
+          const outputStyle = normalizeOutputStyle(config.output?.style || vscodeConfig.output.style);
+
+          // Apply file extension based on style to ensure consistency
+          let filePath = config.output.filePath;
+          filePath = addFileExtension(filePath, outputStyle);
+
           // Resolve relative path against CWD
-          return path.resolve(cwd, config.output.filePath);
+          return path.resolve(cwd, filePath);
         }
       } catch (e) {
         console.warn('Repomix Runner: Failed to parse repomix.config.json, falling back to detector.', e);

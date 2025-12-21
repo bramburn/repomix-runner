@@ -15,4 +15,5 @@ assets/bin/*.exe
 assets/bin/
 *.exe
 bin/
-repomix-output.xml
+repomix-output.*
+package.json.bak

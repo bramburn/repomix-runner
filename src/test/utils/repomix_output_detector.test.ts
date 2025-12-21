@@ -37,6 +37,36 @@ suite('getRepomixOutputPath', () => {
     assert.strictEqual(result, path.resolve(testDir, 'custom-output.md'));
   });
 
+  test('should apply style-based extension to filePath when style is defined', () => {
+    const configPath = path.join(testDir, 'repomix.config.json');
+    const config = {
+      output: {
+        filePath: 'custom-output',
+        style: 'markdown'
+      }
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    const result = getRepomixOutputPath(testDir);
+    // Should apply .md extension based on markdown style
+    assert.strictEqual(result, path.resolve(testDir, 'custom-output.md'));
+  });
+
+  test('should replace incorrect extension with style-based extension', () => {
+    const configPath = path.join(testDir, 'repomix.config.json');
+    const config = {
+      output: {
+        filePath: 'custom-output.xml',
+        style: 'markdown'
+      }
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    const result = getRepomixOutputPath(testDir);
+    // Should replace .xml with .md based on markdown style
+    assert.strictEqual(result, path.resolve(testDir, 'custom-output.md'));
+  });
+
   test('should derive extension from style when filePath is not set', () => {
     const configPath = path.join(testDir, 'repomix.config.json');
     const config = {

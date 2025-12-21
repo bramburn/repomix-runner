@@ -1,6 +1,8 @@
 import * as path from 'path';
+import { normalizeOutputStyle } from './normalizeOutputStyle';
 
 export function addFileExtension(filePath: string, style: string): string {
+  const normalized = normalizeOutputStyle(style);
   const extensionMap: Record<string, string> = {
     xml: '.xml',
     markdown: '.md',
@@ -8,20 +10,16 @@ export function addFileExtension(filePath: string, style: string): string {
     json: '.json',
   };
 
-  const expectedExt = extensionMap[style];
-  if (!expectedExt) {
-    return filePath;
-  }
+  const expectedExt = extensionMap[normalized];
+  if (!expectedExt) return filePath;
 
-  if (filePath.endsWith(expectedExt)) {
-    return filePath;
-  }
-
-  const knownExts = Object.values(extensionMap);
+  // ✅ NEW: if the user already specified ANY extension, respect it.
+  // (This is the key behavior change.)
   const currentExt = path.extname(filePath);
-  if (currentExt && knownExts.includes(currentExt)) {
-    return filePath.slice(0, -currentExt.length) + expectedExt;
+  if (currentExt) {
+    return filePath;
   }
 
-  return filePath + expectedExt;
+  // No extension provided -> add one based on style
+  return filePath.endsWith(expectedExt) ? filePath : filePath + expectedExt;
 }
