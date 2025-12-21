@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from '../storage/databaseService.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
+import { logger } from '../../shared/logger.js';
 import ignore from 'ignore';
 
 const DEFAULT_BINARY_PATTERNS = [
@@ -25,6 +26,7 @@ const DEFAULT_BINARY_PATTERNS = [
  */
 export async function indexRepository(cwd: string, databaseService: DatabaseService): Promise<number> {
   try {
+    logger.both.info(`Starting repository indexing for: ${cwd}`);
     const repoId = await getRepoId(cwd);
 
     // 1. Clear existing files for this repo
@@ -73,6 +75,8 @@ export async function indexRepository(cwd: string, databaseService: DatabaseServ
       follow: false // Do not follow symlinks
     });
 
+    logger.both.info(`Found ${files.length} files to index.`);
+
     // 4. Sort files for determinism
     files.sort((a, b) => a.localeCompare(b));
 
@@ -86,9 +90,10 @@ export async function indexRepository(cwd: string, databaseService: DatabaseServ
       }
     }
 
+    logger.both.info(`Successfully indexed ${files.length} files.`);
     return files.length;
   } catch (error) {
-    console.error('Failed to index repository:', error);
+    logger.both.error('Failed to index repository:', error);
     throw error;
   }
 }
