@@ -15,7 +15,7 @@ import { BundleItem } from './components/BundleItem.js';
 import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
-import { Bundle, DefaultRepomixInfo } from './types.js';
+import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
 
 // --- MAIN APP ---
@@ -31,6 +31,15 @@ export const App = () => {
   // Default Repomix State
   const [defaultRepomixState, setDefaultRepomixState] = useState<'idle' | 'queued' | 'running'>('idle');
   const [defaultRepomixInfo, setDefaultRepomixInfo] = useState<DefaultRepomixInfo>({ outputFileExists: false, outputFilePath: '' });
+
+  // Pinecone State (lifted from SettingsTab)
+  const [pineconeIndexes, setPineconeIndexes] = useState<PineconeIndex[]>(() => {
+    return vscode.getState()?.pineconeIndexes || [];
+  });
+  const [selectedPineconeIndex, setSelectedPineconeIndex] = useState<PineconeIndex | null>(() => {
+    return vscode.getState()?.selectedPineconeIndex || null;
+  });
+  const [pineconeIndexError, setPineconeIndexError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -54,6 +63,21 @@ export const App = () => {
           break;
         case 'updateVersion':
           setVersion(message.version);
+          break;
+        case 'updatePineconeIndexes':
+          if (message.error) {
+            setPineconeIndexError(message.error);
+            setPineconeIndexes([]);
+            updateVsState({ pineconeIndexes: [] });
+          } else {
+            setPineconeIndexError(null);
+            setPineconeIndexes(message.indexes);
+            updateVsState({ pineconeIndexes: message.indexes });
+          }
+          break;
+        case 'updateSelectedIndex':
+          setSelectedPineconeIndex(message.index);
+          updateVsState({ selectedPineconeIndex: message.index });
           break;
       }
     };
@@ -153,7 +177,15 @@ export const App = () => {
           )}
           {selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'search' && <SearchTab />}
-          {selectedTab === 'settings' && <SettingsTab />}
+          {selectedTab === 'settings' && (
+            <SettingsTab
+              pineconeIndexes={pineconeIndexes}
+              selectedPineconeIndex={selectedPineconeIndex}
+              indexError={pineconeIndexError}
+              // We can pass setter logic via vscode messages in SettingsTab,
+              // but we need to update local state too? No, messages will loop back.
+            />
+          )}
           {selectedTab === 'debug' && <DebugTab />}
         </div>
 

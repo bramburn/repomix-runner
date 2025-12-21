@@ -19,17 +19,9 @@ import {
   ChevronDownRegular
 } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
+import { PineconeIndex } from '../types.js';
 
 // --- Interfaces ---
-
-interface PineconeIndex {
-  name: string;
-  host: string;
-  dimension?: number;
-  metric?: string;
-  spec?: any;
-  status?: any;
-}
 
 interface ConfigSectionProps {
   title: string;
@@ -40,6 +32,12 @@ interface ConfigSectionProps {
   placeholder: string;
   description: string;
   children?: React.ReactNode;
+}
+
+interface SettingsTabProps {
+  pineconeIndexes: PineconeIndex[];
+  selectedPineconeIndex: PineconeIndex | null;
+  indexError: string | null;
 }
 
 // --- Reusable Components ---
@@ -111,21 +109,31 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
 
 // --- Main Component ---
 
-export const SettingsTab = () => {
+export const SettingsTab: React.FC<SettingsTabProps> = ({
+  pineconeIndexes,
+  selectedPineconeIndex,
+  indexError
+}) => {
   const [googleKey, setGoogleKey] = useState('');
   const [pineconeKey, setPineconeKey] = useState('');
   const [googleKeyExists, setGoogleKeyExists] = useState(false);
   const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
-
-  const [pineconeIndexes, setPineconeIndexes] = useState<PineconeIndex[]>([]);
-  const [selectedPineconeIndex, setSelectedPineconeIndex] = useState<PineconeIndex | null>(null);
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
-  const [indexError, setIndexError] = useState<string | null>(null);
 
+  // Auto-fetch indexes if we have the key but no indexes yet
+  // This replaces the generic fetch-on-mount logic
+  useEffect(() => {
+    if (pineconeKeyExists && pineconeIndexes.length === 0 && !isFetchingIndexes) {
+      setIsFetchingIndexes(true);
+      vscode.postMessage({ command: 'fetchPineconeIndexes' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pineconeKeyExists]);
+
+  // Handle explicit key entry (debounce)
   useEffect(() => {
     if (!pineconeKey) {
-      setIsFetchingIndexes(false);
-      setIndexError(null);
+      // Don't modify fetching state here, just return
       return;
     }
     setIsFetchingIndexes(true);
@@ -134,6 +142,13 @@ export const SettingsTab = () => {
     }, 1000);
     return () => clearTimeout(timer);
   }, [pineconeKey]);
+
+  // Sync fetching state with props change
+  useEffect(() => {
+    if (pineconeIndexes.length > 0 || indexError) {
+      setIsFetchingIndexes(false);
+    }
+  }, [pineconeIndexes, indexError]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -144,25 +159,9 @@ export const SettingsTab = () => {
             setGoogleKeyExists(message.exists);
           } else if (message.key === 'pineconeApiKey') {
             setPineconeKeyExists(message.exists);
-            if (message.exists) {
-              setIsFetchingIndexes(true);
-              vscode.postMessage({ command: 'fetchPineconeIndexes' });
-            }
           }
           break;
-        case 'updatePineconeIndexes':
-          setIsFetchingIndexes(false);
-          if (message.error) {
-            setIndexError(message.error);
-            setPineconeIndexes([]);
-          } else {
-            setIndexError(null);
-            setPineconeIndexes(message.indexes);
-          }
-          break;
-        case 'updateSelectedIndex':
-          setSelectedPineconeIndex(message.index);
-          break;
+        // updatePineconeIndexes and updateSelectedIndex are handled by App.tsx
       }
     };
     window.addEventListener('message', handler);
@@ -185,9 +184,13 @@ export const SettingsTab = () => {
   const handleIndexSelect = (_e: any, data: any) => {
     const index = pineconeIndexes.find(i => i.name === data.optionValue);
     if (index) {
-      setSelectedPineconeIndex(index);
       vscode.postMessage({ command: 'savePineconeIndex', index });
     }
+  };
+
+  const handleRefreshIndexes = () => {
+    setIsFetchingIndexes(true);
+    vscode.postMessage({ command: 'fetchPineconeIndexes' });
   };
 
   return (
@@ -232,7 +235,7 @@ export const SettingsTab = () => {
             </Dropdown>
             <Button
               icon={isFetchingIndexes ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
-              onClick={() => vscode.postMessage({ command: 'fetchPineconeIndexes' })}
+              onClick={handleRefreshIndexes}
               disabled={!pineconeKeyExists || isFetchingIndexes}
             />
           </div>
