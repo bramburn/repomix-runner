@@ -6,6 +6,80 @@ import { generateVectorId, computeTextHash } from './vectorIdentity.js';
 import { embeddingService } from './embeddingService.js';
 import { PineconeService, Vector, VectorMetadata } from './pineconeService.js';
 import { retryWithBackoff, batchArray } from './retryService.js';
+import { TreeSitterService } from './treeSitterService.js';
+
+/**
+ * List of binary file extensions to skip during embedding
+ */
+const BINARY_EXTENSIONS = new Set([
+  // Executables
+  '.exe', '.dll', '.so', '.dylib', '.app', '.bin',
+  // Images
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.svg', '.webp',
+  // Videos
+  '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.webm',
+  // Audio
+  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a',
+  // Archives
+  '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz',
+  // Documents (binary formats)
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  // Fonts
+  '.ttf', '.otf', '.woff', '.woff2', '.eot',
+  // Other binary files
+  '.sqlite', '.db', '.jar', '.war', '.ear', '.class', '.pyc', '.pyo',
+  '.obj', '.lib', '.pdb', '.idb', '.suo', '.sln', '.dmg', '.pkg'
+]);
+
+/**
+ * List of text-based file extensions to process
+ */
+const TEXT_EXTENSIONS = new Set([
+  // Code files
+  '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
+  '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.dart',
+  '.html', '.htm', '.css', '.scss', '.sass', '.less', '.styl',
+  '.xml', '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+  '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+  '.sql', '.graphql', '.gql', '.md', '.mdx', '.txt', '.log',
+  // Config files
+  '.env', '.gitignore', '.dockerfile', 'dockerfile.yml', 'dockerfile.yaml',
+  // Package files
+  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+  'composer.json', 'requirements.txt', 'Pipfile', 'poetry.lock',
+  'Cargo.toml', 'Cargo.lock', 'pom.xml', 'build.gradle'
+]);
+
+/**
+ * Check if a file is likely a binary file
+ */
+function isBinaryFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  const basename = path.basename(filePath).toLowerCase();
+
+  // Check against known binary extensions
+  if (BINARY_EXTENSIONS.has(ext)) {
+    return true;
+  }
+
+  // Check against known text files
+  if (TEXT_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(basename)) {
+    return false;
+  }
+
+  // Common text files without extensions
+  if (basename === 'readme' || basename === 'license' || basename === 'changelog') {
+    return false;
+  }
+
+  // If no extension, assume it's binary (conservative approach)
+  if (!ext) {
+    return true;
+  }
+
+  // Unknown extensions - assume binary for safety
+  return true;
+}
 
 /**
  * Configuration for the embedding pipeline.
@@ -22,7 +96,7 @@ const DEFAULT_PINECONE_BATCH_SIZE = 50;
 /**
  * Embeds a single file and upserts vectors to Pinecone.
  *
- * Flow: Read file → Chunk → Embed → Upsert
+ * Flow: Read file → Check Language → Chunk (with token estimation for non-AST files) → Embed → Upsert
  *
  * @param filePath Absolute path to file
  * @param repoId Repository identifier
@@ -47,6 +121,13 @@ export async function embedAndUpsertFile(
   const context = `embedAndUpsertFile[${relativeFilePath}]`;
   console.log(`[EMBEDDING_PIPELINE] Starting processing: ${relativeFilePath}`);
 
+  // 0. Check if file is binary and skip if so
+  if (isBinaryFile(relativeFilePath)) {
+    console.log(`[EMBEDDING_PIPELINE] Skipping binary file: ${relativeFilePath}`);
+    logger.both.info(`${context}: Skipping binary file`);
+    return 0;
+  }
+
   try {
     // 1. Read file content
     console.log(`[EMBEDDING_PIPELINE] Reading file: ${relativeFilePath}`);
@@ -59,10 +140,24 @@ export async function embedAndUpsertFile(
     const readDuration = Date.now() - readStart;
     console.log(`[EMBEDDING_PIPELINE] File read in ${readDuration}ms, size: ${content.length} chars`);
 
-    // 2. Chunk the content
+    // 2. Determine chunking strategy based on language support
+    const language = TreeSitterService.detectLanguage(relativeFilePath);
+    const isASTSupported = language && TreeSitterService.isLanguageSupported(language);
+
+    // Configure chunking based on file type and language
+    const chunkingConfig: ChunkingConfig = {
+      ...config.chunkingConfig,
+      filePath: relativeFilePath,
+      useSemanticChunking: isASTSupported, // Enable semantic chunking for supported languages
+      useTokenEstimation: !isASTSupported // Use token estimation for non-AST files
+    };
+
+    console.log(`[EMBEDDING_PIPELINE] Language: ${language || 'unknown'}, AST supported: ${isASTSupported}, semantic chunking: ${chunkingConfig.useSemanticChunking}`);
+
+    // 3. Chunk the content
     console.log(`[EMBEDDING_PIPELINE] Chunking content...`);
     const chunkStart = Date.now();
-    const chunks = chunkText(content, config.chunkingConfig);
+    const chunks = await chunkText(content, chunkingConfig);
     const chunkDuration = Date.now() - chunkStart;
     console.log(`[EMBEDDING_PIPELINE] Chunking completed in ${chunkDuration}ms, generated ${chunks.length} chunks`);
 
@@ -74,7 +169,7 @@ export async function embedAndUpsertFile(
 
     logger.both.info(`${context}: Generated ${chunks.length} chunks`);
 
-    // 3. Embed chunks in batches
+    // 4. Embed chunks in batches
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
     const chunkBatches = batchArray(chunks, embeddingBatchSize);
     const vectors: Vector[] = [];
@@ -108,6 +203,8 @@ export async function embedAndUpsertFile(
           repoId,
           filePath: relativeFilePath,
           chunkIndex: chunk.chunkIndex,
+          startLine: chunk.startLine,
+          endLine: chunk.endLine,
           source: 'repomix',
           textHash: computeTextHash(chunk.text),
           updatedAt: new Date().toISOString()
@@ -123,7 +220,7 @@ export async function embedAndUpsertFile(
 
     console.log(`[EMBEDDING_PIPELINE] Total embedding time: ${totalEmbeddingTime}ms for ${vectors.length} vectors`);
 
-    // 4. Upsert vectors to Pinecone in batches
+    // 5. Upsert vectors to Pinecone in batches
     const upsertBatchSize = config.pineconeUpsertBatchSize ?? DEFAULT_PINECONE_BATCH_SIZE;
     const vectorBatches = batchArray(vectors, upsertBatchSize);
     let totalUpsertTime = 0;

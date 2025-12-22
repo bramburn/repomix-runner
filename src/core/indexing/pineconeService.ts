@@ -14,6 +14,12 @@ export interface VectorMetadata {
   // Required: Index of this chunk within the file
   chunkIndex: number;
 
+  // Optional: Starting line number of the chunk
+  startLine?: number;
+
+  // Optional: Ending line number of the chunk
+  endLine?: number;
+
   // Optional: Source system identifier (e.g., "repomix")
   source?: string;
 

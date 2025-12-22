@@ -497,6 +497,7 @@
     "test": "vscode-test",
     "clean": "rimraf dist out",
     "build:rust": "node scripts/build-rust.mjs",
+    "setup:treesitter": "node scripts/setup-treesitter.mjs",
     "package:local": "node scripts/package-local.mjs"
   },
   "devDependencies": {
@@ -519,7 +520,6 @@
     "playwright": "^1.57.0",
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
-    "tiktoken": "^1.0.20",
     "typescript": "^5.9.3"
   },
   "dependencies": {
@@ -531,6 +531,7 @@
     "@types/sql.js": "^1.4.9",
     "fast-xml-parser": "^5.3.3",
     "glob-gitignore": "^1.0.15",
+    "gpt-tokenizer": "^3.4.0",
     "ignore": "^7.0.5",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
