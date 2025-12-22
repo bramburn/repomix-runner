@@ -2,7 +2,7 @@ import * as path from 'path';
 import { logger } from '../../shared/logger.js';
 import { DatabaseService } from '../storage/databaseService.js';
 import { PineconeService } from './pineconeService.js';
-import { embedAndUpsertFile, EmbeddingPipelineConfig } from './fileEmbeddingPipeline.js';
+import { embedAndUpsertFile, EmbeddingPipelineConfig, DEFAULT_MAX_CONCURRENT_FILES } from './fileEmbeddingPipeline.js';
 
 /**
  * Orchestrates embedding of all files in a repository.
@@ -65,47 +65,75 @@ export class RepoEmbeddingOrchestrator {
 
     logger.both.info(`[RepoEmbeddingOrchestrator] Found ${files.length} files to embed`);
 
-    // 2. Process each file
-    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Starting to process ${files.length} files...`);
+    // 2. Determine concurrency level
+    const maxConcurrentFiles = config.maxConcurrentFiles ?? DEFAULT_MAX_CONCURRENT_FILES;
+    const useConcurrentProcessing = maxConcurrentFiles > 1;
+
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Processing ${files.length} files with concurrency: ${maxConcurrentFiles}`);
+
+    // 3. Process files (concurrently or sequentially)
     let successfulFiles = 0;
     let totalVectors = 0;
     const errors: Array<{ filePath: string; error: string }> = [];
-    let fileProcessingTime = 0;
     const fileTimes: Array<{ file: string; time: number; vectors: number }> = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const filePath = files[i];
-      const absolutePath = path.join(repoRoot, filePath);
-      const fileStart = Date.now();
+    if (useConcurrentProcessing) {
+      // Concurrent processing
+      const concurrentResults = await this.processFilesConcurrently(
+        files,
+        repoRoot,
+        repoId,
+        apiKey,
+        pineconeIndexName,
+        config,
+        maxConcurrentFiles,
+        onProgress
+      );
 
-      onProgress?.(i + 1, files.length, filePath);
-
-      // Log every 20th file to avoid too much output
-      if ((i + 1) % 20 === 0 || i === 0 || i === files.length - 1) {
-        console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Processing file ${i + 1}/${files.length}: ${filePath}`);
+      for (const result of concurrentResults) {
+        if (result.success) {
+          successfulFiles++;
+          totalVectors += result.vectors;
+          fileTimes.push({ file: result.filePath, time: result.time, vectors: result.vectors });
+        } else {
+          errors.push({ filePath: result.filePath, error: result.error || 'Unknown error' });
+        }
       }
+    } else {
+      // Sequential processing (original behavior)
+      for (let i = 0; i < files.length; i++) {
+        const filePath = files[i];
+        const absolutePath = path.join(repoRoot, filePath);
+        const fileStart = Date.now();
 
-      try {
-        const vectorCount = await embedAndUpsertFile(
-          absolutePath,
-          repoId,
-          repoRoot,
-          apiKey,
-          this.pineconeService,
-          pineconeIndexName,
-          config
-        );
-        totalVectors += vectorCount;
-        successfulFiles++;
+        onProgress?.(i + 1, files.length, filePath);
 
-        const fileTime = Date.now() - fileStart;
-        fileProcessingTime += fileTime;
-        fileTimes.push({ file: filePath, time: fileTime, vectors: vectorCount });
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
-        logger.both.error(`[RepoEmbeddingOrchestrator] Failed to embed ${filePath}: ${errorMsg}`);
-        errors.push({ filePath, error: errorMsg });
+        // Log every 20th file to avoid too much output
+        if ((i + 1) % 20 === 0 || i === 0 || i === files.length - 1) {
+          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Processing file ${i + 1}/${files.length}: ${filePath}`);
+        }
+
+        try {
+          const vectorCount = await embedAndUpsertFile(
+            absolutePath,
+            repoId,
+            repoRoot,
+            apiKey,
+            this.pineconeService,
+            pineconeIndexName,
+            config
+          );
+          totalVectors += vectorCount;
+          successfulFiles++;
+
+          const fileTime = Date.now() - fileStart;
+          fileTimes.push({ file: filePath, time: fileTime, vectors: vectorCount });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
+          logger.both.error(`[RepoEmbeddingOrchestrator] Failed to embed ${filePath}: ${errorMsg}`);
+          errors.push({ filePath, error: errorMsg });
+        }
       }
     }
 
@@ -113,6 +141,7 @@ export class RepoEmbeddingOrchestrator {
     const orchestratorDuration = Date.now() - orchestratorStart;
 
     // Calculate some statistics
+    const fileProcessingTime = fileTimes.reduce((sum, f) => sum + f.time, 0);
     const avgTimePerFile = successfulFiles > 0 ? Math.round(fileProcessingTime / successfulFiles) : 0;
     const avgVectorsPerFile = successfulFiles > 0 ? Math.round(totalVectors / successfulFiles) : 0;
 
@@ -145,6 +174,77 @@ export class RepoEmbeddingOrchestrator {
       totalVectors,
       errors
     };
+  }
+
+  /**
+   * Process multiple files concurrently with a limit on concurrent operations.
+   *
+   * @param files Array of file paths to process
+   * @param repoRoot Repository root directory
+   * @param repoId Repository identifier
+   * @param apiKey Google Gemini API key
+   * @param pineconeIndexName Pinecone index name
+   * @param config Pipeline configuration
+   * @param concurrency Maximum number of concurrent file operations
+   * @param onProgress Optional callback for progress updates
+   * @returns Array of processing results
+   */
+  private async processFilesConcurrently(
+    files: string[],
+    repoRoot: string,
+    repoId: string,
+    apiKey: string,
+    pineconeIndexName: string,
+    config: EmbeddingPipelineConfig,
+    concurrency: number,
+    onProgress?: (current: number, total: number, filePath: string) => void
+  ): Promise<Array<{ success: boolean; filePath: string; vectors: number; time: number; error?: string }>> {
+    const results: Array<{ success: boolean; filePath: string; vectors: number; time: number; error?: string }> = new Array(files.length);
+    let currentIndex = 0;
+    let completedCount = 0;
+    const pineconeService = this.pineconeService;
+
+    async function processNext(): Promise<void> {
+      while (currentIndex < files.length) {
+        const index = currentIndex++;
+        const filePath = files[index];
+        const absolutePath = path.join(repoRoot, filePath);
+        const fileStart = Date.now();
+
+        // Log every 20th file to avoid too much output
+        const currentCount = ++completedCount;
+        if (currentCount % 20 === 0 || currentCount === 1 || currentCount === files.length) {
+          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Processing file ${currentCount}/${files.length}: ${filePath}`);
+        }
+
+        onProgress?.(currentCount, files.length, filePath);
+
+        try {
+          const vectorCount = await embedAndUpsertFile(
+            absolutePath,
+            repoId,
+            repoRoot,
+            apiKey,
+            pineconeService,
+            pineconeIndexName,
+            config
+          );
+          const fileTime = Date.now() - fileStart;
+          results[index] = { success: true, filePath, vectors: vectorCount, time: fileTime };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
+          const fileTime = Date.now() - fileStart;
+          results[index] = { success: false, filePath, vectors: 0, time: fileTime, error: errorMsg };
+        }
+      }
+    }
+
+    // Create worker pool
+    const workers = Array.from({ length: Math.min(concurrency, files.length) }, () => processNext());
+    await Promise.all(workers);
+
+    return results;
   }
 }
 

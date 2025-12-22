@@ -88,10 +88,52 @@ export interface EmbeddingPipelineConfig {
   chunkingConfig?: ChunkingConfig;
   embeddingBatchSize?: number;
   pineconeUpsertBatchSize?: number;
+  // Concurrency settings
+  maxConcurrentFiles?: number; // Max files to process concurrently (default: 3)
+  maxConcurrentBatches?: number; // Max embedding batches to process concurrently (default: 2)
+  maxConcurrentUpserts?: number; // Max Pinecone upsert batches to process concurrently (default: 2)
 }
 
-const DEFAULT_EMBEDDING_BATCH_SIZE = 10;
-const DEFAULT_PINECONE_BATCH_SIZE = 50;
+export const DEFAULT_EMBEDDING_BATCH_SIZE = 10;
+export const DEFAULT_PINECONE_BATCH_SIZE = 50;
+export const DEFAULT_MAX_CONCURRENT_FILES = 3;
+export const DEFAULT_MAX_CONCURRENT_BATCHES = 2;
+export const DEFAULT_MAX_CONCURRENT_UPSERTS = 2;
+
+/**
+ * Process items in batches with concurrency limit.
+ * Uses a sliding window approach to limit concurrent operations.
+ */
+async function processConcurrently<T, R>(
+  items: T[],
+  handler: (item: T, index: number) => Promise<R>,
+  concurrency: number,
+  onProgress?: (index: number, total: number) => void
+): Promise<Array<{ success: boolean; result?: R; error?: string; index: number }>> {
+  const results: Array<{ success: boolean; result?: R; error?: string; index: number }> = new Array(items.length);
+  let currentIndex = 0;
+
+  async function processNext(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      onProgress?.(index, items.length);
+
+      try {
+        const result = await handler(items[index], index);
+        results[index] = { success: true, result, index };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        results[index] = { success: false, error: errorMsg, index };
+      }
+    }
+  }
+
+  // Create worker pool
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => processNext());
+  await Promise.all(workers);
+
+  return results;
+}
 
 /**
  * Embeds a single file and upserts vectors to Pinecone.
@@ -148,7 +190,7 @@ export async function embedAndUpsertFile(
     const chunkingConfig: ChunkingConfig = {
       ...config.chunkingConfig,
       filePath: relativeFilePath,
-      useSemanticChunking: isASTSupported, // Enable semantic chunking for supported languages
+      useSemanticChunking: isASTSupported || false, // Enable semantic chunking for supported languages
       useTokenEstimation: !isASTSupported // Use token estimation for non-AST files
     };
 
@@ -169,78 +211,169 @@ export async function embedAndUpsertFile(
 
     logger.both.info(`${context}: Generated ${chunks.length} chunks`);
 
-    // 4. Embed chunks in batches
+    // 4. Embed chunks in batches (with optional concurrency)
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
+    const maxConcurrentBatches = config.maxConcurrentBatches ?? DEFAULT_MAX_CONCURRENT_BATCHES;
     const chunkBatches = batchArray(chunks, embeddingBatchSize);
     const vectors: Vector[] = [];
     let totalEmbeddingTime = 0;
 
-    console.log(`[EMBEDDING_PIPELINE] Starting embedding for ${chunkBatches.length} batches (batch size: ${embeddingBatchSize})`);
+    console.log(`[EMBEDDING_PIPELINE] Starting embedding for ${chunkBatches.length} batches (batch size: ${embeddingBatchSize}, concurrency: ${maxConcurrentBatches})`);
 
-    for (let batchIdx = 0; batchIdx < chunkBatches.length; batchIdx++) {
-      const batch = chunkBatches[batchIdx];
-      const texts = batch.map(c => c.text);
-      const batchTextSize = texts.reduce((sum, text) => sum + text.length, 0);
+    if (maxConcurrentBatches > 1 && chunkBatches.length > 1) {
+      // Concurrent batch processing
+      const batchResults = await processConcurrently(
+        chunkBatches,
+        async (batch, batchIdx) => {
+          const texts = batch.map(c => c.text);
+          const batchTextSize = texts.reduce((sum, text) => sum + text.length, 0);
 
-      console.log(`[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`);
-      const embedStart = Date.now();
+          console.log(`[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`);
+          const embedStart = Date.now();
 
-      const embeddings = await retryWithBackoff(
-        () => embeddingService.embedTexts(apiKey, texts),
-        `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
-        { maxRetries: 2 }
+          const embeddings = await retryWithBackoff(
+            () => embeddingService.embedTexts(apiKey, texts),
+            `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
+            { maxRetries: 2 }
+          );
+
+          const embedDuration = Date.now() - embedStart;
+          console.log(`[EMBEDDING_PIPELINE] Embedding batch ${batchIdx + 1} completed in ${embedDuration}ms`);
+
+          // Create vectors
+          const batchVectors: Vector[] = [];
+          for (let i = 0; i < batch.length; i++) {
+            const chunk = batch[i];
+            const embedding = embeddings[i];
+            const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
+            const metadata: VectorMetadata = {
+              repoId,
+              filePath: relativeFilePath,
+              chunkIndex: chunk.chunkIndex,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              source: 'repomix',
+              textHash: computeTextHash(chunk.text),
+              updatedAt: new Date().toISOString()
+            };
+
+            batchVectors.push({
+              id: vectorId,
+              values: embedding,
+              metadata
+            });
+          }
+
+          return { vectors: batchVectors, duration: embedDuration };
+        },
+        maxConcurrentBatches
       );
 
-      const embedDuration = Date.now() - embedStart;
-      totalEmbeddingTime += embedDuration;
-      console.log(`[EMBEDDING_PIPELINE] Embedding batch ${batchIdx + 1} completed in ${embedDuration}ms`);
+      // Combine results
+      for (const result of batchResults) {
+        if (result.success && result.result) {
+          vectors.push(...result.result.vectors);
+          totalEmbeddingTime += result.result.duration;
+        }
+      }
+    } else {
+      // Sequential batch processing (original behavior)
+      for (let batchIdx = 0; batchIdx < chunkBatches.length; batchIdx++) {
+        const batch = chunkBatches[batchIdx];
+        const texts = batch.map(c => c.text);
+        const batchTextSize = texts.reduce((sum, text) => sum + text.length, 0);
 
-      for (let i = 0; i < batch.length; i++) {
-        const chunk = batch[i];
-        const embedding = embeddings[i];
-        const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
-        const metadata: VectorMetadata = {
-          repoId,
-          filePath: relativeFilePath,
-          chunkIndex: chunk.chunkIndex,
-          startLine: chunk.startLine,
-          endLine: chunk.endLine,
-          source: 'repomix',
-          textHash: computeTextHash(chunk.text),
-          updatedAt: new Date().toISOString()
-        };
+        console.log(`[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`);
+        const embedStart = Date.now();
 
-        vectors.push({
-          id: vectorId,
-          values: embedding,
-          metadata
-        });
+        const embeddings = await retryWithBackoff(
+          () => embeddingService.embedTexts(apiKey, texts),
+          `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
+          { maxRetries: 2 }
+        );
+
+        const embedDuration = Date.now() - embedStart;
+        totalEmbeddingTime += embedDuration;
+        console.log(`[EMBEDDING_PIPELINE] Embedding batch ${batchIdx + 1} completed in ${embedDuration}ms`);
+
+        for (let i = 0; i < batch.length; i++) {
+          const chunk = batch[i];
+          const embedding = embeddings[i];
+          const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
+          const metadata: VectorMetadata = {
+            repoId,
+            filePath: relativeFilePath,
+            chunkIndex: chunk.chunkIndex,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            source: 'repomix',
+            textHash: computeTextHash(chunk.text),
+            updatedAt: new Date().toISOString()
+          };
+
+          vectors.push({
+            id: vectorId,
+            values: embedding,
+            metadata
+          });
+        }
       }
     }
 
     console.log(`[EMBEDDING_PIPELINE] Total embedding time: ${totalEmbeddingTime}ms for ${vectors.length} vectors`);
 
-    // 5. Upsert vectors to Pinecone in batches
+    // 5. Upsert vectors to Pinecone in batches (with optional concurrency)
     const upsertBatchSize = config.pineconeUpsertBatchSize ?? DEFAULT_PINECONE_BATCH_SIZE;
+    const maxConcurrentUpserts = config.maxConcurrentUpserts ?? DEFAULT_MAX_CONCURRENT_UPSERTS;
     const vectorBatches = batchArray(vectors, upsertBatchSize);
     let totalUpsertTime = 0;
 
-    console.log(`[EMBEDDING_PIPELINE] Starting Pinecone upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize})`);
+    console.log(`[EMBEDDING_PIPELINE] Starting Pinecone upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize}, concurrency: ${maxConcurrentUpserts})`);
 
-    for (let batchIdx = 0; batchIdx < vectorBatches.length; batchIdx++) {
-      const batch = vectorBatches[batchIdx];
-      console.log(`[EMBEDDING_PIPELINE] Upserting batch ${batchIdx + 1}/${vectorBatches.length} (${batch.length} vectors)`);
-      const upsertStart = Date.now();
+    if (maxConcurrentUpserts > 1 && vectorBatches.length > 1) {
+      // Concurrent upsert processing
+      const upsertResults = await processConcurrently(
+        vectorBatches,
+        async (batch, batchIdx) => {
+          console.log(`[EMBEDDING_PIPELINE] Upserting batch ${batchIdx + 1}/${vectorBatches.length} (${batch.length} vectors)`);
+          const upsertStart = Date.now();
 
-      await retryWithBackoff(
-        () => pineconeService.upsertVectors(apiKey, indexName, repoId, batch),
-        `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
-        { maxRetries: 2 }
+          await retryWithBackoff(
+            () => pineconeService.upsertVectors(apiKey, indexName, repoId, batch),
+            `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
+            { maxRetries: 2 }
+          );
+
+          const upsertDuration = Date.now() - upsertStart;
+          console.log(`[EMBEDDING_PIPELINE] Upsert batch ${batchIdx + 1} completed in ${upsertDuration}ms`);
+          return { duration: upsertDuration };
+        },
+        maxConcurrentUpserts
       );
 
-      const upsertDuration = Date.now() - upsertStart;
-      totalUpsertTime += upsertDuration;
-      console.log(`[EMBEDDING_PIPELINE] Upsert batch ${batchIdx + 1} completed in ${upsertDuration}ms`);
+      // Sum up durations
+      for (const result of upsertResults) {
+        if (result.success && result.result) {
+          totalUpsertTime += result.result.duration;
+        }
+      }
+    } else {
+      // Sequential upsert processing (original behavior)
+      for (let batchIdx = 0; batchIdx < vectorBatches.length; batchIdx++) {
+        const batch = vectorBatches[batchIdx];
+        console.log(`[EMBEDDING_PIPELINE] Upserting batch ${batchIdx + 1}/${vectorBatches.length} (${batch.length} vectors)`);
+        const upsertStart = Date.now();
+
+        await retryWithBackoff(
+          () => pineconeService.upsertVectors(apiKey, indexName, repoId, batch),
+          `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
+          { maxRetries: 2 }
+        );
+
+        const upsertDuration = Date.now() - upsertStart;
+        totalUpsertTime += upsertDuration;
+        console.log(`[EMBEDDING_PIPELINE] Upsert batch ${batchIdx + 1} completed in ${upsertDuration}ms`);
+      }
     }
 
     const totalDuration = Date.now() - startTime;

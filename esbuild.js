@@ -60,6 +60,38 @@ const copyWasmPlugin = {
       } else {
         console.warn('tiktoken_bg.wasm not found in node_modules/tiktoken/');
       }
+
+      // Copy tree-sitter WASM files to dist directory
+      const treeSitterSourceDir = path.join(__dirname, 'dist', 'tree-sitter-wasm');
+      const treeSitterDestDir = path.join(__dirname, 'dist', 'tree-sitter-wasm');
+
+      if (fs.existsSync(treeSitterSourceDir)) {
+        // Ensure destination directory exists
+        if (!fs.existsSync(treeSitterDestDir)) {
+          fs.mkdirSync(treeSitterDestDir, { recursive: true });
+        }
+
+        // Copy all WASM files
+        const wasmFiles = fs.readdirSync(treeSitterSourceDir).filter(file => file.endsWith('.wasm'));
+        wasmFiles.forEach(wasmFile => {
+          const srcPath = path.join(treeSitterSourceDir, wasmFile);
+          const destPath = path.join(treeSitterDestDir, wasmFile);
+          fs.copyFileSync(srcPath, destPath);
+        });
+
+        // Copy manifest.json
+        const manifestSrc = path.join(treeSitterSourceDir, 'manifest.json');
+        const manifestDest = path.join(treeSitterDestDir, 'manifest.json');
+        if (fs.existsSync(manifestSrc)) {
+          fs.copyFileSync(manifestSrc, manifestDest);
+        }
+
+        if (wasmFiles.length > 0) {
+          console.log(`Copied ${wasmFiles.length} tree-sitter WASM files to dist/tree-sitter-wasm/`);
+        }
+      } else {
+        console.warn('tree-sitter-wasm directory not found. Run "npm run setup:treesitter" first.');
+      }
     });
   }
 };
