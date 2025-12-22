@@ -129,17 +129,31 @@ export class IndexingController extends BaseController {
   }
 
   private async handleIndexRepo() {
-    const start = Date.now();
+    const overallStart = Date.now();
+    console.log(`[INDEXING_CONTROLLER] Starting repository indexing process`);
 
     const cwd = getCwd();
+    console.log(`[INDEXING_CONTROLLER] Working directory: ${cwd}`);
+
+    const repoIdStart = Date.now();
     const repoId = await getRepoId(cwd);
+    const repoIdDuration = Date.now() - repoIdStart;
+    console.log(`[INDEXING_CONTROLLER] Repo ID generated in ${repoIdDuration}ms: ${repoId}`);
 
     // 1) Persist file paths into SQLite
+    console.log(`[INDEXING_CONTROLLER] Step 1: Indexing files to database...`);
+    const dbIndexStart = Date.now();
     const filesIndexed = await indexRepository(cwd, this.databaseService);
+    const dbIndexDuration = Date.now() - dbIndexStart;
+    console.log(`[INDEXING_CONTROLLER] Step 1 completed: ${filesIndexed} files indexed to DB in ${dbIndexDuration}ms`);
 
     // 2) Resolve secrets + selected Pinecone index
+    console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and index...`);
+    const secretsStart = Date.now();
     const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
     const pineconeKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
+    const secretsDuration = Date.now() - secretsStart;
+    console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'}, Pinecone key: ${pineconeKey ? '✓' : '✗'})`);
 
     const repoConfigs: Record<string, any> =
       (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
@@ -149,7 +163,11 @@ export class IndexingController extends BaseController {
     const indexName: string | undefined =
       typeof selected === 'string' ? selected : selected?.name;
 
+    console.log(`[INDEXING_CONTROLLER] Selected Pinecone index: ${indexName || 'None'}`);
+
     if (!googleKey) {
+      const durationMs = Date.now() - overallStart;
+      console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Google Gemini API key`);
       this.context.postMessage({
         command: 'indexRepoComplete',
         repoId,
@@ -158,13 +176,15 @@ export class IndexingController extends BaseController {
         chunksEmbedded: 0,
         vectorsUpserted: 0,
         failedFiles: 0,
-        durationMs: Date.now() - start,
+        durationMs,
       });
       this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed }); // backward-compatible UI
       return;
     }
 
     if (!pineconeKey || !indexName) {
+      const durationMs = Date.now() - overallStart;
+      console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Pinecone API key or index name`);
       this.context.postMessage({
         command: 'indexRepoComplete',
         repoId,
@@ -173,18 +193,21 @@ export class IndexingController extends BaseController {
         chunksEmbedded: 0,
         vectorsUpserted: 0,
         failedFiles: 0,
-        durationMs: Date.now() - start,
+        durationMs,
       });
       this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed }); // backward-compatible UI
       return;
     }
 
     // 3) Embed + upsert to Pinecone with namespace = repoId (handled inside PineconeService)
+    console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and Pinecone upsert...`);
+    const embeddingStart = Date.now();
     const orchestrator = new RepoEmbeddingOrchestrator(
       this.databaseService,
       new PineconeService()
     );
 
+    console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
     const summary = await orchestrator.embedRepository(
       repoId,
       cwd,
@@ -192,6 +215,10 @@ export class IndexingController extends BaseController {
       indexName,
       {}, // pipeline config (optional)
       (current, total, filePath) => {
+        // Log every 10th file or every second for large repos
+        if (current % 10 === 1 || current === total) {
+          console.log(`[INDEXING_CONTROLLER] Progress: ${current}/${total} files - ${filePath}`);
+        }
         this.context.postMessage({
           command: 'indexRepoProgress',
           current,
@@ -201,11 +228,17 @@ export class IndexingController extends BaseController {
       }
     );
 
-    const durationMs = Date.now() - start;
+    const embeddingDuration = Date.now() - embeddingStart;
+    console.log(`[INDEXING_CONTROLLER] Step 3 completed: Embedding finished in ${embeddingDuration}ms`);
+
+    const durationMs = Date.now() - overallStart;
+    console.log(`[INDEXING_CONTROLLER] Total indexing completed in ${durationMs}ms`);
 
     // Note: in this pipeline, 1 vector ~= 1 chunk, so we treat totalVectors as chunksEmbedded too.
     const vectorsUpserted = summary.totalVectors;
     const chunksEmbedded = summary.totalVectors;
+
+    console.log(`[INDEXING_CONTROLLER] Final summary: ${filesIndexed} files indexed, ${summary.successfulFiles} embedded, ${vectorsUpserted} vectors, ${summary.failedFiles} failed`);
 
     this.context.postMessage({
       command: 'indexRepoComplete',

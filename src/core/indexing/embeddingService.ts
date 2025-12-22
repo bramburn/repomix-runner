@@ -31,8 +31,15 @@ export class EmbeddingService {
    * @returns Vector (array of numbers)
    */
   async embedText(apiKey: string, text: string): Promise<number[]> {
+    const startTime = Date.now();
+    const textLength = text.length;
+    console.log(`[EMBEDDING_SERVICE] Starting single text embedding (length: ${textLength} chars)`);
+
     const embeddings = await this.getEmbeddings(apiKey);
     const result = await embeddings.embedQuery(text);
+
+    const duration = Date.now() - startTime;
+    console.log(`[EMBEDDING_SERVICE] Completed single text embedding in ${duration}ms, vector size: ${result.length}`);
     return result;
   }
 
@@ -43,8 +50,15 @@ export class EmbeddingService {
    * @returns Array of vectors
    */
   async embedTexts(apiKey: string, texts: string[]): Promise<number[][]> {
+    const startTime = Date.now();
+    const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
+    console.log(`[EMBEDDING_SERVICE] Starting batch embedding of ${texts.length} texts (${totalChars} total chars)`);
+
     const embeddings = await this.getEmbeddings(apiKey);
     const results = await embeddings.embedDocuments(texts);
+
+    const duration = Date.now() - startTime;
+    console.log(`[EMBEDDING_SERVICE] Completed batch embedding in ${duration}ms, ${results.length} vectors generated`);
     return results;
   }
 }

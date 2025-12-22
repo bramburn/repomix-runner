@@ -26,28 +26,39 @@ const esbuildProblemMatcherPlugin = {
 };
 
 /**
- * Plugin to copy sql.js WASM file to dist directory
+ * Plugin to copy WASM files to dist directory
  */
 const copyWasmPlugin = {
   name: 'copy-wasm',
 
   setup(build) {
     build.onEnd(() => {
-      // Copy sql.wasm file to dist directory
-      const wasmSource = path.join(__dirname, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
-      const wasmDest = path.join(__dirname, 'dist', 'sql-wasm.wasm');
-
       // Ensure dist directory exists
       const distDir = path.join(__dirname, 'dist');
       if (!fs.existsSync(distDir)) {
         fs.mkdirSync(distDir, { recursive: true });
       }
 
-      if (fs.existsSync(wasmSource)) {
-        fs.copyFileSync(wasmSource, wasmDest);
+      // Copy sql.wasm file to dist directory
+      const sqlWasmSource = path.join(__dirname, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
+      const sqlWasmDest = path.join(__dirname, 'dist', 'sql-wasm.wasm');
+
+      if (fs.existsSync(sqlWasmSource)) {
+        fs.copyFileSync(sqlWasmSource, sqlWasmDest);
         console.log('Copied sql-wasm.wasm to dist/');
       } else {
         console.warn('sql-wasm.wasm not found in node_modules/sql.js/dist/');
+      }
+
+      // Copy tiktoken_bg.wasm file to dist directory
+      const tiktokenWasmSource = path.join(__dirname, 'node_modules', 'tiktoken', 'tiktoken_bg.wasm');
+      const tiktokenWasmDest = path.join(__dirname, 'dist', 'tiktoken_bg.wasm');
+
+      if (fs.existsSync(tiktokenWasmSource)) {
+        fs.copyFileSync(tiktokenWasmSource, tiktokenWasmDest);
+        console.log('Copied tiktoken_bg.wasm to dist/');
+      } else {
+        console.warn('tiktoken_bg.wasm not found in node_modules/tiktoken/');
       }
     });
   }
