@@ -151,12 +151,41 @@ export const IndexRepoSchema = z.object({
   command: z.literal('indexRepo'),
 });
 
+export const IndexRepoProgressSchema = z.object({
+  command: z.literal('indexRepoProgress'),
+  current: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  filePath: z.string(),
+});
+
+
+export const IndexRepoCompleteSchema = z.object({
+  command: z.literal('indexRepoComplete'),
+  repoId: z.string(),
+  filesIndexed: z.number().int().nonnegative(),
+  filesEmbedded: z.number().int().nonnegative(),
+  chunksEmbedded: z.number().int().nonnegative(),
+  vectorsUpserted: z.number().int().nonnegative(),
+  failedFiles: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+});
+
 export const DeleteRepoIndexSchema = z.object({
   command: z.literal('deleteRepoIndex'),
 });
 
 export const GetRepoIndexCountSchema = z.object({
   command: z.literal('getRepoIndexCount'),
+});
+
+export const SearchRepoSchema = z.object({
+  command: z.literal('searchRepo'),
+  query: z.string().min(1),
+  topK: z.number().int().min(1).max(200).optional(), // default in handler
+});
+
+export const GetRepoVectorCountSchema = z.object({
+  command: z.literal('getRepoVectorCount'),
 });
 
 // --- UI Notification Schemas ---
@@ -208,8 +237,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetPineconeIndexSchema,
   // Main branch additions
   IndexRepoSchema,
+  IndexRepoProgressSchema,
+  IndexRepoCompleteSchema,
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,
+  SearchRepoSchema,
+  GetRepoVectorCountSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

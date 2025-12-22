@@ -60,7 +60,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new BundleController(webviewContext, this._bundleManager, this._queueManager),
       new AgentController(webviewContext, this._databaseService, this._context),
       new ConfigController(webviewContext, this._context),
-      new IndexingController(webviewContext, this._databaseService),
+      new IndexingController(webviewContext, this._databaseService, this._context),
       new DebugController(webviewContext, this._databaseService)
     ];
 
@@ -155,17 +155,22 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
   private async _handleOpenFile(filePath: string): Promise<void> {
     try {
-      if (!fs.existsSync(filePath)) {
+      // Search results store repo-relative paths (e.g. "src/foo.ts").
+      // Convert to absolute path using the current workspace/repo root.
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(vscode.workspace.rootPath ?? '', filePath);
+
+      if (!resolvedPath || !fs.existsSync(resolvedPath)) {
         vscode.window.showErrorMessage(`File not found: ${filePath}`);
         return;
       }
 
-      const uri = vscode.Uri.file(filePath);
+      const uri = vscode.Uri.file(resolvedPath);
       await vscode.commands.executeCommand('vscode.open', uri);
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
     }
   }
+
 
   private _getHtmlForWebview(webview: vscode.Webview) {
     const scriptUri = webview.asWebviewUri(

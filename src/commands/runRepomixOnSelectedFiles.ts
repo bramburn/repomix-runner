@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { runRepomix } from './runRepomix.js';
+import { runRepomix, defaultRunRepomixDeps } from './runRepomix.js';
 import { getCwd } from '../config/getCwd.js';
-import { defaultRunRepomixDeps } from './runRepomix.js';
 import { logger } from '../shared/logger.js';
 import { showTempNotification } from '../shared/showTempNotification.js';
 import * as path from 'path';
@@ -9,13 +8,31 @@ import { RepomixConfigFile } from '../config/configSchema.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
 import { getRepoName } from '../utils/repoName.js';
 
+type RunRepomixFn = typeof runRepomix;
+
+export type RunRepomixOnSelectedFilesDeps = {
+  /**
+   * Optional runner injection for testing (ESM-friendly).
+   * Defaults to the real runRepomix.
+   */
+  runner?: RunRepomixFn;
+  /**
+   * Optional deps injection (stubs/spies for tests).
+   * Defaults to defaultRunRepomixDeps.
+   */
+  runRepomixDeps?: typeof defaultRunRepomixDeps;
+};
+
 export async function runRepomixOnSelectedFiles(
   uris: vscode.Uri[],
   overrideConfig: RepomixConfigFile = {},
   signal?: AbortSignal,
   databaseService?: DatabaseService,
-  configFilePath?: string
+  configFilePath?: string,
+  injected: RunRepomixOnSelectedFilesDeps = {}
 ) {
+  const runner = injected.runner ?? runRepomix;
+  const runRepomixDeps = injected.runRepomixDeps ?? defaultRunRepomixDeps;
   const cwd = getCwd();
 
   if (!uris || uris.length === 0) {
@@ -74,8 +91,8 @@ export async function runRepomixOnSelectedFiles(
     include: includePatterns,
   };
 
-  await runRepomix({
-    ...defaultRunRepomixDeps,
+  await runner({
+    ...runRepomixDeps,
     mergeConfigOverride: finalOverrideConfig,
     signal,
     configFilePath,

@@ -44,13 +44,21 @@ suite('runRepomixOnSelectedFiles', () => {
     getCwdStub.returns(mockCwd);
     getTempDirStub.returns(mockTempDir);
 
-    await runRepomixOnSelectedFiles(mockUris);
+    // Create a mock deps object for testing
+    const mockDeps = {
+      ...defaultRunRepomixDeps,
+    };
+
+    await runRepomixOnSelectedFiles(mockUris, {}, undefined, undefined, undefined, {
+      runner: runRepomixStub,
+      runRepomixDeps: mockDeps,
+    });
 
     assert.strictEqual(getCwdStub.calledOnce, true);
     assert.strictEqual(runRepomixStub.calledOnce, true);
 
     sinon.assert.calledWith(runRepomixStub, {
-      ...defaultRunRepomixDeps,
+      ...mockDeps,
       mergeConfigOverride: { include: ['file1.ts', 'file2.ts'] },
     });
   });
