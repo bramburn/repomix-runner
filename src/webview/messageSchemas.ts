@@ -158,6 +158,44 @@ export const IndexRepoProgressSchema = z.object({
   filePath: z.string(),
 });
 
+// Pause/Resume/Stop Schemas
+export const IndexRepoStateChangeSchema = z.object({
+  command: z.literal('indexRepoStateChange'),
+  state: z.enum(['idle', 'running', 'paused', 'stopping']),
+  progress: z.object({
+    current: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    filePath: z.string(),
+  }).optional(),
+});
+
+export const IndexRepoPausedSchema = z.object({
+  command: z.literal('indexRepoPaused'),
+  progress: z.object({
+    completed: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export const IndexRepoStoppedSchema = z.object({
+  command: z.literal('indexRepoStopped'),
+  progress: z.object({
+    completed: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export const PauseRepoIndexingSchema = z.object({
+  command: z.literal('pauseRepoIndexing'),
+});
+
+export const ResumeRepoIndexingSchema = z.object({
+  command: z.literal('resumeRepoIndexing'),
+});
+
+export const StopRepoIndexingSchema = z.object({
+  command: z.literal('stopRepoIndexing'),
+});
 
 export const IndexRepoCompleteSchema = z.object({
   command: z.literal('indexRepoComplete'),
@@ -252,6 +290,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   IndexRepoSchema,
   IndexRepoProgressSchema,
   IndexRepoCompleteSchema,
+  IndexRepoStateChangeSchema,
+  IndexRepoPausedSchema,
+  IndexRepoStoppedSchema,
+  PauseRepoIndexingSchema,
+  ResumeRepoIndexingSchema,
+  StopRepoIndexingSchema,
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,
   SearchRepoSchema,

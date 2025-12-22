@@ -524,6 +524,7 @@
   },
   "dependencies": {
     "@fluentui/react-components": "^9.72.8",
+    "@google/genai": "^1.34.0",
     "@langchain/core": "^1.1.5",
     "@langchain/google-genai": "^2.1.0",
     "@langchain/langgraph": "^1.0.4",

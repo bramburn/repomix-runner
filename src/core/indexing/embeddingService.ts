@@ -1,27 +1,25 @@
-import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
+import { GoogleGenAI } from '@google/genai';
 
 /**
- * Embedding service using Google Gemini API.
- * Handles vector generation for text chunks.
+ * Embedding service using Google Gemini SDK directly.
+ * Handles vector generation for text chunks with proper dimension control.
  */
 export class EmbeddingService {
-  private embeddings: GoogleGenerativeAIEmbeddings | null = null;
+  private client: GoogleGenAI | null = null;
   private currentApiKey: string | null = null;
+  private readonly dimensions = 768;
 
   /**
-   * Gets or creates an embeddings instance for the given API key.
+   * Gets or creates a Gemini client for the given API key.
    */
-  private async getEmbeddings(apiKey: string): Promise<GoogleGenerativeAIEmbeddings> {
-    if (this.embeddings && this.currentApiKey === apiKey) {
-      return this.embeddings;
+  private getClient(apiKey: string): GoogleGenAI {
+    if (this.client && this.currentApiKey === apiKey) {
+      return this.client;
     }
 
-    this.embeddings = new GoogleGenerativeAIEmbeddings({
-      apiKey,
-      model: 'embedding-001'
-    });
+    this.client = new GoogleGenAI({ apiKey });
     this.currentApiKey = apiKey;
-    return this.embeddings;
+    return this.client;
   }
 
   /**
@@ -35,12 +33,30 @@ export class EmbeddingService {
     const textLength = text.length;
     console.log(`[EMBEDDING_SERVICE] Starting single text embedding (length: ${textLength} chars)`);
 
-    const embeddings = await this.getEmbeddings(apiKey);
-    const result = await embeddings.embedQuery(text);
+    const client = this.getClient(apiKey);
+    
+    const response = await client.models.embedContent({
+      model: 'gemini-embedding-001',
+      contents: text,
+      config: {
+        outputDimensionality: this.dimensions,
+      },
+    });
+
+    const embedding = response.embeddings?.[0]?.values;
+    if (!embedding) {
+      throw new Error('No embedding returned from Gemini API');
+    }
 
     const duration = Date.now() - startTime;
-    console.log(`[EMBEDDING_SERVICE] Completed single text embedding in ${duration}ms, vector size: ${result.length}`);
-    return result;
+    console.log(`[EMBEDDING_SERVICE] Completed single text embedding in ${duration}ms, vector size: ${embedding.length}`);
+    
+    // Verify dimension
+    if (embedding.length !== this.dimensions) {
+      throw new Error(`Dimension mismatch: expected ${this.dimensions}, got ${embedding.length}`);
+    }
+
+    return embedding;
   }
 
   /**
@@ -54,14 +70,33 @@ export class EmbeddingService {
     const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
     console.log(`[EMBEDDING_SERVICE] Starting batch embedding of ${texts.length} texts (${totalChars} total chars)`);
 
-    const embeddings = await this.getEmbeddings(apiKey);
-    const results = await embeddings.embedDocuments(texts);
+    const client = this.getClient(apiKey);
+    
+    const response = await client.models.embedContent({
+      model: 'gemini-embedding-001',
+      contents: texts,
+      config: {
+        outputDimensionality: this.dimensions,
+      },
+    });
+
+    const embeddings = response.embeddings?.map(e => e.values);
+    if (!embeddings || embeddings.length !== texts.length) {
+      throw new Error(`Expected ${texts.length} embeddings, got ${embeddings?.length || 0}`);
+    }
 
     const duration = Date.now() - startTime;
-    console.log(`[EMBEDDING_SERVICE] Completed batch embedding in ${duration}ms, ${results.length} vectors generated`);
-    return results;
+    console.log(`[EMBEDDING_SERVICE] Completed batch embedding in ${duration}ms, ${embeddings.length} vectors generated`);
+    
+    // Verify all dimensions
+    for (let i = 0; i < embeddings.length; i++) {
+      if (embeddings[i].length !== this.dimensions) {
+        throw new Error(`Dimension mismatch at index ${i}: expected ${this.dimensions}, got ${embeddings[i].length}`);
+      }
+    }
+
+    return embeddings;
   }
 }
 
 export const embeddingService = new EmbeddingService();
-
