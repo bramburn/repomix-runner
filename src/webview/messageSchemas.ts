@@ -230,6 +230,11 @@ export const GetRepoVectorCountSchema = z.object({
   command: z.literal('getRepoVectorCount'),
 });
 
+export const CopySearchOutputSchema = z.object({
+  command: z.literal('copySearchOutput'),
+  outputPath: z.string(),
+});
+
 // --- UI Notification Schemas ---
 
 export const AgentStateChangeSchema = z.object({
@@ -301,6 +306,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   SearchRepoSchema,
   GenerateRepomixFromSearchSchema,
   GetRepoVectorCountSchema,
+  CopySearchOutputSchema,
   // New Clipboard Schemas
   GetCopyModeSchema,
   SetCopyModeSchema,

@@ -98,4 +98,71 @@ suite('PineconeService', () => {
     assert.strictEqual(namespaceStub.calledWith(repoId), true, 'Should use repoId as namespace');
     assert.strictEqual(deleteAllStub.calledOnce, true, 'Should call deleteAll');
   });
+
+  test('deleteVectorsForFile should use metadata filter when available', async () => {
+    const apiKey = 'test-api-key';
+    const indexName = 'test-index';
+    const repoId = 'test-repo-id';
+    const filePath = 'src/test.ts';
+
+    const deleteManyStub = sandbox.stub().resolves();
+    namespaceStub.returns({
+      upsert: upsertStub,
+      query: queryStub,
+      deleteAll: deleteAllStub,
+      deleteMany: deleteManyStub
+    });
+
+    await pineconeService.deleteVectorsForFile(apiKey, indexName, repoId, filePath);
+
+    assert.strictEqual(deleteManyStub.calledOnce, true, 'Should call deleteMany with metadata filter');
+    const deleteArgs = deleteManyStub.firstCall.args[0];
+    assert.deepStrictEqual(deleteArgs, {
+      filter: {
+        filePath: { "$eq": filePath }
+      }
+    }, 'Should use filePath metadata filter');
+  });
+
+  test('deleteVectorsForFile should fallback to ID-based deletion when metadata filter fails', async () => {
+    const apiKey = 'test-api-key';
+    const indexName = 'test-index';
+    const repoId = 'test-repo-id';
+    const filePath = 'src/test.ts';
+
+    // First call to deleteMany (metadata filter) fails
+    const deleteManyStub = sandbox.stub()
+      .onFirstCall().rejects(new Error('illegal condition for field filter'))
+      .onSecondCall().resolves(); // Second call (ID-based) succeeds
+
+    const listPaginatedStub = sandbox.stub().resolves({
+      vectors: [
+        { id: `${repoId}:${filePath}:0:abc123` },
+        { id: `${repoId}:${filePath}:1:def456` }
+      ],
+      pagination: { next: undefined }
+    });
+
+    namespaceStub.returns({
+      upsert: upsertStub,
+      query: queryStub,
+      deleteAll: deleteAllStub,
+      deleteMany: deleteManyStub,
+      listPaginated: listPaginatedStub
+    });
+
+    await pineconeService.deleteVectorsForFile(apiKey, indexName, repoId, filePath);
+
+    // Should have called deleteMany twice: once for metadata filter (fails), once for ID-based (succeeds)
+    assert.strictEqual(deleteManyStub.callCount, 2, 'Should call deleteMany twice (metadata + ID-based)');
+    assert.strictEqual(listPaginatedStub.calledOnce, true, 'Should list vectors by ID prefix');
+
+    // Verify the ID-based deletion call
+    const idBasedDeleteArgs = deleteManyStub.secondCall.args[0];
+    assert.deepStrictEqual(
+      idBasedDeleteArgs,
+      [`${repoId}:${filePath}:0:abc123`, `${repoId}:${filePath}:1:def456`],
+      'Should delete by vector IDs'
+    );
+  });
 });

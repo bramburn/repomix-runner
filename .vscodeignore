@@ -34,6 +34,7 @@ scripts/
 *.vsix
 architecture.md
 ingest.md
+package.json.bak
 !assets/bin/
 !assets/bin/*.exe
 !dist/tiktoken_bg.wasm

@@ -10,7 +10,7 @@ import {
   CardPreview,
   CardFooter,
 } from '@fluentui/react-components';
-import { DeleteRegular, DatabaseSearchRegular, SearchRegular, OpenRegular } from '@fluentui/react-icons';
+import { DeleteRegular, DatabaseSearchRegular, SearchRegular, OpenRegular, CopyRegular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 
 type RepoSearchResult = {
@@ -51,6 +51,7 @@ export const SearchTab = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
 
   const canSearch = useMemo(() => query.trim().length > 0 && !isSearching, [query, isSearching]);
 
@@ -173,6 +174,10 @@ export const SearchTab = () => {
           setIsSearching(false);
           setSearchError(message.error ?? 'Search failed');
           break;
+
+        case 'searchOutputReady':
+          setLastSearchOutputPath(message.outputPath ?? null);
+          break;
       }
     };
 
@@ -230,6 +235,14 @@ export const SearchTab = () => {
   const openFile = (path?: string) => {
     if (!path) return;
     vscode.postMessage({ command: 'openFile', path });
+  };
+
+  const handleCopySearchOutput = () => {
+    if (!lastSearchOutputPath) return;
+    vscode.postMessage({
+      command: 'copySearchOutput',
+      outputPath: lastSearchOutputPath,
+    });
   };
 
   return (
@@ -354,22 +367,23 @@ export const SearchTab = () => {
       </div>
 
       {/* NEW: Search */}
-      <Label weight="semibold" style={{ marginTop: '10px' }}>Semantic Search</Label>
+      <Label weight="semibold" style={{ marginTop: '10px' }}>Vector Search</Label>
 
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
         <Input
           value={query}
           onChange={(_, data) => setQuery(data.value)}
-          placeholder="Search your repo… (semantic)"
-          style={{ flexGrow: 1 }}
+          placeholder="Enter search query..."
+          style={{ width: '100%' }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && canSearch) handleSearch();
           }}
-
         />
-                <Button
+
+        <Button
           appearance="primary"
           icon={isSearching ? <Spinner size="tiny" /> : <SearchRegular />}
+          style={{ width: '100%' }}
           disabled={!canSearch}
           onClick={handleSearch}
         >
@@ -379,54 +393,35 @@ export const SearchTab = () => {
         <Button
           appearance="secondary"
           icon={<DatabaseSearchRegular />}
+          style={{ width: '100%' }}
           disabled={!canGenerate}
           onClick={handleGenerate}
         >
           Generate
         </Button>
 
+        <Button
+          appearance="secondary"
+          icon={<CopyRegular />}
+          style={{ width: '100%' }}
+          disabled={!lastSearchOutputPath}
+          onClick={handleCopySearchOutput}
+        >
+          Copy
+        </Button>
+
+        {dedupedResultPaths.length > 0 && (
+          <Text size={200} style={{ opacity: 0.8 }}>
+            Unique files found: {dedupedResultPaths.length}
+          </Text>
+        )}
+
+        {searchError && (
+          <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>
+            {searchError}
+          </Text>
+        )}
       </div>
-      {dedupedResultPaths.length > 0 && (
-        <Text size={200} style={{ opacity: 0.7 }}>
-          {dedupedResultPaths.length} unique files ready for repomix
-        </Text>
-      )}
-
-      {searchError && (
-        <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>
-          {searchError}
-        </Text>
-      )}
-
-      {results.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <Text size={200} style={{ opacity: 0.7 }}>Top {results.length} results</Text>
-
-          {results.map((r) => (
-            <Card key={r.id}>
-              <CardHeader
-                header={<Text weight="semibold">{r.path ?? r.id}</Text>}
-                description={<Text size={200} style={{ opacity: 0.7 }}>score: {r.score.toFixed(4)}</Text>}
-              />
-              {/* {r.snippet && (
-                <CardPreview style={{ padding: '0 12px 12px' }}>
-                  <Text size={200} style={{ opacity: 0.8, whiteSpace: 'pre-wrap' }}>{r.snippet}</Text>
-                </CardPreview>
-              )} */}
-              <CardFooter>
-                <Button
-                  appearance="secondary"
-                  icon={<OpenRegular />}
-                  disabled={!r.path}
-                  onClick={() => openFile(r.path)}
-                >
-                  Open
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
-        </div>
-      )}
 
       <Text size={200} style={{ opacity: 0.7, marginTop: '10px' }}>
         Indexing scans files to enable fast semantic search.

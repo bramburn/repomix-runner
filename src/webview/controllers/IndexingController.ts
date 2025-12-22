@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
 import * as path from 'path';
+import * as fs from 'fs';
 
 import { BaseController } from './BaseController.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
@@ -13,6 +14,9 @@ import { PineconeService } from '../../core/indexing/pineconeService.js';
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 import type { ExtensionContext } from 'vscode';
 import { Pinecone } from '@pinecone-database/pinecone';
+import { copyToClipboard } from '../../core/files/copyToClipboard.js';
+import { tempDirManager } from '../../core/files/tempDirManager.js';
+import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 
 
 
@@ -151,10 +155,37 @@ export class IndexingController extends BaseController {
       );
 
       vscode.window.showInformationMessage(`Repomix started for ${cleaned.length} files.`);
+
+      // Get the output path and notify the webview
+      const outputPath = getRepomixOutputPath(cwd);
+      this.context.postMessage({
+        command: 'searchOutputReady',
+        outputPath,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[INDEXING_CONTROLLER] Repomix generate failed:', err);
       vscode.window.showErrorMessage(`Repomix generate failed: ${msg}`);
+    }
+  }
+
+  private async handleCopySearchOutput(outputPath: string) {
+    if (!outputPath || !fs.existsSync(outputPath)) {
+      vscode.window.showErrorMessage('No generated output file to copy.');
+      return;
+    }
+
+    try {
+      const originalFilename = path.basename(outputPath);
+      const tmpDir = path.join(tempDirManager.getTempDir(), `copy_${Date.now()}`);
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+      const tmpFilePath = path.join(tmpDir, originalFilename);
+      await copyToClipboard(outputPath, tmpFilePath);
+      vscode.window.showInformationMessage('Copied output file to clipboard.');
+      await tempDirManager.cleanupFile(tmpFilePath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to copy: ${msg}`);
     }
   }
 
@@ -168,6 +199,10 @@ export class IndexingController extends BaseController {
 
       case 'generateRepomixFromSearch':
         await this.handleGenerateRepomixFromSearch(message.files);
+        return true;
+
+      case 'copySearchOutput':
+        await this.handleCopySearchOutput(message.outputPath);
         return true;
 
       case 'indexRepo':
