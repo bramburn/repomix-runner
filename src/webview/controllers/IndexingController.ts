@@ -20,6 +20,13 @@ const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo';
 
+enum IndexingState {
+  IDLE = 'idle',
+  RUNNING = 'running',
+  PAUSED = 'paused',
+  STOPPING = 'stopping',
+}
+
 export class IndexingController extends BaseController {
   constructor(
     context: any,
@@ -28,6 +35,11 @@ export class IndexingController extends BaseController {
   ) {
     super(context);
   }
+
+  // Indexing state management
+  private indexingState: IndexingState = IndexingState.IDLE;
+  private currentAbortController: AbortController | null = null;
+  private currentRepoId: string | null = null;
 
   private async handleSearchRepo(query: string, topK?: number) {
     try {
@@ -159,7 +171,19 @@ export class IndexingController extends BaseController {
         return true;
 
       case 'indexRepo':
-        await this.handleIndexRepo();
+        await this.handleIndexRepo(false);
+        return true;
+
+      case 'pauseRepoIndexing':
+        await this.handlePauseRepoIndexing();
+        return true;
+
+      case 'resumeRepoIndexing':
+        await this.handleResumeRepoIndexing();
+        return true;
+
+      case 'stopRepoIndexing':
+        await this.handleStopRepoIndexing();
         return true;
 
       case 'deleteRepoIndex':
@@ -182,9 +206,9 @@ export class IndexingController extends BaseController {
     await this.handleGetRepoIndexCount();
   }
 
-  private async handleIndexRepo() {
+  private async handleIndexRepo(resumeFromCheckpoint: boolean = false) {
     const overallStart = Date.now();
-    console.log(`[INDEXING_CONTROLLER] Starting repository indexing process`);
+    console.log(`[INDEXING_CONTROLLER] Starting repository indexing process (resume: ${resumeFromCheckpoint})`);
 
     const cwd = getCwd();
     console.log(`[INDEXING_CONTROLLER] Working directory: ${cwd}`);
@@ -193,125 +217,268 @@ export class IndexingController extends BaseController {
     const repoId = await getRepoId(cwd);
     const repoIdDuration = Date.now() - repoIdStart;
     console.log(`[INDEXING_CONTROLLER] Repo ID generated in ${repoIdDuration}ms: ${repoId}`);
+    this.currentRepoId = repoId;
 
-    // 1) Persist file paths into SQLite
-    console.log(`[INDEXING_CONTROLLER] Step 1: Indexing files to database...`);
-    const dbIndexStart = Date.now();
-    const filesIndexed = await indexRepository(cwd, this.databaseService);
-    const dbIndexDuration = Date.now() - dbIndexStart;
-    console.log(`[INDEXING_CONTROLLER] Step 1 completed: ${filesIndexed} files indexed to DB in ${dbIndexDuration}ms`);
+    // Create AbortController for this session
+    this.currentAbortController = new AbortController();
+    this.indexingState = IndexingState.RUNNING;
+    this.context.postMessage({ command: 'indexRepoStateChange', state: 'running' });
 
-    // 2) Resolve secrets + selected Pinecone index
-    console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and index...`);
-    const secretsStart = Date.now();
-    const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-    const pineconeKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
-    const secretsDuration = Date.now() - secretsStart;
-    console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'}, Pinecone key: ${pineconeKey ? '✓' : '✗'})`);
+    let filesIndexed = 0;
 
-    const repoConfigs: Record<string, any> =
-      (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
+    try {
+      // Only do database indexing and secret resolution if not resuming
+      if (!resumeFromCheckpoint) {
+        // 1) Persist file paths into SQLite
+        console.log(`[INDEXING_CONTROLLER] Step 1: Indexing files to database...`);
+        const dbIndexStart = Date.now();
+        filesIndexed = await indexRepository(cwd, this.databaseService);
+        const dbIndexDuration = Date.now() - dbIndexStart;
+        console.log(`[INDEXING_CONTROLLER] Step 1 completed: ${filesIndexed} files indexed to DB in ${dbIndexDuration}ms`);
 
-    const selected = repoConfigs[repoId];
-
-    const indexName: string | undefined =
-      typeof selected === 'string' ? selected : selected?.name;
-
-    console.log(`[INDEXING_CONTROLLER] Selected Pinecone index: ${indexName || 'None'}`);
-
-    if (!googleKey) {
-      const durationMs = Date.now() - overallStart;
-      console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Google Gemini API key`);
-      this.context.postMessage({
-        command: 'indexRepoComplete',
-        repoId,
-        filesIndexed,
-        filesEmbedded: 0,
-        chunksEmbedded: 0,
-        vectorsUpserted: 0,
-        failedFiles: 0,
-        durationMs,
-      });
-      this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed }); // backward-compatible UI
-      return;
-    }
-
-    if (!pineconeKey || !indexName) {
-      const durationMs = Date.now() - overallStart;
-      console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Pinecone API key or index name`);
-      this.context.postMessage({
-        command: 'indexRepoComplete',
-        repoId,
-        filesIndexed,
-        filesEmbedded: 0,
-        chunksEmbedded: 0,
-        vectorsUpserted: 0,
-        failedFiles: 0,
-        durationMs,
-      });
-      this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed }); // backward-compatible UI
-      return;
-    }
-
-    // 3) Embed + upsert to Pinecone with namespace = repoId (handled inside PineconeService)
-    console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and Pinecone upsert...`);
-    const embeddingStart = Date.now();
-    const orchestrator = new RepoEmbeddingOrchestrator(
-      this.databaseService,
-      new PineconeService()
-    );
-
-    console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
-    const summary = await orchestrator.embedRepository(
-      repoId,
-      cwd,
-      googleKey,
-      indexName,
-      {}, // pipeline config (optional)
-      (current, total, filePath) => {
-        // Log every 10th file or every second for large repos
-        if (current % 10 === 1 || current === total) {
-          console.log(`[INDEXING_CONTROLLER] Progress: ${current}/${total} files - ${filePath}`);
-        }
-        this.context.postMessage({
-          command: 'indexRepoProgress',
-          current,
-          total,
-          filePath,
-        });
+        // Initialize progress tracking
+        const files = await this.databaseService.getRepoFiles(repoId);
+        await this.databaseService.initializeIndexingProgress(repoId, files);
+      } else {
+        filesIndexed = (await this.databaseService.getRepoFiles(repoId)).length;
       }
-    );
 
-    const embeddingDuration = Date.now() - embeddingStart;
-    console.log(`[INDEXING_CONTROLLER] Step 3 completed: Embedding finished in ${embeddingDuration}ms`);
+      // 2) Resolve secrets + selected Pinecone index
+      console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and index...`);
+      const secretsStart = Date.now();
+      const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+      const pineconeKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
+      const secretsDuration = Date.now() - secretsStart;
+      console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'}, Pinecone key: ${pineconeKey ? '✓' : '✗'})`);
 
-    const durationMs = Date.now() - overallStart;
-    console.log(`[INDEXING_CONTROLLER] Total indexing completed in ${durationMs}ms`);
+      const repoConfigs: Record<string, any> =
+        (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
 
-    // Note: in this pipeline, 1 vector ~= 1 chunk, so we treat totalVectors as chunksEmbedded too.
-    const vectorsUpserted = summary.totalVectors;
-    const chunksEmbedded = summary.totalVectors;
+      const selected = repoConfigs[repoId];
 
-    console.log(`[INDEXING_CONTROLLER] Final summary: ${filesIndexed} files indexed, ${summary.successfulFiles} embedded, ${vectorsUpserted} vectors, ${summary.failedFiles} failed`);
+      const indexName: string | undefined =
+        typeof selected === 'string' ? selected : selected?.name;
 
-    this.context.postMessage({
-      command: 'indexRepoComplete',
-      repoId,
-      filesIndexed,
-      filesEmbedded: summary.successfulFiles,
-      chunksEmbedded,
-      vectorsUpserted,
-      failedFiles: summary.failedFiles,
-      durationMs,
-    });
+      console.log(`[INDEXING_CONTROLLER] Selected Pinecone index: ${indexName || 'None'}`);
 
-    // Keep existing UI behavior (your SearchTab currently listens for repoIndexComplete)
-    this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
+      if (!googleKey) {
+        const durationMs = Date.now() - overallStart;
+        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Google Gemini API key`);
+        this.context.postMessage({
+          command: 'indexRepoComplete',
+          repoId,
+          filesIndexed,
+          filesEmbedded: 0,
+          chunksEmbedded: 0,
+          vectorsUpserted: 0,
+          failedFiles: 0,
+          durationMs,
+        });
+        this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
+        this.indexingState = IndexingState.IDLE;
+        return;
+      }
 
-    // Refresh Pinecone vector count after indexing (SearchTab already requests it, but this is safe)
-    void this.handleGetRepoVectorCount(indexName, undefined, pineconeKey, repoId);
+      if (!pineconeKey || !indexName) {
+        const durationMs = Date.now() - overallStart;
+        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Pinecone API key or index name`);
+        this.context.postMessage({
+          command: 'indexRepoComplete',
+          repoId,
+          filesIndexed,
+          filesEmbedded: 0,
+          chunksEmbedded: 0,
+          vectorsUpserted: 0,
+          failedFiles: 0,
+          durationMs,
+        });
+        this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
+        this.indexingState = IndexingState.IDLE;
+        return;
+      }
+
+      // Get progress status
+      const completedCount = await this.databaseService.getCompletedFilesCount(repoId);
+      const pendingFiles = await this.databaseService.getPendingFiles(repoId);
+      const totalFiles = completedCount + pendingFiles.length;
+
+      console.log(`[INDEXING_CONTROLLER] Progress: ${completedCount} completed, ${pendingFiles.length} pending, ${totalFiles} total`);
+
+      // 3) Embed + upsert to Pinecone
+      console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and Pinecone upsert...`);
+      const embeddingStart = Date.now();
+      const orchestrator = new RepoEmbeddingOrchestrator(
+        this.databaseService,
+        new PineconeService()
+      );
+
+      console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
+      const summary = await orchestrator.embedRepository(
+        repoId,
+        cwd,
+        googleKey,
+        indexName,
+        {}, // pipeline config
+        (current, total, filePath) => {
+          const actualCurrent = completedCount + current;
+          // Log every 10th file
+          if (actualCurrent % 10 === 1 || actualCurrent === total) {
+            console.log(`[INDEXING_CONTROLLER] Progress: ${actualCurrent}/${total} files - ${filePath}`);
+          }
+          this.context.postMessage({
+            command: 'indexRepoProgress',
+            current: actualCurrent,
+            total,
+            filePath,
+          });
+        },
+        this.currentAbortController.signal
+      );
+
+      // Check if we were paused/stopped during processing
+      // Note: state can change to PAUSED or STOPPING via external handlers during async operation
+      if (this.indexingState !== IndexingState.RUNNING) {
+        const progress = {
+          completed: completedCount + summary.successfulFiles,
+          total: totalFiles
+        };
+        if (this.indexingState === IndexingState.PAUSED) {
+          console.log(`[INDEXING_CONTROLLER] Indexing paused at ${progress.completed}/${progress.total}`);
+          this.context.postMessage({
+            command: 'indexRepoPaused',
+            progress
+          });
+        } else if (this.indexingState === IndexingState.STOPPING) {
+          console.log(`[INDEXING_CONTROLLER] Indexing stopped at ${progress.completed}/${progress.total}`);
+          this.context.postMessage({
+            command: 'indexRepoStopped',
+            progress
+          });
+          this.indexingState = IndexingState.IDLE;
+          // Clean up progress
+          await this.databaseService.clearIndexingProgress(repoId);
+        }
+        return;
+      }
+
+      // Normal completion
+      const embeddingDuration = Date.now() - embeddingStart;
+      console.log(`[INDEXING_CONTROLLER] Step 3 completed: Embedding finished in ${embeddingDuration}ms`);
+
+      const durationMs = Date.now() - overallStart;
+      console.log(`[INDEXING_CONTROLLER] Total indexing completed in ${durationMs}ms`);
+
+      const vectorsUpserted = summary.totalVectors;
+      const chunksEmbedded = summary.totalVectors;
+
+      console.log(`[INDEXING_CONTROLLER] Final summary: ${filesIndexed} files indexed, ${summary.successfulFiles} embedded, ${vectorsUpserted} vectors, ${summary.failedFiles} failed`);
+
+      // Clear progress after successful completion
+      await this.databaseService.clearIndexingProgress(repoId);
+
+      this.context.postMessage({
+        command: 'indexRepoComplete',
+        repoId,
+        filesIndexed,
+        filesEmbedded: summary.successfulFiles,
+        chunksEmbedded,
+        vectorsUpserted,
+        failedFiles: summary.failedFiles,
+        durationMs,
+      });
+
+      this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
+      this.context.postMessage({ command: 'indexRepoStateChange', state: 'idle' });
+
+      // Refresh Pinecone vector count after indexing
+      void this.handleGetRepoVectorCount(indexName, undefined, pineconeKey, repoId);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : '';
+
+      // Check if this was an abort (pause or stop)
+      // Note: state can be changed by pause/stop handlers during async operation
+      if (errorMsg === 'Aborted' || errorName === 'AbortError') {
+        const completedCount = await this.databaseService.getCompletedFilesCount(repoId || '');
+        const status = await this.databaseService.getIndexingStatus(repoId || '');
+        const progress = {
+          completed: completedCount,
+          total: completedCount + status.pending
+        };
+
+        const currentState = this.indexingState as IndexingState;
+        if (currentState === IndexingState.PAUSED) {
+          console.log(`[INDEXING_CONTROLLER] Indexing paused at ${progress.completed}/${progress.total}`);
+          this.context.postMessage({
+            command: 'indexRepoPaused',
+            progress
+          });
+          return;
+        } else if (currentState === IndexingState.STOPPING) {
+          console.log(`[INDEXING_CONTROLLER] Indexing stopped at ${progress.completed}/${progress.total}`);
+          this.context.postMessage({
+            command: 'indexRepoStopped',
+            progress
+          });
+          this.indexingState = IndexingState.IDLE;
+          // Clean up progress on stop
+          await this.databaseService.clearIndexingProgress(repoId || '');
+          return;
+        }
+      }
+
+      // Real error
+      console.error('[INDEXING_CONTROLLER] Indexing failed:', error);
+      this.indexingState = IndexingState.IDLE;
+      this.context.postMessage({
+        command: 'indexRepoStateChange',
+        state: 'idle'
+      });
+    }
   }
 
+  private async handlePauseRepoIndexing() {
+    if (this.indexingState !== IndexingState.RUNNING) {
+      console.log(`[INDEXING_CONTROLLER] Cannot pause: not running (state: ${this.indexingState})`);
+      return;
+    }
+
+    console.log(`[INDEXING_CONTROLLER] Pausing indexing...`);
+    this.indexingState = IndexingState.PAUSED;
+    this.context.postMessage({ command: 'indexRepoStateChange', state: 'paused' });
+
+    // Signal workers to stop after current file (graceful stop)
+    this.currentAbortController?.abort();
+  }
+
+  private async handleResumeRepoIndexing() {
+    if (this.indexingState !== IndexingState.PAUSED) {
+      console.log(`[INDEXING_CONTROLLER] Cannot resume: not paused (state: ${this.indexingState})`);
+      return;
+    }
+
+    console.log(`[INDEXING_CONTROLLER] Resuming indexing...`);
+    this.indexingState = IndexingState.RUNNING;
+    this.context.postMessage({ command: 'indexRepoStateChange', state: 'running' });
+
+    // Restart embedding phase with existing progress
+    await this.handleIndexRepo(true); // resumeFromCheckpoint = true
+  }
+
+  private async handleStopRepoIndexing() {
+    if (this.indexingState !== IndexingState.RUNNING && this.indexingState !== IndexingState.PAUSED) {
+      console.log(`[INDEXING_CONTROLLER] Cannot stop: not running or paused (state: ${this.indexingState})`);
+      return;
+    }
+
+    console.log(`[INDEXING_CONTROLLER] Stopping indexing...`);
+    this.indexingState = IndexingState.STOPPING;
+    this.context.postMessage({ command: 'indexRepoStateChange', state: 'stopping' });
+
+    // Signal workers to stop after current file (graceful stop)
+    this.currentAbortController?.abort();
+  }
 
 
   private async handleDeleteRepoIndex() {

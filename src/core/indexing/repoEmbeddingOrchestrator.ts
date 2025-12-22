@@ -31,7 +31,8 @@ export class RepoEmbeddingOrchestrator {
     apiKey: string,
     pineconeIndexName: string,
     config: EmbeddingPipelineConfig = {},
-    onProgress?: (current: number, total: number, filePath: string) => void
+    onProgress?: (current: number, total: number, filePath: string) => void,
+    signal?: AbortSignal
   ): Promise<{
     totalFiles: number;
     successfulFiles: number;
@@ -87,7 +88,8 @@ export class RepoEmbeddingOrchestrator {
         pineconeIndexName,
         config,
         maxConcurrentFiles,
-        onProgress
+        onProgress,
+        signal
       );
 
       for (const result of concurrentResults) {
@@ -102,6 +104,11 @@ export class RepoEmbeddingOrchestrator {
     } else {
       // Sequential processing (original behavior)
       for (let i = 0; i < files.length; i++) {
+        // Check for abort before starting next file (graceful stop)
+        if (signal?.aborted) {
+          throw new Error('Aborted');
+        }
+
         const filePath = files[i];
         const absolutePath = path.join(repoRoot, filePath);
         const fileStart = Date.now();
@@ -121,7 +128,8 @@ export class RepoEmbeddingOrchestrator {
             apiKey,
             this.pineconeService,
             pineconeIndexName,
-            config
+            config,
+            signal
           );
           totalVectors += vectorCount;
           successfulFiles++;
@@ -130,6 +138,10 @@ export class RepoEmbeddingOrchestrator {
           fileTimes.push({ file: filePath, time: fileTime, vectors: vectorCount });
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
+          // If aborted, re-throw to signal caller
+          if (errorMsg === 'Aborted' || error?.name === 'AbortError') {
+            throw error;
+          }
           console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
           logger.both.error(`[RepoEmbeddingOrchestrator] Failed to embed ${filePath}: ${errorMsg}`);
           errors.push({ filePath, error: errorMsg });
@@ -187,6 +199,7 @@ export class RepoEmbeddingOrchestrator {
    * @param config Pipeline configuration
    * @param concurrency Maximum number of concurrent file operations
    * @param onProgress Optional callback for progress updates
+   * @param signal Optional AbortSignal for cancellation
    * @returns Array of processing results
    */
   private async processFilesConcurrently(
@@ -197,7 +210,8 @@ export class RepoEmbeddingOrchestrator {
     pineconeIndexName: string,
     config: EmbeddingPipelineConfig,
     concurrency: number,
-    onProgress?: (current: number, total: number, filePath: string) => void
+    onProgress?: (current: number, total: number, filePath: string) => void,
+    signal?: AbortSignal
   ): Promise<Array<{ success: boolean; filePath: string; vectors: number; time: number; error?: string }>> {
     const results: Array<{ success: boolean; filePath: string; vectors: number; time: number; error?: string }> = new Array(files.length);
     let currentIndex = 0;
@@ -206,6 +220,11 @@ export class RepoEmbeddingOrchestrator {
 
     async function processNext(): Promise<void> {
       while (currentIndex < files.length) {
+        // Check for abort before claiming next file (graceful stop)
+        if (signal?.aborted) {
+          break; // Exit loop, don't start new files
+        }
+
         const index = currentIndex++;
         const filePath = files[index];
         const absolutePath = path.join(repoRoot, filePath);
@@ -227,12 +246,17 @@ export class RepoEmbeddingOrchestrator {
             apiKey,
             pineconeService,
             pineconeIndexName,
-            config
+            config,
+            signal
           );
           const fileTime = Date.now() - fileStart;
           results[index] = { success: true, filePath, vectors: vectorCount, time: fileTime };
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
+          // If aborted, don't mark as failed - abort is intentional
+          if (errorMsg === 'Aborted' || error?.name === 'AbortError') {
+            break; // Exit the loop
+          }
           console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
           const fileTime = Date.now() - fileStart;
           results[index] = { success: false, filePath, vectors: 0, time: fileTime, error: errorMsg };

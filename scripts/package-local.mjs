@@ -64,6 +64,10 @@ try {
 
   console.log(`Packaging local version: ${packageData.version}`);
 
+  // Setup tree-sitter WASM files before packaging
+  console.log('Setting up tree-sitter WASM files...');
+  execSync('npm run setup:treesitter', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
+
   // Run the existing package:vsix script
   execSync('npm run package:vsix', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
 

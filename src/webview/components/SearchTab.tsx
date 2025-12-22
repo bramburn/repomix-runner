@@ -27,6 +27,10 @@ export const SearchTab = () => {
 
   const [isIndexing, setIsIndexing] = useState(false);
 
+  // New state for pause/resume/stop functionality
+  const [indexingState, setIndexingState] = useState<'idle' | 'running' | 'paused' | 'stopping'>('idle');
+  const [pausedProgress, setPausedProgress] = useState<{ completed: number; total: number } | null>(null);
+
   const [indexProgress, setIndexProgress] = useState<{
     current: number;
     total: number;
@@ -131,8 +135,29 @@ export const SearchTab = () => {
           setResults([]);
           setIndexProgress(null);
           setIndexStats(null);
+          setIndexingState('idle');
+          setPausedProgress(null);
           break;
 
+        case 'indexRepoStateChange':
+          setIndexingState(message.state);
+          if (message.progress) {
+            setIndexProgress(message.progress);
+          }
+          break;
+
+        case 'indexRepoPaused':
+          setIndexingState('paused');
+          setIsIndexing(false);
+          setPausedProgress(message.progress);
+          break;
+
+        case 'indexRepoStopped':
+          setIndexingState('idle');
+          setIsIndexing(false);
+          setIndexProgress(null);
+          setPausedProgress(null);
+          break;
 
         case 'repoVectorCount':
           setVectorCount(message.count);
@@ -165,9 +190,23 @@ export const SearchTab = () => {
     setIsIndexing(true);
     setIndexProgress(null);
     setIndexStats(null);
+    setPausedProgress(null);
     vscode.postMessage({ command: 'indexRepo' });
   };
 
+  const handlePause = () => {
+    vscode.postMessage({ command: 'pauseRepoIndexing' });
+  };
+
+  const handleResume = () => {
+    setIsIndexing(true);
+    setPausedProgress(null);
+    vscode.postMessage({ command: 'resumeRepoIndexing' });
+  };
+
+  const handleStop = () => {
+    vscode.postMessage({ command: 'stopRepoIndexing' });
+  };
 
   const handleDestroy = () => {
     vscode.postMessage({ command: 'deleteRepoIndex' });
@@ -259,20 +298,56 @@ export const SearchTab = () => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <Button
-          appearance="primary"
-          onClick={handleIndex}
-          disabled={isIndexing}
-          icon={isIndexing ? <Spinner size="tiny" /> : undefined}
-        >
-          {isIndexing ? 'Indexing…' : 'Index Repository'}
-        </Button>
+        {/* Show Index Repository button when idle or paused */}
+        {indexingState === 'idle' && (
+          <Button
+            appearance="primary"
+            onClick={handleIndex}
+            disabled={isIndexing}
+            icon={isIndexing ? <Spinner size="tiny" /> : undefined}
+          >
+            {isIndexing ? 'Indexing…' : 'Index Repository'}
+          </Button>
+        )}
+
+        {/* Show Pause/Stop buttons when running */}
+        {indexingState === 'running' && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button appearance="secondary" onClick={handlePause}>Pause</Button>
+            <Button appearance="secondary" onClick={handleStop}>Stop</Button>
+          </div>
+        )}
+
+        {/* Show Resume/Stop buttons when paused */}
+        {indexingState === 'paused' && (
+          <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', alignItems: 'flex-start' }}>
+            {pausedProgress && (
+              <Text size={200} style={{ opacity: 0.7 }}>
+                Paused at {pausedProgress.completed} of {pausedProgress.total} files
+              </Text>
+            )}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button appearance="primary" onClick={handleResume}>Resume</Button>
+              <Button appearance="secondary" onClick={handleStop}>Stop</Button>
+            </div>
+          </div>
+        )}
+
+        {/* Show stopping indicator */}
+        {indexingState === 'stopping' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <Spinner size="tiny" />
+            <Text size={200} style={{ opacity: 0.7 }}>
+              Stopping...
+            </Text>
+          </div>
+        )}
 
         <Button
           appearance="secondary"
           icon={<DeleteRegular />}
           onClick={handleDestroy}
-          disabled={isIndexing || (fileCount ?? 0) === 0}
+          disabled={isIndexing || indexingState === 'stopping' || (fileCount ?? 0) === 0}
         >
           Destroy Index
         </Button>

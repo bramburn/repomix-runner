@@ -156,7 +156,8 @@ export async function embedAndUpsertFile(
   apiKey: string,
   pineconeService: PineconeService,
   indexName: string,
-  config: EmbeddingPipelineConfig = {}
+  config: EmbeddingPipelineConfig = {},
+  signal?: AbortSignal
 ): Promise<number> {
   const startTime = Date.now();
   const relativeFilePath = path.relative(repoRoot, filePath);
@@ -181,6 +182,9 @@ export async function embedAndUpsertFile(
     );
     const readDuration = Date.now() - readStart;
     console.log(`[EMBEDDING_PIPELINE] File read in ${readDuration}ms, size: ${content.length} chars`);
+
+    // Check for abort after reading file
+    if (signal?.aborted) throw new Error('Aborted');
 
     // 2. Determine chunking strategy based on language support
     const language = TreeSitterService.detectLanguage(relativeFilePath);
@@ -210,6 +214,9 @@ export async function embedAndUpsertFile(
     }
 
     logger.both.info(`${context}: Generated ${chunks.length} chunks`);
+
+    // Check for abort after chunking
+    if (signal?.aborted) throw new Error('Aborted');
 
     // 4. Embed chunks in batches (with optional concurrency)
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
@@ -322,6 +329,9 @@ export async function embedAndUpsertFile(
 
     console.log(`[EMBEDDING_PIPELINE] Total embedding time: ${totalEmbeddingTime}ms for ${vectors.length} vectors`);
 
+    // Check for abort after embedding batches
+    if (signal?.aborted) throw new Error('Aborted');
+
     // 5. Upsert vectors to Pinecone in batches (with optional concurrency)
     const upsertBatchSize = config.pineconeUpsertBatchSize ?? DEFAULT_PINECONE_BATCH_SIZE;
     const maxConcurrentUpserts = config.maxConcurrentUpserts ?? DEFAULT_MAX_CONCURRENT_UPSERTS;
@@ -375,6 +385,9 @@ export async function embedAndUpsertFile(
         console.log(`[EMBEDDING_PIPELINE] Upsert batch ${batchIdx + 1} completed in ${upsertDuration}ms`);
       }
     }
+
+    // Check for abort after upsert batches
+    if (signal?.aborted) throw new Error('Aborted');
 
     const totalDuration = Date.now() - startTime;
     console.log(`[EMBEDDING_PIPELINE] Completed ${relativeFilePath} in ${totalDuration}ms (read: ${readDuration}ms, chunk: ${chunkDuration}ms, embed: ${totalEmbeddingTime}ms, upsert: ${totalUpsertTime}ms)`);
