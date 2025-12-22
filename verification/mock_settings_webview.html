@@ -34,16 +34,31 @@
             }, "*");
           }, 50);
         }
-        if (msg.command === "saveSecret") {
-          console.log(`Saving secret ${msg.key}: ${msg.value}`);
-          // Simulate successful save
-          setTimeout(() => {
-            window.postMessage({
-              command: "secretStatus",
-              key: msg.key,
-              exists: true
-            }, "*");
-          }, 50);
+        if (msg.command === "getPineconeIndex") {
+            setTimeout(() => {
+                window.postMessage({
+                    command: "updateSelectedIndex",
+                    index: null
+                }, "*");
+            }, 50);
+        }
+        if (msg.command === "getCopyMode") {
+             // Simulate default "file" mode
+             setTimeout(() => {
+                 window.postMessage({
+                     command: "updateCopyMode",
+                     mode: "file"
+                 }, "*");
+             }, 50);
+        }
+        if (msg.command === "setCopyMode") {
+             console.log(`Setting copy mode: ${msg.mode}`);
+             setTimeout(() => {
+                 window.postMessage({
+                     command: "updateCopyMode",
+                     mode: msg.mode
+                 }, "*");
+             }, 50);
         }
       },
       getState: () => ({ selectedTab: 'settings' }), // Start on settings tab

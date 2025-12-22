@@ -30,6 +30,12 @@ export class ConfigController extends BaseController {
       case 'getPineconeIndex':
         await this.handleGetPineconeIndex();
         return true;
+      case 'getCopyMode':
+        await this.handleGetCopyMode();
+        return true;
+      case 'setCopyMode':
+        await this.handleSetCopyMode(message.mode);
+        return true;
     }
     return false;
   }
@@ -163,6 +169,38 @@ export class ConfigController extends BaseController {
     } catch (error) {
       console.error('Failed to get Pinecone index:', error);
       this.context.postMessage({ command: 'updateSelectedIndex', index: null });
+    }
+  }
+
+  private async handleGetCopyMode() {
+    try {
+      const config = vscode.workspace.getConfiguration('repomix.runner');
+      const copyMode = config.get<string>('copyMode') || 'file'; // default to 'file' matching package.json (though package.json says default "content" - checking code)
+      // Actually package.json default is "content". Let's stick to what we read.
+
+      this.context.postMessage({
+        command: 'updateCopyMode',
+        mode: copyMode
+      });
+    } catch (error) {
+      console.error('Failed to get copy mode:', error);
+    }
+  }
+
+  private async handleSetCopyMode(mode: string) {
+    try {
+      if (mode !== 'content' && mode !== 'file') {
+        throw new Error(`Invalid copy mode: ${mode}`);
+      }
+
+      const config = vscode.workspace.getConfiguration('repomix.runner');
+      await config.update('copyMode', mode, vscode.ConfigurationTarget.Global);
+
+      // Refresh the UI to confirm
+      await this.handleGetCopyMode();
+    } catch (error) {
+      console.error('Failed to set copy mode:', error);
+      vscode.window.showErrorMessage(`Failed to set copy mode: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
