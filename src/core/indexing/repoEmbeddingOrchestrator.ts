@@ -12,14 +12,15 @@ export class RepoEmbeddingOrchestrator {
   constructor(
     private databaseService: DatabaseService,
     private pineconeService: PineconeService
-  ) {}
+  ) { }
 
   /**
    * Embeds all indexed files in a repository.
    *
    * @param repoId Repository identifier
    * @param repoRoot Repository root directory
-   * @param apiKey Google Gemini API key
+   * @param googleApiKey Google Gemini API key
+   * @param pineconeApiKey Pinecone API key
    * @param pineconeIndexName Pinecone index name
    * @param config Pipeline configuration
    * @param onProgress Optional callback for progress updates
@@ -28,7 +29,8 @@ export class RepoEmbeddingOrchestrator {
   async embedRepository(
     repoId: string,
     repoRoot: string,
-    apiKey: string,
+    googleApiKey: string,
+    pineconeApiKey: string,
     pineconeIndexName: string,
     config: EmbeddingPipelineConfig = {},
     onProgress?: (current: number, total: number, filePath: string) => void,
@@ -84,7 +86,8 @@ export class RepoEmbeddingOrchestrator {
         files,
         repoRoot,
         repoId,
-        apiKey,
+        googleApiKey,
+        pineconeApiKey,
         pineconeIndexName,
         config,
         maxConcurrentFiles,
@@ -125,12 +128,14 @@ export class RepoEmbeddingOrchestrator {
             absolutePath,
             repoId,
             repoRoot,
-            apiKey,
+            googleApiKey,
+            pineconeApiKey,
             this.pineconeService,
             pineconeIndexName,
             config,
             signal
           );
+
           totalVectors += vectorCount;
           successfulFiles++;
 
@@ -139,7 +144,14 @@ export class RepoEmbeddingOrchestrator {
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           // If aborted, re-throw to signal caller
-          if (errorMsg === 'Aborted' || error?.name === 'AbortError') {
+          const errorName =
+            error instanceof Error
+              ? error.name
+              : typeof error === 'object' && error !== null && 'name' in error
+                ? String((error as any).name)
+                : '';
+
+          if (errorMsg === 'Aborted' || errorName === 'AbortError') {
             throw error;
           }
           console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
@@ -194,7 +206,8 @@ export class RepoEmbeddingOrchestrator {
    * @param files Array of file paths to process
    * @param repoRoot Repository root directory
    * @param repoId Repository identifier
-   * @param apiKey Google Gemini API key
+   * @param googleApiKey Google Gemini API key
+   * @param pineconeApiKey Pinecone API key
    * @param pineconeIndexName Pinecone index name
    * @param config Pipeline configuration
    * @param concurrency Maximum number of concurrent file operations
@@ -206,7 +219,8 @@ export class RepoEmbeddingOrchestrator {
     files: string[],
     repoRoot: string,
     repoId: string,
-    apiKey: string,
+    googleApiKey: string,
+    pineconeApiKey: string,
     pineconeIndexName: string,
     config: EmbeddingPipelineConfig,
     concurrency: number,
@@ -218,7 +232,8 @@ export class RepoEmbeddingOrchestrator {
     let completedCount = 0;
     const pineconeService = this.pineconeService;
 
-    async function processNext(): Promise<void> {
+
+    const processNext = async (): Promise<void> => {
       while (currentIndex < files.length) {
         // Check for abort before claiming next file (graceful stop)
         if (signal?.aborted) {
@@ -243,18 +258,27 @@ export class RepoEmbeddingOrchestrator {
             absolutePath,
             repoId,
             repoRoot,
-            apiKey,
+            googleApiKey,
+            pineconeApiKey,
             pineconeService,
             pineconeIndexName,
             config,
             signal
           );
+
           const fileTime = Date.now() - fileStart;
           results[index] = { success: true, filePath, vectors: vectorCount, time: fileTime };
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           // If aborted, don't mark as failed - abort is intentional
-          if (errorMsg === 'Aborted' || error?.name === 'AbortError') {
+          const errorName =
+            error instanceof Error
+              ? error.name
+              : typeof error === 'object' && error !== null && 'name' in error
+                ? String((error as any).name)
+                : '';
+
+          if (errorMsg === 'Aborted' || errorName === 'AbortError') {
             break; // Exit the loop
           }
           console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);

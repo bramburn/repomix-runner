@@ -32,6 +32,7 @@ rust/**/*.rs.bk
 Cargo.lock
 scripts/
 *.vsix
+architecture.md
 ingest.md
 !assets/bin/
 !assets/bin/*.exe

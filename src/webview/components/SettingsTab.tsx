@@ -232,7 +232,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         onChange={setGoogleKey}
         onSave={handleSaveGoogleKey}
         placeholder="Enter Gemini API Key (starts with AIza...)"
-        description="Required for Smart Agent functionality."
+        description="Reserved for upcoming Agent-in-Search experience. Not required for Search-only usage today."
       />
 
       <Divider />

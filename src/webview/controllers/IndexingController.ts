@@ -314,9 +314,7 @@ export class IndexingController extends BaseController {
 
       console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
       const summary = await orchestrator.embedRepository(
-        repoId,
-        cwd,
-        googleKey,
+        repoId, cwd, googleKey, pineconeKey,
         indexName,
         {}, // pipeline config
         (current, total, filePath) => {

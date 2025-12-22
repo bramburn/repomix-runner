@@ -153,7 +153,8 @@ export async function embedAndUpsertFile(
   filePath: string,
   repoId: string,
   repoRoot: string,
-  apiKey: string,
+  googleApiKey: string,
+  pineconeApiKey: string,
   pineconeService: PineconeService,
   indexName: string,
   config: EmbeddingPipelineConfig = {},
@@ -239,7 +240,7 @@ export async function embedAndUpsertFile(
           const embedStart = Date.now();
 
           const embeddings = await retryWithBackoff(
-            () => embeddingService.embedTexts(apiKey, texts),
+            () => embeddingService.embedTexts(googleApiKey, texts),
             `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
             { maxRetries: 2 }
           );
@@ -294,7 +295,7 @@ export async function embedAndUpsertFile(
         const embedStart = Date.now();
 
         const embeddings = await retryWithBackoff(
-          () => embeddingService.embedTexts(apiKey, texts),
+          () => embeddingService.embedTexts(googleApiKey, texts),
           `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
           { maxRetries: 2 }
         );
@@ -349,7 +350,7 @@ export async function embedAndUpsertFile(
           const upsertStart = Date.now();
 
           await retryWithBackoff(
-            () => pineconeService.upsertVectors(apiKey, indexName, repoId, batch),
+            () => pineconeService.upsertVectors(pineconeApiKey, indexName, repoId, batch),
             `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
             { maxRetries: 2 }
           );
@@ -375,7 +376,7 @@ export async function embedAndUpsertFile(
         const upsertStart = Date.now();
 
         await retryWithBackoff(
-          () => pineconeService.upsertVectors(apiKey, indexName, repoId, batch),
+          () => pineconeService.upsertVectors(pineconeApiKey, indexName, repoId, batch),
           `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
           { maxRetries: 2 }
         );

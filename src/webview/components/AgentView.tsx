@@ -1,3 +1,8 @@
+/**
+ * DEPRECATED UI (TEMP):
+ * Smart Agent is being removed as a dedicated tab.
+ * The agent workflow + message contracts remain for future integration into Search tab.
+ */
 import React, { useState, useEffect } from 'react';
 import { Divider } from '@fluentui/react-components';
 import { vscode } from '../vscode-api.js';

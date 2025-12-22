@@ -1,3 +1,7 @@
+// TEMP: Smart Agent tab is deprecated for now.
+// The agent workflow remains available for future integration into Search.
+const ENABLE_SMART_AGENT_TAB = false;
+
 import React, { useEffect, useState } from 'react';
 import {
   FluentProvider,
@@ -22,7 +26,12 @@ import { updateVsState } from './utils.js';
 
 export const App = () => {
   const [selectedTab, setSelectedTab] = useState<string>(() => {
-    return vscode.getState()?.selectedTab || 'bundles';
+    const savedTab = vscode.getState()?.selectedTab;
+    // If the saved tab was 'agent' and agent tab is disabled, default to 'search'
+    if (savedTab === 'agent' && !ENABLE_SMART_AGENT_TAB) {
+      return 'search';
+    }
+    return savedTab || 'bundles';
   });
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [bundleStates, setBundleStates] = useState<Record<string, 'idle' | 'queued' | 'running'>>({});
@@ -139,7 +148,7 @@ export const App = () => {
           style={{ marginBottom: '15px' }}
         >
           <Tab value="bundles">Bundles</Tab>
-          <Tab value="agent">Smart Agent</Tab>
+          {ENABLE_SMART_AGENT_TAB && <Tab value="agent">Smart Agent</Tab>}
           <Tab value="search">Search</Tab>
           <Tab value="settings">Settings</Tab>
           <Tab value="debug">Debug</Tab>
@@ -175,7 +184,7 @@ export const App = () => {
               </div>
             </>
           )}
-          {selectedTab === 'agent' && <AgentView />}
+          {ENABLE_SMART_AGENT_TAB && selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'search' && <SearchTab />}
           {selectedTab === 'settings' && (
             <SettingsTab
