@@ -183,6 +183,10 @@ export const SearchRepoSchema = z.object({
   query: z.string().min(1),
   topK: z.number().int().min(1).max(200).optional(), // default in handler
 });
+export const GenerateRepomixFromSearchSchema = z.object({
+  command: z.literal('generateRepomixFromSearch'),
+  files: z.array(z.string().min(1)).min(1),
+});
 
 export const GetRepoVectorCountSchema = z.object({
   command: z.literal('getRepoVectorCount'),
@@ -251,6 +255,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,
   SearchRepoSchema,
+  GenerateRepomixFromSearchSchema,
   GetRepoVectorCountSchema,
   // New Clipboard Schemas
   GetCopyModeSchema,

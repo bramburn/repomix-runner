@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
+import * as path from 'path';
+
 import { BaseController } from './BaseController.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
 import { getCwd } from '../../config/getCwd.js';
@@ -84,6 +87,17 @@ export class IndexingController extends BaseController {
 
       this.context.postMessage({ command: 'repoSearchResults', results });
 
+      // Log results (for now we don't need to render them in UI)
+      const dedupedPaths = Array.from(
+        new Set(results.map((r: any) => (r.path ?? '').trim()).filter(Boolean))
+      );
+
+      console.log(
+        `[INDEXING_CONTROLLER] Search "${q}" topK=${typeof topK === 'number' ? topK : 50} matches=${results.length} uniqueFiles=${dedupedPaths.length}`
+      );
+      console.log(`[INDEXING_CONTROLLER] Unique file paths:`, dedupedPaths);
+
+
       // Opportunistically refresh vector count after a search (cheap + useful)
       // (If it fails, it won't break search UX.)
       void this.handleGetRepoVectorCount(indexName, indexHost, pineconeKey, repoId);
@@ -95,6 +109,42 @@ export class IndexingController extends BaseController {
     }
   }
 
+  private async handleGenerateRepomixFromSearch(files: string[]) {
+    try {
+      const cwd = getCwd();
+
+      const cleaned = Array.from(
+        new Set((files ?? []).map((f) => (f ?? '').trim()).filter(Boolean))
+      );
+
+      if (cleaned.length === 0) {
+        vscode.window.showWarningMessage('No files to generate repomix include list from.');
+        return;
+      }
+
+      // Convert repo-relative paths into URIs
+      const uris = cleaned.map((rel) => vscode.Uri.file(path.join(cwd, rel)));
+
+      console.log(`[INDEXING_CONTROLLER] Running repomix for ${cleaned.length} files`);
+      console.log(`[INDEXING_CONTROLLER] repomix --include "${cleaned.join(',')}"`);
+
+      await runRepomixOnSelectedFiles(
+        uris,
+        {
+          // IMPORTANT: runRepomixOnSelectedFiles will compute includePatterns from these URIs.
+          // If you later want to include glob patterns for directories, pass overrideConfig.include patterns.
+        },
+        undefined, // AbortSignal (optional)
+        this.databaseService // logs debug run if enabled
+      );
+
+      vscode.window.showInformationMessage(`Repomix started for ${cleaned.length} files.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[INDEXING_CONTROLLER] Repomix generate failed:', err);
+      vscode.window.showErrorMessage(`Repomix generate failed: ${msg}`);
+    }
+  }
 
 
 
@@ -102,6 +152,10 @@ export class IndexingController extends BaseController {
     switch (message.command) {
       case 'searchRepo':
         await this.handleSearchRepo(message.query, message.topK);
+        return true;
+
+      case 'generateRepomixFromSearch':
+        await this.handleGenerateRepomixFromSearch(message.files);
         return true;
 
       case 'indexRepo':

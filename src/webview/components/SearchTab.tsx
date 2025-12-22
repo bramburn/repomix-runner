@@ -50,6 +50,36 @@ export const SearchTab = () => {
 
   const canSearch = useMemo(() => query.trim().length > 0 && !isSearching, [query, isSearching]);
 
+  // De-dupe file paths from search results (stable order)
+  const dedupedResultPaths = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const r of results) {
+      const p = r.path?.trim();
+      if (!p) continue;
+      if (seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
+
+    return out;
+  }, [results]);
+
+  const canGenerate = useMemo(
+    () => dedupedResultPaths.length > 0 && !isSearching,
+    [dedupedResultPaths, isSearching]
+  );
+
+  const handleGenerate = () => {
+    if (dedupedResultPaths.length === 0) return;
+
+    vscode.postMessage({
+      command: 'generateRepomixFromSearch',
+      files: dedupedResultPaths,
+    });
+  };
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
@@ -187,7 +217,7 @@ export const SearchTab = () => {
           <br />
           <Text size={200} style={{ opacity: 0.7 }}>Files Indexed (local DB)</Text>
 
-                    <div style={{ marginTop: '8px' }}>
+          <div style={{ marginTop: '8px' }}>
             {vectorCount !== null ? (
               <Text size={200} style={{ opacity: 0.7 }}>
                 Pinecone vectors (repo): <b>{vectorCount}</b>
@@ -258,10 +288,11 @@ export const SearchTab = () => {
           placeholder="Search your repo… (semantic)"
           style={{ flexGrow: 1 }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSearch();
+            if (e.key === 'Enter' && canSearch) handleSearch();
           }}
+
         />
-        <Button
+                <Button
           appearance="primary"
           icon={isSearching ? <Spinner size="tiny" /> : <SearchRegular />}
           disabled={!canSearch}
@@ -269,7 +300,22 @@ export const SearchTab = () => {
         >
           {isSearching ? 'Searching…' : 'Search'}
         </Button>
+
+        <Button
+          appearance="secondary"
+          icon={<DatabaseSearchRegular />}
+          disabled={!canGenerate}
+          onClick={handleGenerate}
+        >
+          Generate
+        </Button>
+
       </div>
+      {dedupedResultPaths.length > 0 && (
+        <Text size={200} style={{ opacity: 0.7 }}>
+          {dedupedResultPaths.length} unique files ready for repomix
+        </Text>
+      )}
 
       {searchError && (
         <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>
