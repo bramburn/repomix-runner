@@ -8,6 +8,7 @@ import {
   Dropdown,
   Option,
   Spinner,
+  Switch,
 } from '@fluentui/react-components';
 import {
   SaveRegular,
@@ -119,6 +120,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [googleKeyExists, setGoogleKeyExists] = useState(false);
   const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
+  const [copyMode, setCopyMode] = useState<string>('file');
 
   // Auto-fetch indexes if we have the key but no indexes yet
   // This replaces the generic fetch-on-mount logic
@@ -161,6 +163,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             setPineconeKeyExists(message.exists);
           }
           break;
+        case 'updateCopyMode':
+          setCopyMode(message.mode);
+          break;
         // updatePineconeIndexes and updateSelectedIndex are handled by App.tsx
       }
     };
@@ -168,6 +173,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
     vscode.postMessage({ command: 'checkSecret', key: 'pineconeApiKey' });
     vscode.postMessage({ command: 'getPineconeIndex' });
+    vscode.postMessage({ command: 'getCopyMode' });
     return () => window.removeEventListener('message', handler);
   }, []);
 
@@ -193,9 +199,31 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'fetchPineconeIndexes' });
   };
 
+  const handleCopyModeChange = (_ev: any, data: { checked: boolean }) => {
+    const newMode = data.checked ? 'content' : 'file';
+    setCopyMode(newMode);
+    vscode.postMessage({ command: 'setCopyMode', mode: newMode });
+  };
+
   return (
     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <Text size={400} weight="semibold">Configuration</Text>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">General Settings</Label>
+        <div style={{ paddingLeft: '20px' }}>
+           <Switch
+            label={copyMode === 'content' ? "Copy content to clipboard (Text)" : "Copy file to clipboard (File Object)"}
+            checked={copyMode === 'content'}
+            onChange={handleCopyModeChange}
+          />
+          <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+            Select whether to copy the raw text content or the file object itself when using the copy button.
+          </Text>
+        </div>
+      </div>
+
+      <Divider />
 
       <ConfigSection
         title="Google Gemini API Key"

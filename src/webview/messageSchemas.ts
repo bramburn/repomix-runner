@@ -206,7 +206,16 @@ export const AgentRunFailedSchema = z.object({
   command: z.literal('agentRunFailed')
 });
 
+// --- Clipboard Configuration Schemas ---
 
+export const GetCopyModeSchema = z.object({
+  command: z.literal('getCopyMode'),
+});
+
+export const SetCopyModeSchema = z.object({
+  command: z.literal('setCopyMode'),
+  mode: z.enum(['content', 'file']),
+});
 
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
@@ -243,6 +252,9 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetRepoIndexCountSchema,
   SearchRepoSchema,
   GetRepoVectorCountSchema,
+  // New Clipboard Schemas
+  GetCopyModeSchema,
+  SetCopyModeSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
