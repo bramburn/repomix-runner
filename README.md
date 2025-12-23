@@ -88,6 +88,7 @@ Open the palette with `Cmd+Shift+P` or `Ctrl+Shift+P` then:
 ## ⚠️ Known Issues
 
 - File copy mode on Linux requires `xclip` to be installed.
+- MAC and Linux support only content copy mode for now. 
 
 ## 🤝 Contributing
 
