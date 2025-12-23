@@ -20,6 +20,7 @@ type RepoSearchResult = {
   // snippet?: string;
   // you can extend metadata as needed
 };
+
 type FileTypeFilterState = {
   typescript: boolean;
   javascript: boolean;
@@ -27,7 +28,10 @@ type FileTypeFilterState = {
   rust: boolean;
   csharp: boolean;
   java: boolean;
-  custom: string; // comma-separated extensions, e.g. ".md,.json"
+  dart: boolean;      // Added Dart
+  yaml: boolean;      // Added YAML
+  excludeMd: boolean; // Added Exclude Markdown option
+  custom: string;     // comma-separated extensions, e.g. ".md,.json"
 };
 
 export const SearchTab = () => {
@@ -71,6 +75,9 @@ export const SearchTab = () => {
     rust: false,
     csharp: false,
     java: false,
+    dart: false,     // Default false
+    yaml: false,     // Default false
+    excludeMd: false,// Default false (markdown included unless filtered out later or not in other sets if applicable)
     custom: '',
   });
 
@@ -83,6 +90,8 @@ export const SearchTab = () => {
     if (fileTypeFilter.rust) exts.push('.rs');
     if (fileTypeFilter.csharp) exts.push('.cs');
     if (fileTypeFilter.java) exts.push('.java');
+    if (fileTypeFilter.dart) exts.push('.dart');
+    if (fileTypeFilter.yaml) exts.push('.yaml', '.yml');
 
     if (fileTypeFilter.custom) {
       const customExts = fileTypeFilter.custom
@@ -136,26 +145,32 @@ export const SearchTab = () => {
     });
   };
 
-
-
   const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
     const activeExts = getActiveExtensions();
-    if (activeExts.length === 0) {
-      // If nothing selected, do not filter at all
-      return incoming;
-    }
-
-    const extSet = new Set(activeExts.map((e) => e.toLowerCase()));
 
     return incoming.filter((r) => {
       if (!r.path) return false;
+      const lowerPath = r.path.toLowerCase();
+      
+      // 1. Handle Exclusions First
+      if (fileTypeFilter.excludeMd && lowerPath.endsWith('.md')) {
+        return false;
+      }
+
+      // 2. If no positive filters are selected, assume "all" (except excluded)
+      if (activeExts.length === 0) {
+          return true;
+      }
+      
+      // 3. Check specific extensions
       const lastDot = r.path.lastIndexOf('.');
-      if (lastDot === -1) return false;
+      if (lastDot === -1) return false; // files without extensions usually filtered unless we want to keep them? defaulting to false for strictness
       const ext = r.path.slice(lastDot).toLowerCase();
+      
+      const extSet = new Set(activeExts.map((e) => e.toLowerCase()));
       return extSet.has(ext);
     });
   };
-
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -269,7 +284,17 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'getRepoVectorCount' });
 
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [fileTypeFilter]); // Re-subscribe if filter logic inside effect changes (though here logic is outside, but good practice if we move filterByFileType inside)
+
+  // Re-run filter when fileTypeFilter changes locally if we already have results
+  // Note: The main filtering happens on receiving 'repoSearchResults', but if user toggles checkbox AFTER search,
+  // we might want to re-filter the *original* results. However, we only store 'results' which are already filtered.
+  // To do this properly without re-searching, we'd need to store 'rawResults'.
+  // For now, let's keep it simple: The filter applies to NEW searches or we could just rely on the user searching again.
+  // actually, let's just let the user search again or we can implement client-side refiltering if we stored raw results.
+  // Given the current structure, the user will need to hit "Search" again to apply new filters unless we change the architecture.
+  // Wait, the user asked to "add further file types".
+  // Let's Just keep the current flow: User selects types -> Hits Search.
 
   const handleIndex = () => {
     setIsIndexing(true);
@@ -478,6 +503,8 @@ export const SearchTab = () => {
           { key: 'rust', label: 'Rust (.rs)' },
           { key: 'csharp', label: 'C# (.cs)' },
           { key: 'java', label: 'Java (.java)' },
+          { key: 'dart', label: 'Dart (.dart)' },  // Added UI
+          { key: 'yaml', label: 'YAML (.yaml/.yml)' }, // Added UI
         ].map(({ key, label }) => (
           <label
             key={key}
@@ -502,6 +529,29 @@ export const SearchTab = () => {
             <span>{label}</span>
           </label>
         ))}
+        {/* Separate exclude markdown option */}
+        <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '11px',
+              cursor: 'pointer',
+              color: 'var(--vscode-errorForeground)'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={fileTypeFilter.excludeMd}
+              onChange={(e) =>
+                setFileTypeFilter((prev) => ({
+                  ...prev,
+                  excludeMd: e.target.checked,
+                }))
+              }
+            />
+            <span>Exclude .md</span>
+          </label>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
         <Input
