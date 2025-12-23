@@ -31,6 +31,7 @@ import { getRepoId } from './utils/repoIdentity.js';
 import { RepoIndexMonitor, toRelativePosix } from './core/indexing/repoIndexMonitor.js';
 import { RepoEmbeddingOrchestrator } from './core/indexing/repoEmbeddingOrchestrator.js';
 import { PineconeService } from './core/indexing/pineconeService.js';
+import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 
 // Import ignore package for .gitignore parsing
 import ignore from 'ignore';
@@ -482,7 +483,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // 2. Capture User Query
-  let userQuery: string | undefined;
+    let userQuery: string | undefined;
     while (!userQuery) {
       userQuery = await vscode.window.showInputBox({
         title: "Smart Repomix Agent",
@@ -623,6 +624,35 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }
   );
+  const copySelectedFilesToClipboardCommand = vscode.commands.registerCommand(
+    "repomixRunner.copySelectedFilesToClipboard",
+    async (clickedFile: vscode.Uri, selectedFiles?: vscode.Uri[]) => {
+      try {
+        const cwd = getCwd();
+        const filesToCopy = selectedFiles?.length ? selectedFiles : [clickedFile];
+
+        const relativeFiles = filesToCopy
+          .map((uri) => path.relative(cwd, uri.fsPath))
+          .filter((f) => !f.startsWith(".."));
+
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification },
+          async () => {
+            await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+          }
+        );
+
+        vscode.window.showInformationMessage(
+          `✓ Copied ${relativeFiles.length} file(s) as Markdown`
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`Failed: ${err}`);
+      }
+    }
+  );
+
+
+
 
   // Ajouter toutes les souscriptions au contexte
   context.subscriptions.push(
@@ -647,6 +677,7 @@ export async function activate(context: vscode.ExtensionContext) {
     refreshBundlesCommand,
     smartRunCommand,
     regenerateAgentRunCommand,
+    copySelectedFilesToClipboardCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
 }

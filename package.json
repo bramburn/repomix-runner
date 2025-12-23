@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/massdo/repomix-runner.git"
   },
-  "version": "0.6.44-alpha.20251223131625",
+  "version": "0.6.44",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -273,6 +273,11 @@
     },
     "commands": [
       {
+        "command": "repomixRunner.copySelectedFilesToClipboard",
+        "title": "Copy as Markdown to Clipboard",
+        "category": "Repomix"
+      },
+      {
         "command": "repomixRunner.editBundle",
         "title": "Repomix: Edit Bundle",
         "icon": "$(edit)"
@@ -428,6 +433,11 @@
         }
       ],
       "explorer/context": [
+        {
+          "command": "repomixRunner.copySelectedFilesToClipboard",
+          "when": "resourceScheme == file",
+          "group": "2_workspace"
+        },
         {
           "command": "repomixRunner.runOnSelectedFiles",
           "when": "explorerResourceIsFolder || resourceLangId",
