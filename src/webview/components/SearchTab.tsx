@@ -9,6 +9,7 @@ import {
   AccordionItem,
   AccordionHeader,
   AccordionPanel,
+  AccordionToggleEventHandler,
 } from '@fluentui/react-components';
 import {
   DeleteRegular,
@@ -50,6 +51,41 @@ type FileTypeFilterState = {
 
   // Custom
   custom: string; // comma-separated extensions, e.g. ".md,.json,!.txt"
+};
+
+interface SearchTabState {
+  fileTypeFilter: FileTypeFilterState;
+  query: string;
+  smartFilterEnabled: boolean;
+  openAccordionItems: string[];
+}
+
+const DEFAULT_FILTERS: FileTypeFilterState = {
+  // languages
+  typescript: true,
+  javascript: true,
+  python: true,
+  rust: false,
+  csharp: false,
+  java: false,
+  dart: false,
+
+  // common formats
+  yaml: true,
+  json: true,
+  xml: false,
+  markdown: true,
+
+  // buckets
+  config: true,
+  mobile: true,
+
+  // catch-alls
+  includeNoExtKnown: true,
+  includeAllExtensions: false,
+
+  // custom
+  custom: '',
 };
 
 const KNOWN_EXTENSIONLESS_TEXT_FILES = new Set(
@@ -120,6 +156,9 @@ function baseNameOf(p: string): string {
 }
 
 export const SearchTab = () => {
+  // Try to load state from vscode context
+  const loadedState = vscode.getState() as SearchTabState | undefined;
+
   const [fileCount, setFileCount] = useState<number | null>(null);
   const [vectorCount, setVectorCount] = useState<number | null>(null);
 
@@ -143,42 +182,41 @@ export const SearchTab = () => {
     durationMs: number;
   } | null>(null);
 
-  const [query, setQuery] = useState('');
-  const [smartFilterEnabled, setSmartFilterEnabled] = useState(false);
+  // Initialize with saved state or defaults
+  const [query, setQuery] = useState(loadedState?.query || '');
+  const [smartFilterEnabled, setSmartFilterEnabled] = useState(loadedState?.smartFilterEnabled ?? false);
   const [expandedQueries, setExpandedQueries] = useState<string[]>([]);
+  const [openItems, setOpenItems] = useState<string[]>(loadedState?.openAccordionItems || ['indexing', 'filters']);
 
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
 
-  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>({
-    // languages
-    typescript: true,
-    javascript: true,
-    python: true,
-    rust: false,
-    csharp: false,
-    java: false,
-    dart: false,
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>(
+    loadedState?.fileTypeFilter || DEFAULT_FILTERS
+  );
 
-    // common formats
-    yaml: true,
-    json: true,
-    xml: false,
-    markdown: true,
+  // Persist state changes
+  useEffect(() => {
+    vscode.setState({
+      fileTypeFilter,
+      query,
+      smartFilterEnabled,
+      openAccordionItems: openItems,
+    });
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems]);
 
-    // buckets
-    config: true,
-    mobile: true,
-
-    // catch-alls
-    includeNoExtKnown: true,
-    includeAllExtensions: false,
-
-    // custom
-    custom: '',
-  });
+  const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
+    const val = data.value as string;
+    setOpenItems((prev) => {
+      if (prev.includes(val)) {
+        return prev.filter((i) => i !== val);
+      } else {
+        return [...prev, val];
+      }
+    });
+  };
 
   const getActiveExtensions = (): {
     includedExts: Set<string>;
@@ -261,10 +299,7 @@ export const SearchTab = () => {
         // dotfiles + extensionless config entries should be treated as basenames
         const lower = e.toLowerCase();
         // Just add everything in this bucket to bases if it looks like a full filename
-        // Some might be extensions like .kts, but for config bucket exact match is safer
-        // unless it is clearly an extension.
         if (e.startsWith('.') && e.indexOf('.', 1) === -1) {
-            // It's like .env or .lock - could be ext or base. Treat as base for safety in config bucket.
             addBase(lower);
         } else {
             addBase(lower);
@@ -291,7 +326,7 @@ export const SearchTab = () => {
       ].forEach((e) => addExt(e));
     }
   
-    // Custom (supports exclusions via !, and supports both extensions + basenames)
+    // Custom
     if (fileTypeFilter.custom) {
       fileTypeFilter.custom
         .split(',')
@@ -309,11 +344,6 @@ export const SearchTab = () => {
   
           const lower = token.toLowerCase();
   
-          // If token starts with "." OR contains no "." at all, treat it as a basename (dotfile / extensionless).
-          // If token is like "md" or ".md", treat as extension.
-          // Heuristic: if it has a dot inside (not at start), it's likely a file name (e.g. package.json). 
-          // If it starts with dot and has no other dot, it's extension OR dotfile.
-          
           const looksLikeExt =
             (lower.startsWith('.') && lower.length <= 5 && lower.indexOf('.', 1) === -1) ||
             (!lower.startsWith('.') && lower.length <= 4 && lower.indexOf('.') === -1);
@@ -325,7 +355,6 @@ export const SearchTab = () => {
             return;
           }
   
-          // Otherwise store as basename (e.g. ".env.local", "dockerfile")
           const base = lower;
           if (isExclude) addExcludeBase(base);
           else addBase(base);
@@ -338,7 +367,6 @@ export const SearchTab = () => {
   const hasAnyFileTypeSelected = useMemo(() => {
     if (fileTypeFilter.includeAllExtensions) return true;
     const { includedExts, includedBases } = getActiveExtensions();
-    // Exclusions alone don't count as a selection, we need something included
     return includedExts.size > 0 || includedBases.size > 0 || fileTypeFilter.includeNoExtKnown;
   }, [fileTypeFilter]);
 
@@ -378,23 +406,17 @@ export const SearchTab = () => {
       const base = baseNameOf(lowerPath);
       const ext = extOf(lowerPath);
 
-      // 1. Check EXCLUSIONS first (overrides everything)
       if (excludedBases.has(base)) return false;
       if (ext && excludedExts.has(ext)) return false;
 
-      // 2. Check "Include All" (if enabled, we accept anything not excluded above)
       if (fileTypeFilter.includeAllExtensions) return true;
 
-      // 3. Extensionless (including dotfiles like .env)
       if (!ext) {
-        // Explicit custom basenames always count, even if "known extensionless" toggle is off
         if (includedBases.has(base)) return true;
-
         if (!fileTypeFilter.includeNoExtKnown) return false;
         return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
       }
 
-      // 4. Standard Inclusions
       return includedExts.has(ext) || includedBases.has(base);
     });
   };
@@ -548,114 +570,122 @@ export const SearchTab = () => {
 
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-      <Label weight="semibold">Repository Indexing</Label>
+      
+      {/* Indexing Section Accordion */}
+      <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
+        <AccordionItem value="indexing">
+          <AccordionHeader>Repository Indexing</AccordionHeader>
+          <AccordionPanel>
+            <div
+              style={{
+                padding: '15px',
+                backgroundColor: 'var(--vscode-editor-background)',
+                border: '1px solid var(--vscode-widget-border)',
+                borderRadius: '4px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '10px',
+                marginTop: '10px'
+              }}
+            >
+              <DatabaseSearchRegular style={{ fontSize: '32px', opacity: 0.8 }} />
 
-      <div
-        style={{
-          padding: '15px',
-          backgroundColor: 'var(--vscode-editor-background)',
-          border: '1px solid var(--vscode-widget-border)',
-          borderRadius: '4px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '10px',
-        }}
-      >
-        <DatabaseSearchRegular style={{ fontSize: '32px', opacity: 0.8 }} />
+              <div style={{ textAlign: 'center' }}>
+                {fileCount !== null ? <Text size={400} weight="semibold">{fileCount}</Text> : <Spinner size="tiny" />}
+                <br />
+                <Text size={200} style={{ opacity: 0.7 }}>Files Indexed (local DB)</Text>
 
-        <div style={{ textAlign: 'center' }}>
-          {fileCount !== null ? <Text size={400} weight="semibold">{fileCount}</Text> : <Spinner size="tiny" />}
-          <br />
-          <Text size={200} style={{ opacity: 0.7 }}>Files Indexed (local DB)</Text>
+                <div style={{ marginTop: '8px' }}>
+                  {vectorCount !== null ? (
+                    <Text size={200} style={{ opacity: 0.7 }}>
+                      Pinecone vectors (repo): <b>{vectorCount}</b>
+                    </Text>
+                  ) : (
+                    <Text size={200} style={{ opacity: 0.5 }}>Loading Pinecone count…</Text>
+                  )}
+                </div>
 
-          <div style={{ marginTop: '8px' }}>
-            {vectorCount !== null ? (
-              <Text size={200} style={{ opacity: 0.7 }}>
-                Pinecone vectors (repo): <b>{vectorCount}</b>
-              </Text>
-            ) : (
-              <Text size={200} style={{ opacity: 0.5 }}>Loading Pinecone count…</Text>
-            )}
-          </div>
+                {isIndexing && indexProgress && (
+                  <div style={{ marginTop: '10px', width: '100%', textAlign: 'center' }}>
+                    <Text size={200} style={{ opacity: 0.7 }}>
+                      Indexing progress: <b>{indexProgress.current}</b> / {indexProgress.total}
+                    </Text>
+                    <br />
+                    <Text size={200} style={{ opacity: 0.6, whiteSpace: 'pre-wrap' }}>{indexProgress.filePath}</Text>
+                  </div>
+                )}
 
-          {isIndexing && indexProgress && (
-            <div style={{ marginTop: '10px', width: '100%', textAlign: 'center' }}>
-              <Text size={200} style={{ opacity: 0.7 }}>
-                Indexing progress: <b>{indexProgress.current}</b> / {indexProgress.total}
-              </Text>
-              <br />
-              <Text size={200} style={{ opacity: 0.6, whiteSpace: 'pre-wrap' }}>{indexProgress.filePath}</Text>
+                {indexStats && !isIndexing && (
+                  <div style={{ marginTop: '10px', width: '100%', textAlign: 'center' }}>
+                    <Text size={200} style={{ opacity: 0.7 }}>
+                      Embedded files: <b>{indexStats.filesEmbedded}</b> (failed: <b>{indexStats.failedFiles}</b>)
+                    </Text>
+                    <br />
+                    <Text size={200} style={{ opacity: 0.7 }}>
+                      Chunks/vectors added: <b>{indexStats.vectorsUpserted}</b>
+                    </Text>
+                    <br />
+                    <Text size={200} style={{ opacity: 0.6 }}>
+                      Time: {(indexStats.durationMs / 1000).toFixed(1)}s
+                    </Text>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
 
-          {indexStats && !isIndexing && (
-            <div style={{ marginTop: '10px', width: '100%', textAlign: 'center' }}>
-              <Text size={200} style={{ opacity: 0.7 }}>
-                Embedded files: <b>{indexStats.filesEmbedded}</b> (failed: <b>{indexStats.failedFiles}</b>)
-              </Text>
-              <br />
-              <Text size={200} style={{ opacity: 0.7 }}>
-                Chunks/vectors added: <b>{indexStats.vectorsUpserted}</b>
-              </Text>
-              <br />
-              <Text size={200} style={{ opacity: 0.6 }}>
-                Time: {(indexStats.durationMs / 1000).toFixed(1)}s
-              </Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+              {indexingState === 'idle' && (
+                <Button appearance="primary" onClick={handleIndex} disabled={isIndexing} icon={isIndexing ? <Spinner size="tiny" /> : undefined}>
+                  {isIndexing ? 'Indexing…' : 'Index Repository'}
+                </Button>
+              )}
+
+              {indexingState === 'running' && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button appearance="secondary" onClick={handlePause}>Pause</Button>
+                  <Button appearance="secondary" onClick={handleStop}>Stop</Button>
+                </div>
+              )}
+
+              {indexingState === 'paused' && (
+                <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  {pausedProgress && (
+                    <Text size={200} style={{ opacity: 0.7 }}>
+                      Paused at {pausedProgress.completed} of {pausedProgress.total} files
+                    </Text>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <Button appearance="primary" onClick={handleResume}>Resume</Button>
+                    <Button appearance="secondary" onClick={handleStop}>Stop</Button>
+                  </div>
+                </div>
+              )}
+
+              {indexingState === 'stopping' && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <Spinner size="tiny" />
+                  <Text size={200} style={{ opacity: 0.7 }}>Stopping...</Text>
+                </div>
+              )}
+
+              <Button
+                appearance="secondary"
+                icon={<DeleteRegular />}
+                onClick={handleDestroy}
+                disabled={isIndexing || indexingState === 'stopping' || (fileCount ?? 0) === 0}
+              >
+                Destroy Index
+              </Button>
             </div>
-          )}
-        </div>
-      </div>
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {indexingState === 'idle' && (
-          <Button appearance="primary" onClick={handleIndex} disabled={isIndexing} icon={isIndexing ? <Spinner size="tiny" /> : undefined}>
-            {isIndexing ? 'Indexing…' : 'Index Repository'}
-          </Button>
-        )}
+      <Label weight="semibold" style={{ marginTop: '5px' }}>Vector Search</Label>
 
-        {indexingState === 'running' && (
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button appearance="secondary" onClick={handlePause}>Pause</Button>
-            <Button appearance="secondary" onClick={handleStop}>Stop</Button>
-          </div>
-        )}
-
-        {indexingState === 'paused' && (
-          <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', alignItems: 'flex-start' }}>
-            {pausedProgress && (
-              <Text size={200} style={{ opacity: 0.7 }}>
-                Paused at {pausedProgress.completed} of {pausedProgress.total} files
-              </Text>
-            )}
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <Button appearance="primary" onClick={handleResume}>Resume</Button>
-              <Button appearance="secondary" onClick={handleStop}>Stop</Button>
-            </div>
-          </div>
-        )}
-
-        {indexingState === 'stopping' && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <Spinner size="tiny" />
-            <Text size={200} style={{ opacity: 0.7 }}>Stopping...</Text>
-          </div>
-        )}
-
-        <Button
-          appearance="secondary"
-          icon={<DeleteRegular />}
-          onClick={handleDestroy}
-          disabled={isIndexing || indexingState === 'stopping' || (fileCount ?? 0) === 0}
-        >
-          Destroy Index
-        </Button>
-      </div>
-
-      <Label weight="semibold" style={{ marginTop: '10px' }}>Vector Search</Label>
-
-      {/* Collapsible accordion for file filters */}
-      <Accordion collapsible defaultOpenItems={['filters']}>
+      {/* File Filters Accordion */}
+      <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
         <AccordionItem value="filters">
           <AccordionHeader>File Filters</AccordionHeader>
           <AccordionPanel>

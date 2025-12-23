@@ -12,7 +12,6 @@ import { getRepoId } from '../../utils/repoIdentity.js';
 
 import { RepoEmbeddingOrchestrator } from '../../core/indexing/repoEmbeddingOrchestrator.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
-import { PineconeService } from '../../core/indexing/pineconeService.js';
 
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 import type { ExtensionContext } from 'vscode';
@@ -405,23 +404,12 @@ export class IndexingController extends BaseController {
         filesIndexed = (await this.databaseService.getRepoFiles(repoId)).length;
       }
 
-      // 2) Resolve secrets + selected Pinecone index
-      console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and index...`);
+      // 2) Resolve secrets + vector DB adapter
+      console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and vector DB adapter...`);
       const secretsStart = Date.now();
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-      const pineconeKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
       const secretsDuration = Date.now() - secretsStart;
-      console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'}, Pinecone key: ${pineconeKey ? '✓' : '✗'})`);
-
-      const repoConfigs: Record<string, any> =
-        (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
-
-      const selected = repoConfigs[repoId];
-
-      const indexName: string | undefined =
-        typeof selected === 'string' ? selected : selected?.name;
-
-      console.log(`[INDEXING_CONTROLLER] Selected Pinecone index: ${indexName || 'None'}`);
+      console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'})`);
 
       if (!googleKey) {
         const durationMs = Date.now() - overallStart;
@@ -441,9 +429,21 @@ export class IndexingController extends BaseController {
         return;
       }
 
-      if (!pineconeKey || !indexName) {
+      // Resolve vector DB adapter
+      let adapter;
+      let adapterError: string | undefined;
+      try {
+        const result = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
+        adapter = result.adapter;
+        console.log(`[INDEXING_CONTROLLER] Vector DB adapter resolved: ${result.provider}`);
+      } catch (e) {
+        adapterError = e instanceof Error ? e.message : String(e);
+        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Vector DB configuration error: ${adapterError}`);
+      }
+
+      if (!adapter) {
         const durationMs = Date.now() - overallStart;
-        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Pinecone API key or index name`);
+        console.log(`[INDEXING_CONTROLLER] Cannot proceed: ${adapterError}`);
         this.context.postMessage({
           command: 'indexRepoComplete',
           repoId,
@@ -466,20 +466,18 @@ export class IndexingController extends BaseController {
 
       console.log(`[INDEXING_CONTROLLER] Progress: ${completedCount} completed, ${pendingFiles.length} pending, ${totalFiles} total`);
 
-      // 3) Embed + upsert to Pinecone
-      console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and Pinecone upsert...`);
+      // 3) Embed + upsert to vector DB
+      console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and vector DB upsert...`);
       const embeddingStart = Date.now();
       const orchestrator = new RepoEmbeddingOrchestrator(
-        this.databaseService,
-        new PineconeService()
+        this.databaseService
       );
 
       console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
       const summary = await orchestrator.embedRepository(
-        repoId, cwd, googleKey, pineconeKey,
-        indexName,
+        repoId, cwd, googleKey, adapter,
         {}, // pipeline config
-        (current, total, filePath) => {
+        (current: number, total: number, filePath: string) => {
           const actualCurrent = completedCount + current;
           // Log every 10th file
           if (actualCurrent % 10 === 1 || actualCurrent === total) {
@@ -550,8 +548,8 @@ export class IndexingController extends BaseController {
       this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
       this.context.postMessage({ command: 'indexRepoStateChange', state: 'idle' });
 
-      // Refresh Pinecone vector count after indexing
-      void this.handleGetRepoVectorCount(indexName, undefined, pineconeKey, repoId);
+      // Refresh vector count after indexing
+      void this.handleGetRepoVectorCount(repoId);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
