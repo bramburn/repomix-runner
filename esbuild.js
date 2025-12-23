@@ -26,7 +26,7 @@ const esbuildProblemMatcherPlugin = {
 };
 
 /**
- * Plugin to copy WASM files to dist directory
+ * Plugin to copy WASM files to dist directory (only if they don't already exist)
  */
 const copyWasmPlugin = {
   name: 'copy-wasm',
@@ -39,18 +39,20 @@ const copyWasmPlugin = {
         fs.mkdirSync(distDir, { recursive: true });
       }
 
-      // Copy sql.wasm file to dist directory
+      // Copy sql.wasm file to dist directory (only if not already present)
       const sqlWasmSource = path.join(__dirname, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
       const sqlWasmDest = path.join(__dirname, 'dist', 'sql-wasm.wasm');
 
       if (fs.existsSync(sqlWasmSource)) {
-        fs.copyFileSync(sqlWasmSource, sqlWasmDest);
-        console.log('Copied sql-wasm.wasm to dist/');
+        if (!fs.existsSync(sqlWasmDest)) {
+          fs.copyFileSync(sqlWasmSource, sqlWasmDest);
+          console.log('Copied sql-wasm.wasm to dist/');
+        } else {
+          console.log('sql-wasm.wasm already exists in dist/, skipping copy.');
+        }
       } else {
         console.warn('sql-wasm.wasm not found in node_modules/sql.js/dist/');
       }
-
-
 
       // Verify tree-sitter WASM files exist in dist directory
       const treeSitterDir = path.join(__dirname, 'dist', 'tree-sitter-wasm');
@@ -58,7 +60,7 @@ const copyWasmPlugin = {
       if (fs.existsSync(treeSitterDir)) {
         const wasmFiles = fs.readdirSync(treeSitterDir).filter(file => file.endsWith('.wasm'));
         if (wasmFiles.length > 0) {
-          console.log(`Found ${wasmFiles.length} tree-sitter WASM files in dist/tree-sitter-wasm/`);
+          console.log(`Found ${wasmFiles.length} tree-sitter WASM files in dist/tree-sitter-wasm/ (skipping setup)`);
         } else {
           console.warn('tree-sitter-wasm directory exists but contains no .wasm files. Run "npm run setup:treesitter" first.');
         }

@@ -6,6 +6,23 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Checks if tree-sitter WASM files already exist in the dist directory.
+ * @returns {boolean} True if the directory exists and contains .wasm files
+ */
+function checkTreeSitterWasmExists() {
+  const treeSitterDir = path.resolve(__dirname, '..', 'dist', 'tree-sitter-wasm');
+
+  if (!fs.existsSync(treeSitterDir)) {
+    return false;
+  }
+
+  const files = fs.readdirSync(treeSitterDir);
+  const wasmFiles = files.filter(file => file.endsWith('.wasm'));
+
+  return wasmFiles.length > 0;
+}
+
 const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
 const backupPath = path.resolve(__dirname, '..', 'package.json.bak');
 
@@ -64,9 +81,13 @@ try {
 
   console.log(`Packaging local version: ${packageData.version}`);
 
-  // Setup tree-sitter WASM files before packaging
-  console.log('Setting up tree-sitter WASM files...');
-  execSync('npm run setup:treesitter', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
+  // Setup tree-sitter WASM files before packaging (only if they don't already exist)
+  if (checkTreeSitterWasmExists()) {
+    console.log('Tree-sitter WASM files already exist in dist/tree-sitter-wasm/. Skipping setup.');
+  } else {
+    console.log('Setting up tree-sitter WASM files...');
+    execSync('npm run setup:treesitter', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
+  }
 
   // Run the existing package:vsix script
   execSync('npm run package:vsix', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });

@@ -7,7 +7,7 @@ import type { ExtensionContext } from 'vscode';
  * The binary is bundled in the extension's bin directory.
  */
 function getClipboardBinaryPath(extensionContext: ExtensionContext): string {
-  return path.join(extensionContext.extensionPath, 'bin', 'repomix-clipboard.exe');
+  return path.join(extensionContext.extensionPath, 'assets', 'bin', 'repomix-clipboard.exe');
 }
 
 /**
