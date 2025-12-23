@@ -7,12 +7,12 @@ const STATE_VECTORDB_PROVIDER = 'repomix.vectorDb.provider';
 const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo';
 
 const STATE_QDRANT_URL = 'repomix.qdrant.url';
-// Changed to single global collection to match current UI implementation
+// [FIX] Use the global collection key to match ConfigController
 const STATE_QDRANT_COLLECTION = 'repomix.qdrant.collection';
 
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
-// Aligned with ConfigController key
-const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
+// [FIX] Use the correct secret key to match ConfigController
+const SECRET_QDRANT = 'repomix.agent.qdrantApiKey'; 
 
 export async function getVectorDbAdapterForRepo(
   extensionContext: ExtensionContext,
@@ -37,9 +37,11 @@ export async function getVectorDbAdapterForRepo(
 
   if (provider === 'qdrant') {
     const baseUrl = extensionContext.globalState.get(STATE_QDRANT_URL) as string | undefined;
-    // Currently using global collection setting
+    
+    // [FIX] Read single global collection string instead of per-repo map
     const collection = extensionContext.globalState.get(STATE_QDRANT_COLLECTION) as string | undefined;
-    const apiKey = await extensionContext.secrets.get(SECRET_QDRANT); // optional, may be undefined
+    
+    const apiKey = await extensionContext.secrets.get(SECRET_QDRANT); 
 
     if (!baseUrl) throw new Error('Missing Qdrant URL');
     if (!collection) throw new Error('No Qdrant collection configured');
