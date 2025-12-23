@@ -1,16 +1,10 @@
-use byteorder::{LittleEndian, WriteBytesExt};
-use clipboard_win::raw;
-use clipboard_win::{formats, Clipboard, Setter};
+use arboard::Clipboard as ArClipboard;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use tempfile::Builder;
-
-// Define constants that are not in std
-const CF_HDROP: u32 = 15;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -147,7 +141,7 @@ fn build_markdown_from_files(cwd: &Path, rel_files: &[String]) -> String {
         };
         let content = String::from_utf8_lossy(&bytes);
 
-        // Choose a fence that won't conflict if content contains ``` already
+        // Choose a fence that won't conflict if content contains ```
         let (fence, lang) = choose_fence(&content);
 
         out.push_str("## ");
@@ -173,9 +167,9 @@ fn build_markdown_from_files(cwd: &Path, rel_files: &[String]) -> String {
 /// Chooses an appropriate fence length and language for code blocks.
 /// Defaults to ```text, but extends if content contains the fence.
 fn choose_fence(content: &str) -> (String, &'static str) {
-    // default: ```text
-    // if content contains ``` then use ````text
-    // if it contains ```` then use `````text, etc.
+    // default: ```
+    // if content contains ``` then use ```
+    // if it contains ```` then use ```
     let mut ticks = 3;
     while content.contains(&"`".repeat(ticks)) {
         ticks += 1;
@@ -198,25 +192,8 @@ fn write_temp_markdown_file(md: &str) -> Result<PathBuf, Box<dyn std::error::Err
     Ok(path)
 }
 
-/// Copies a file to the Windows clipboard using CF_HDROP and CF_UNICODETEXT formats.
-/// This enables both file drop operations and plain text paste.
-#[cfg(windows)]
-fn strip_extended_windows_prefix(p: &Path) -> std::path::PathBuf {
-    let s = p.to_string_lossy();
-
-    // \\?\UNC\server\share\path  ->  \\server\share\path
-    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
-        return std::path::PathBuf::from(format!(r"\\{}", rest));
-    }
-
-    // \\?\C:\path  ->  C:\path
-    if let Some(rest) = s.strip_prefix(r"\\?\") {
-        return std::path::PathBuf::from(rest.to_string());
-    }
-
-    p.to_path_buf()
-}
-
+/// Copies a file to the clipboard using arboard's cross-platform file_list API.
+/// This enables proper file copy semantics on Windows, macOS, and Linux.
 fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // Ensure we always work with an absolute path for consistency
     let abs_path = if path.is_relative() {
@@ -225,73 +202,21 @@ fn copy_file_to_clipboard(path: &Path) -> Result<(), Box<dyn std::error::Error>>
         path.to_path_buf()
     };
 
-    // Try to canonicalize if the path exists, otherwise use the absolute path
-    let final_path = match std::fs::canonicalize(&abs_path) {
-        Ok(p) => p,
-        Err(_) => abs_path, // Fallback to absolute path if canonicalization fails
-    };
-
-    // Convert path to wide string (UTF-16) and add null terminator
-    let final_path = strip_extended_windows_prefix(&final_path);
-    let mut wide_path: Vec<u16> = final_path.as_os_str().encode_wide().collect();
-
-    wide_path.push(0); // Null terminator
-    wide_path.push(0); // Double null terminator for the list end
-
-    // Calculate size required
-    // DROPFILES structure size is 20 bytes
-    let dropfiles_size = 20;
-    let path_size = wide_path.len() * 2;
-    let total_size = dropfiles_size + path_size;
-
-    let mut buffer = Vec::with_capacity(total_size);
-
-    // Construct DROPFILES structure
-    // DWORD pFiles; // Offset of the file list from the beginning of this structure
-    // POINT pt;     // Drop point coordinates
-    // BOOL  fNC;    // Non-client area
-    // BOOL  fWide;  // Unicode characters
-
-    buffer.write_u32::<LittleEndian>(20)?; // pFiles = 20 (size of header)
-    buffer.write_i32::<LittleEndian>(0)?; // pt.x = 0
-    buffer.write_i32::<LittleEndian>(0)?; // pt.y = 0
-    buffer.write_i32::<LittleEndian>(0)?; // fNC = FALSE
-    buffer.write_i32::<LittleEndian>(1)?; // fWide = TRUE
-
-    // Append path
-    for char_code in wide_path {
-        buffer.write_u16::<LittleEndian>(char_code)?;
+    // Validate that the file exists and is a regular file
+    let metadata = std::fs::metadata(&abs_path)?;
+    if !metadata.is_file() {
+        return Err(format!("Path is not a file: {}", abs_path.display()).into());
     }
 
-    // Set clipboard data for both CF_HDROP and CF_UNICODETEXT
-    // CF_HDROP (format 15) for file drop operations
-    // Open clipboard once and set multiple formats (CF_HDROP + CF_UNICODETEXT)
-    let _clip = Clipboard::new_attempts(10).map_err(|e| -> Box<dyn std::error::Error> {
-        format!("Clipboard open error: {}", e).into()
-    })?;
+    // Create clipboard handle (arboard)
+    let mut clipboard = ArClipboard::new()?;
 
-    // Clear once, then write formats in order: most descriptive first.
-    // Windows supports multiple clipboard formats for the same content. :contentReference[oaicite:1]{index=1}
-    raw::empty().map_err(|e| -> Box<dyn std::error::Error> {
-        format!("Clipboard empty error: {}", e).into()
-    })?;
+    // arboard::Clipboard::set().file_list takes a slice of &Path
+    let paths: [&Path; 1] = [&abs_path];
 
-    formats::RawData(CF_HDROP)
-        .write_clipboard(&buffer)
-        .map_err(|e| -> Box<dyn std::error::Error> {
-            format!("Clipboard write CF_HDROP error: {}", e).into()
-        })?;
-
-    // Also provide a text representation for apps that paste as text.
-    // CF_UNICODETEXT is null-terminated text. :contentReference[oaicite:2]{index=2}
-    let printable_path = strip_extended_windows_prefix(&final_path)
-        .to_string_lossy()
-        .to_string();
-    formats::Unicode.write_clipboard(&printable_path).map_err(
-        |e| -> Box<dyn std::error::Error> {
-            format!("Clipboard write CF_UNICODETEXT error: {}", e).into()
-        },
-    )?;
+    clipboard
+        .set()
+        .file_list(&paths)?; // copies the file to the OS clipboard
 
     Ok(())
 }

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import ignore from 'ignore'; // Import ignore package
 
 import { BaseController } from './BaseController.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
@@ -18,8 +19,6 @@ import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
-
-
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -95,12 +94,44 @@ export class IndexingController extends BaseController {
       );
 
       const matches = res?.matches ?? [];
-      const results = matches.map((m: any) => ({
+      let results = matches.map((m: any) => ({
         id: m.id,
         score: m.score ?? 0,
         path: m.metadata?.filePath,
         snippet: m.metadata?.snippet ?? m.metadata?.text,
       }));
+
+      // --- FILTERING START ---
+      // Robustly filter out files that are currently ignored by .gitignore,
+      // even if they exist in the vector index (handling stale index cases).
+      try {
+        const ig = ignore();
+        const gitignorePath = path.join(cwd, '.gitignore');
+        
+        // Add .gitignore rules if file exists
+        if (fs.existsSync(gitignorePath)) {
+          const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+          ig.add(gitignoreContent);
+        }
+        
+        // Always add standard exclusions to be safe
+        ig.add(['.git', 'node_modules', '.DS_Store', 'dist', 'out', 'build']);
+
+        const originalCount = results.length;
+        results = results.filter((r: any) => {
+          if (!r.path) return false;
+          // r.path should be a relative path from repo root
+          return !ig.ignores(r.path);
+        });
+
+        if (originalCount !== results.length) {
+          console.log(`[INDEXING_CONTROLLER] Filtered ${originalCount - results.length} ignored files from search results.`);
+        }
+      } catch (filterErr) {
+        console.warn('[INDEXING_CONTROLLER] Error filtering search results with .gitignore:', filterErr);
+        // If filtering fails, proceed with original results to avoid breaking search
+      }
+      // --- FILTERING END ---
 
       this.context.postMessage({ command: 'repoSearchResults', results });
 
