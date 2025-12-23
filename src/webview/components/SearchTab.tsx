@@ -49,7 +49,7 @@ type FileTypeFilterState = {
   includeAllExtensions: boolean; // show everything (UI filter bypass)
 
   // Custom
-  custom: string; // comma-separated extensions, e.g. ".md,.json"
+  custom: string; // comma-separated extensions, e.g. ".md,.json,!.txt"
 };
 
 const KNOWN_EXTENSIONLESS_TEXT_FILES = new Set(
@@ -159,8 +159,7 @@ export const SearchTab = () => {
     python: true,
     rust: false,
     csharp: false,
-    java: false,
-    dart: false,
+    java: false,    dart: false,
 
     // common formats
     yaml: true,
@@ -180,23 +179,24 @@ export const SearchTab = () => {
     custom: '',
   });
 
-  const getActiveExtensions = (): Set<string> => {
-    const exts = new Set<string>();
+  const getActiveExtensions = (): { included: Set<string>, excluded: Set<string> } => {
+    const included = new Set<string>();
+    const excluded = new Set<string>();
 
     // Languages
-    if (fileTypeFilter.typescript) exts.add('.ts'), exts.add('.tsx');
-    if (fileTypeFilter.javascript) exts.add('.js'), exts.add('.jsx');
-    if (fileTypeFilter.python) exts.add('.py');
-    if (fileTypeFilter.rust) exts.add('.rs');
-    if (fileTypeFilter.csharp) exts.add('.cs');
-    if (fileTypeFilter.java) exts.add('.java');
-    if (fileTypeFilter.dart) exts.add('.dart');
+    if (fileTypeFilter.typescript) included.add('.ts'), included.add('.tsx');
+    if (fileTypeFilter.javascript) included.add('.js'), included.add('.jsx');
+    if (fileTypeFilter.python) included.add('.py');
+    if (fileTypeFilter.rust) included.add('.rs');
+    if (fileTypeFilter.csharp) included.add('.cs');
+    if (fileTypeFilter.java) included.add('.java');
+    if (fileTypeFilter.dart) included.add('.dart');
 
     // Formats
-    if (fileTypeFilter.yaml) exts.add('.yaml'), exts.add('.yml');
-    if (fileTypeFilter.json) exts.add('.json'), exts.add('.jsonc');
-    if (fileTypeFilter.xml) exts.add('.xml');
-    if (fileTypeFilter.markdown) exts.add('.md'), exts.add('.mdx');
+    if (fileTypeFilter.yaml) included.add('.yaml'), included.add('.yml');
+    if (fileTypeFilter.json) included.add('.json'), included.add('.jsonc');
+    if (fileTypeFilter.xml) included.add('.xml');
+    if (fileTypeFilter.markdown) included.add('.md'), included.add('.mdx');
 
     // Config bucket
     if (fileTypeFilter.config) {
@@ -223,7 +223,7 @@ export const SearchTab = () => {
         '.lock',
         '.gradle',
         '.kts',
-      ].forEach((e) => exts.add(e));
+      ].forEach((e) => included.add(e));
     }
 
     // Mobile bucket (Android/iOS)
@@ -248,26 +248,45 @@ export const SearchTab = () => {
         '.xcconfig',
         '.storyboard',
         '.xib',
-      ].forEach((e) => exts.add(e));
+      ].forEach((e) => included.add(e));
     }
 
-    // Custom
+    // Custom (handles exclusions via !)
     if (fileTypeFilter.custom) {
       fileTypeFilter.custom
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-        .map((s) => (s.startsWith('.') ? s : `.${s}`))
-        .forEach((e) => exts.add(e.toLowerCase()));
+        .forEach((s) => {
+          let isExclude = false;
+          let ext = s;
+          
+          if (ext.startsWith('!')) {
+            isExclude = true;
+            ext = ext.substring(1);
+          }
+
+          if (ext && !ext.startsWith('.')) ext = `.${ext}`;
+          
+          if (ext) {
+            const lowerExt = ext.toLowerCase();
+            if (isExclude) {
+              excluded.add(lowerExt);
+            } else {
+              included.add(lowerExt);
+            }
+          }
+        });
     }
 
-    return exts;
+    return { included, excluded };
   };
 
   const hasAnyFileTypeSelected = useMemo(() => {
     if (fileTypeFilter.includeAllExtensions) return true;
-    const active = getActiveExtensions();
-    return active.size > 0 || fileTypeFilter.includeNoExtKnown;
+    const { included } = getActiveExtensions();
+    // Exclusions alone don't count as a selection, we need something included
+    return included.size > 0 || fileTypeFilter.includeNoExtKnown;
   }, [fileTypeFilter]);
 
   const canSearch = useMemo(
@@ -298,11 +317,7 @@ export const SearchTab = () => {
   };
 
   const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
-    if (fileTypeFilter.includeAllExtensions) {
-      return incoming.filter((r) => Boolean(r.path));
-    }
-
-    const extSet = getActiveExtensions();
+    const { included, excluded } = getActiveExtensions();
 
     return incoming.filter((r) => {
       if (!r.path) return false;
@@ -310,13 +325,20 @@ export const SearchTab = () => {
       const base = baseNameOf(lowerPath);
       const ext = extOf(lowerPath);
 
-      // Extensionless (including dotfiles like .env)
+      // 1. Check EXCLUSIONS first (overrides everything)
+      if (ext && excluded.has(ext)) return false;
+
+      // 2. Check "Include All" (if enabled, we accept anything not excluded above)
+      if (fileTypeFilter.includeAllExtensions) return true;
+
+      // 3. Extensionless (including dotfiles like .env)
       if (!ext) {
         if (!fileTypeFilter.includeNoExtKnown) return false;
         return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
       }
 
-      return extSet.has(ext);
+      // 4. Standard Inclusions
+      return included.has(ext);
     });
   };
 
@@ -635,10 +657,10 @@ export const SearchTab = () => {
                 <Input
                   value={fileTypeFilter.custom}
                   onChange={(e, data) => setFileTypeFilter((prev) => ({ ...prev, custom: data.value }))}
-                  placeholder="e.g. .txt,.log,.proto,.gradle"
+                  placeholder="e.g. .txt, !.md (use ! to exclude)"
                 />
                 <Text size={200} style={{ opacity: 0.7 }}>
-                  Tip: turn on <b>Catch-all</b> if you want to avoid missing anything; otherwise use Config/Mobile for most projects.
+                  Tip: turn on <b>Catch-all</b> if you want to avoid missing anything; otherwise use Config/Mobile for most projects. Use <b>!</b> to exclude specific types.
                 </Text>
               </div>
             </div>
@@ -717,4 +739,3 @@ export const SearchTab = () => {
     </div>
   );
 };
-

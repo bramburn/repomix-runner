@@ -11,10 +11,11 @@ import { indexRepository } from '../../core/indexing/repoIndexer.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
 
 import { RepoEmbeddingOrchestrator } from '../../core/indexing/repoEmbeddingOrchestrator.js';
-import { PineconeService } from '../../core/indexing/pineconeService.js';
+import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
+
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 import type { ExtensionContext } from 'vscode';
-import { Pinecone } from '@pinecone-database/pinecone';
+
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
@@ -23,8 +24,9 @@ import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomix
 import { RepoSearchResult } from '../../core/indexing/llmReranking.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
-const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
-const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo';
+const SECRET_PINECONE = 'repomix.agent.pineconeApiKey'; // still used by factory (pinecone provider)
+const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo'; // still used by factory
+const STATE_VECTORDB_PROVIDER = 'repomix.vectorDb.provider';
 
 enum IndexingState {
   IDLE = 'idle',
@@ -56,71 +58,25 @@ export class IndexingController extends BaseController {
       const repoId = await getRepoId(cwd);
 
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-      const pineconeKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
-
-      // Selected Pinecone index is stored per-repo in globalState
-      const repoConfigs: Record<string, any> =
-        (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
-      const selected = repoConfigs[repoId];
-
-      // Support either:
-      //  - string index name, OR
-      //  - object { name, host, ... } (matches SavePineconeIndexSchema shape)
-      const indexName: string | undefined =
-        typeof selected === 'string' ? selected : selected?.name;
-      const indexHost: string | undefined =
-        typeof selected === 'string' ? undefined : selected?.host;
-
-      if (!googleKey) {
-        this.context.postMessage({ command: 'repoSearchError', error: 'Missing Google Gemini API key' });
-        return;
-      }
-      if (!pineconeKey) {
-        this.context.postMessage({ command: 'repoSearchError', error: 'Missing Pinecone API key' });
-        return;
-      }
-      if (!indexName) {
-        this.context.postMessage({ command: 'repoSearchError', error: 'No Pinecone index selected for this repo' });
+      // Resolve active vector DB adapter (pinecone or qdrant)
+      let adapter;
+      try {
+        ({ adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId));
+      } catch (e) {
+        this.context.postMessage({ command: 'repoSearchError', error: e instanceof Error ? e.message : String(e) });
         return;
       }
 
-      let queriesToSearch: string[] = [q];
-
-      if (useSmartFilter) {
-        // Fixed: Corrected import path (../../) and extension (.js)
-        const { getAllQueriesToSearch } = await import('../../core/indexing/queryExpansion.js');
-        // Type assertion to ensure it's a string array
-        const queries = await getAllQueriesToSearch(q, googleKey);
-        // Fixed: Explicit type for 'q' in filter
-        queriesToSearch = queries.filter((q: string): q is string => typeof q === 'string');
-
-
-        // Tell UI what we’re doing
-        this.context.postMessage({
-          command: 'searchQueryExpanded',
-          queries: queriesToSearch,
-        });
-      }
-
-      // Ensure all queries are strings
-      const validQueries = queriesToSearch.filter((q): q is string => typeof q === 'string');
-      const vectors = await Promise.all(
-        validQueries.map((queryText) => embeddingService.embedText(googleKey, queryText))
-      );
-
-
-      const pinecone = new PineconeService();
       const resList = await Promise.all(
         vectors.map((vector) =>
-          pinecone.queryVectors(
-            pineconeKey,
-            indexName,
-            repoId, // namespace
+          adapter.queryVectors({
+            repoId,
             vector,
-            typeof topK === 'number' ? topK : 50
-          )
+            topK: typeof topK === 'number' ? topK : 50,
+          })
         )
       );
+
 
       // Merge by file path (keep best score per file)
       const bestByPath = new Map<string, { id: string; score: number; path: string; snippet?: string }>();
@@ -211,7 +167,7 @@ export class IndexingController extends BaseController {
 
       // Opportunistically refresh vector count after a search (cheap + useful)
       // (If it fails, it won't break search UX.)
-      void this.handleGetRepoVectorCount(indexName, indexHost, pineconeKey, repoId);
+      void this.handleGetRepoVectorCount(repoId);
     } catch (err) {
       this.context.postMessage({
         command: 'repoSearchError',
@@ -380,6 +336,14 @@ export class IndexingController extends BaseController {
 
     const repoIdStart = Date.now();
     const repoId = await getRepoId(cwd);
+    const provider = (this.extensionContext.globalState.get(STATE_VECTORDB_PROVIDER) as any) ?? 'pinecone';
+    if (provider !== 'pinecone') {
+      vscode.window.showWarningMessage(`Indexing is not yet implemented for ${provider}.`);
+      this.context.postMessage({ command: 'indexRepoStateChange', state: 'idle' });
+      this.indexingState = IndexingState.IDLE;
+      return;
+    }
+
     const repoIdDuration = Date.now() - repoIdStart;
     console.log(`[INDEXING_CONTROLLER] Repo ID generated in ${repoIdDuration}ms: ${repoId}`);
     this.currentRepoId = repoId;
@@ -663,54 +627,23 @@ export class IndexingController extends BaseController {
     }
   }
 
-  private async handleGetRepoVectorCount(
-    preResolvedIndexName?: string,
-    preResolvedIndexHost?: string,
-    preResolvedApiKey?: string,
-    preResolvedRepoId?: string
-  ) {
+  private async handleGetRepoVectorCount(preResolvedRepoId?: string) {
     try {
       const cwd = getCwd();
       const repoId = preResolvedRepoId ?? (await getRepoId(cwd));
 
-      const pineconeKey = preResolvedApiKey ?? (await this.extensionContext.secrets.get(SECRET_PINECONE));
-      if (!pineconeKey) {
-        this.context.postMessage({ command: 'repoVectorCount', count: 0 });
-        return;
-      }
+      const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
 
-      const repoConfigs: Record<string, any> =
-        (this.extensionContext.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any) || {};
-      const selected = repoConfigs[repoId];
-
-      const indexName: string | undefined =
-        preResolvedIndexName ?? (typeof selected === 'string' ? selected : selected?.name);
-      const indexHost: string | undefined =
-        preResolvedIndexHost ?? (typeof selected === 'string' ? undefined : selected?.host);
-
-      if (!indexName) {
-        this.context.postMessage({ command: 'repoVectorCount', count: 0 });
-        return;
-      }
-
-      // Use the official Pinecone SDK to read namespace stats.
-      // Works when host is present (recommended), and also attempts without host.
-      const pc = new Pinecone({ apiKey: pineconeKey });
-      const index = indexHost ? pc.index(indexName, indexHost) : pc.index(indexName);
-
-      const stats = await index.describeIndexStats();
-
-      const count =
-        (stats as any)?.namespaces?.[repoId]?.vectorCount ??
-        (stats as any)?.namespaces?.[repoId]?.recordCount ??
-        0;
+      const stats = await adapter.describeRepoStats?.({ repoId });
+      const count = stats?.vectorCount ?? 0;
 
       this.context.postMessage({ command: 'repoVectorCount', count });
-    } catch (error) {
+    } catch {
       // Don’t hard-fail UI; just show 0 if stats aren’t available.
       this.context.postMessage({ command: 'repoVectorCount', count: 0 });
     }
   }
+
 
   private async handleGetRepoIndexCount() {
 

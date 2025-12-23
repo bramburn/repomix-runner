@@ -117,8 +117,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 }) => {
   const [googleKey, setGoogleKey] = useState('');
   const [pineconeKey, setPineconeKey] = useState('');
+  const [qdrantKey, setQdrantKey] = useState('');
+
   const [googleKeyExists, setGoogleKeyExists] = useState(false);
   const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
+  const [qdrantKeyExists, setQdrantKeyExists] = useState(false);
+
+  const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
+
+  const [qdrantUrl, setQdrantUrl] = useState('');
+  const [qdrantCollection, setQdrantCollection] = useState('');
+
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
 
@@ -157,12 +166,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       const message = event.data;
       switch (message.command) {
         case 'secretStatus':
-          if (message.key === 'googleApiKey') {
-            setGoogleKeyExists(message.exists);
-          } else if (message.key === 'pineconeApiKey') {
-            setPineconeKeyExists(message.exists);
-          }
+          if (message.key === 'googleApiKey') setGoogleKeyExists(message.exists);
+          else if (message.key === 'pineconeApiKey') setPineconeKeyExists(message.exists);
+          else if (message.key === 'qdrantApiKey') setQdrantKeyExists(message.exists);
           break;
+
+        case 'vectorDbProvider':
+          setVectorDbProvider(message.provider ?? 'pinecone');
+          break;
+
+        case 'qdrantConfig':
+          setQdrantUrl(message.url ?? '');
+          setQdrantCollection(message.collection ?? '');
+          break;
+
         case 'updateCopyMode':
           setCopyMode(message.mode);
           break;
@@ -172,8 +189,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     window.addEventListener('message', handler);
     vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
     vscode.postMessage({ command: 'checkSecret', key: 'pineconeApiKey' });
+    vscode.postMessage({ command: 'checkSecret', key: 'qdrantApiKey' });
+
+    vscode.postMessage({ command: 'getVectorDbProvider' });
+    vscode.postMessage({ command: 'getQdrantConfig' });
+
     vscode.postMessage({ command: 'getPineconeIndex' });
     vscode.postMessage({ command: 'getCopyMode' });
+
     return () => window.removeEventListener('message', handler);
   }, []);
 
@@ -186,6 +209,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'saveSecret', key: 'pineconeApiKey', value: pineconeKey.trim() });
     setPineconeKey('');
   };
+
+  const handleSaveQdrantKey = () => {
+    vscode.postMessage({ command: 'saveSecret', key: 'qdrantApiKey', value: qdrantKey.trim() });
+    setQdrantKey('');
+  };
+
+  const handleSaveQdrantConfig = () => {
+    vscode.postMessage({
+      command: 'setQdrantConfig',
+      url: qdrantUrl.trim(),
+      collection: qdrantCollection.trim(),
+    });
+  };
+
+  const handleProviderChange = (_e: any, data: any) => {
+    const p = data.optionValue === 'qdrant' ? 'qdrant' : 'pinecone';
+    setVectorDbProvider(p);
+    vscode.postMessage({ command: 'setVectorDbProvider', provider: p });
+  };
+
 
   const handleIndexSelect = (_e: any, data: any) => {
     const index = pineconeIndexes.find(i => i.name === data.optionValue);
@@ -212,7 +255,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Label weight="semibold">General Settings</Label>
         <div style={{ paddingLeft: '20px' }}>
-           <Switch
+          <Switch
             label={copyMode === 'content' ? "Copy content to clipboard (Text)" : "Copy file to clipboard (File Object)"}
             checked={copyMode === 'content'}
             onChange={handleCopyModeChange}
@@ -224,6 +267,22 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       </div>
 
       <Divider />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Vector DB</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <Label size="small">Active Provider</Label>
+          <Dropdown value={vectorDbProvider} onOptionSelect={handleProviderChange} style={{ width: '240px' }}>
+            <Option value="pinecone">Pinecone</Option>
+            <Option value="qdrant">Qdrant</Option>
+          </Dropdown>
+          <Text size={100} style={{ opacity: 0.7 }}>
+            Choose which vector database Repomix uses for search (and indexing where supported).
+          </Text>
+        </div>
+      </div>
+
+      <Divider />
+
 
       <ConfigSection
         title="Google Gemini API Key"
@@ -272,6 +331,37 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       </ConfigSection>
 
       <Divider />
+
+      <ConfigSection
+        title="Qdrant API Key (optional)"
+        isConfigured={qdrantKeyExists}
+        value={qdrantKey}
+        onChange={setQdrantKey}
+        onSave={handleSaveQdrantKey}
+        placeholder="Enter Qdrant API Key (optional)"
+        description="Used for Qdrant Cloud or secured deployments. Stored securely."
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+          <Label size="small">Qdrant URL</Label>
+          <Input
+            placeholder="https://xxxx.cloud.qdrant.io or http://localhost:6333"
+            value={qdrantUrl}
+            onChange={(_e, data) => setQdrantUrl(data.value)}
+          />
+          <Label size="small">Collection</Label>
+          <Input
+            placeholder="e.g. repomix_vectors"
+            value={qdrantCollection}
+            onChange={(_e, data) => setQdrantCollection(data.value)}
+          />
+          <Button onClick={handleSaveQdrantConfig} disabled={!qdrantUrl.trim() || !qdrantCollection.trim()}>
+            Save Qdrant Settings
+          </Button>
+        </div>
+      </ConfigSection>
+
+      <Divider />
+
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Label weight="semibold">Vector Search (Preview)</Label>
