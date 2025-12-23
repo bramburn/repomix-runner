@@ -1,26 +1,25 @@
 import * as vscode from 'vscode';
+import type { ExtensionContext } from 'vscode';
 import { BaseController } from './BaseController.js';
-import { getRepoId } from '../../utils/repoIdentity.js';
+import { getRepoId } from '../../utils/repoIdentity.js'; //
 
 export class ConfigController extends BaseController {
-  constructor(context: any, private readonly extensionContext: vscode.ExtensionContext) {
+  constructor(context: any, private readonly extensionContext: ExtensionContext) {
     super(context);
   }
 
   async handleMessage(message: any): Promise<boolean> {
     switch (message.command) {
-      case 'checkApiKey':
-        await this.checkApiKey();
-        return true;
-      case 'saveApiKey':
-        await this.handleSaveApiKey(message.apiKey);
-        return true;
+      // --- Secrets Management (New & Correct) ---
       case 'checkSecret':
-        await this.checkSecret(message.key);
+        await this.handleCheckSecret(message.key);
         return true;
       case 'saveSecret':
-        await this.saveSecret(message.key, message.value);
+        await this.handleSaveSecret(message.key, message.value);
         return true;
+
+      // --- Pinecone Index Management (RESTORED) ---
+      // These are required for the Settings Dropdown to work
       case 'fetchPineconeIndexes':
         await this.handleFetchPineconeIndexes(message.apiKey);
         return true;
@@ -30,58 +29,71 @@ export class ConfigController extends BaseController {
       case 'getPineconeIndex':
         await this.handleGetPineconeIndex();
         return true;
+
+      // --- Copy Mode ---
       case 'getCopyMode':
         await this.handleGetCopyMode();
         return true;
       case 'setCopyMode':
         await this.handleSetCopyMode(message.mode);
         return true;
+
+      // --- Vector DB Provider & Qdrant (New) ---
+      case 'getVectorDbProvider':
+        await this.handleGetVectorDbProvider();
+        return true;
+      case 'setVectorDbProvider':
+        await this.handleSetVectorDbProvider(message.provider);
+        return true;
+
+      case 'getQdrantConfig':
+        await this.handleGetQdrantConfig();
+        return true;
+      case 'setQdrantConfig':
+        await this.handleSetQdrantConfig(message.url, message.collection);
+        return true;
     }
     return false;
   }
 
-  private async checkApiKey() {
-    const key = await this.extensionContext.secrets.get('repomix.agent.googleApiKey');
-    this.context.postMessage({ command: 'apiKeyStatus', hasKey: !!key });
-  }
+  // --- Handlers ---
 
-  private async handleSaveApiKey(apiKey: string) {
-    if (apiKey) {
-      await this.extensionContext.secrets.store('repomix.agent.googleApiKey', apiKey);
-      vscode.window.showInformationMessage('API Key saved successfully!');
-      await this.checkApiKey();
+  private async handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey') {
+    try {
+      const storageKey =
+        key === 'googleApiKey'
+          ? 'repomix.agent.googleApiKey'
+          : key === 'pineconeApiKey'
+          ? 'repomix.agent.pineconeApiKey'
+          : 'repomix.agent.qdrantApiKey';
+      const secret = await this.extensionContext.secrets.get(storageKey);
+      this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
+    } catch (err) {
+      console.error('Failed to check secret:', err);
     }
   }
 
-  private async checkSecret(key: 'googleApiKey' | 'pineconeApiKey') {
+  private async handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey', value: string) {
     try {
-      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
-      const value = await this.extensionContext.secrets.get(storageKey);
-
-      this.context.postMessage({
-        command: 'secretStatus',
-        key,
-        exists: !!value
-      });
-    } catch (error) {
-      console.error(`Failed to check secret for ${key}:`, error);
-    }
-  }
-
-  private async saveSecret(key: 'googleApiKey' | 'pineconeApiKey', value: string) {
-    try {
-      const storageKey = key === 'googleApiKey' ? 'repomix.agent.googleApiKey' : 'repomix.agent.pineconeApiKey';
+      const storageKey =
+        key === 'googleApiKey'
+          ? 'repomix.agent.googleApiKey'
+          : key === 'pineconeApiKey'
+          ? 'repomix.agent.pineconeApiKey'
+          : 'repomix.agent.qdrantApiKey';
       await this.extensionContext.secrets.store(storageKey, value);
+      this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
-      // Send updated status back to UI
-      await this.checkSecret(key);
-      vscode.window.showInformationMessage(`${key === 'googleApiKey' ? 'Google' : 'Pinecone'} API Key saved successfully!`);
-    } catch (error) {
-      console.error(`Failed to save secret for ${key}:`, error);
-      vscode.window.showErrorMessage(`Failed to save ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      const label =
+        key === 'googleApiKey' ? 'Google' : key === 'pineconeApiKey' ? 'Pinecone' : 'Qdrant';
+      vscode.window.showInformationMessage(`${label} API Key saved successfully!`);
+    } catch (err) {
+      console.error('Failed to save secret:', err);
+      vscode.window.showErrorMessage('Failed to save API Key.');
     }
   }
 
+  // --- RESTORED: Pinecone Index Logic ---
   private async handleFetchPineconeIndexes(explicitKey?: string) {
     try {
       let apiKey = explicitKey;
@@ -124,10 +136,6 @@ export class ConfigController extends BaseController {
         throw new Error('No workspace folder open');
       }
 
-      if (workspaceFolders.length > 1) {
-        vscode.window.showWarningMessage('Multiple workspace roots detected. Saving Pinecone index for the first root only.');
-      }
-
       const rootPath = workspaceFolders[0].uri.fsPath;
       const repoId = await getRepoId(rootPath);
 
@@ -138,8 +146,8 @@ export class ConfigController extends BaseController {
       repoConfigs[repoId] = index;
 
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndexByRepo', repoConfigs);
-
-      // Also clear the legacy global key to avoid confusion
+      
+      // Clear legacy global key if it exists
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', undefined);
 
     } catch (error) {
@@ -171,36 +179,50 @@ export class ConfigController extends BaseController {
       this.context.postMessage({ command: 'updateSelectedIndex', index: null });
     }
   }
+  // --- END RESTORED ---
 
   private async handleGetCopyMode() {
-    try {
-      const config = vscode.workspace.getConfiguration('repomix.runner');
-      const copyMode = config.get<string>('copyMode') || 'file'; // default to 'file' matching package.json (though package.json says default "content" - checking code)
-      // Actually package.json default is "content". Let's stick to what we read.
-
-      this.context.postMessage({
-        command: 'updateCopyMode',
-        mode: copyMode
-      });
-    } catch (error) {
-      console.error('Failed to get copy mode:', error);
-    }
+    // Note: Switched to globalState as per your diff (was config.get before)
+    const mode = this.extensionContext.globalState.get('repomix.runner.copyMode') ?? 'content';
+    this.context.postMessage({ command: 'updateCopyMode', mode });
   }
 
   private async handleSetCopyMode(mode: string) {
-    try {
-      if (mode !== 'content' && mode !== 'file') {
-        throw new Error(`Invalid copy mode: ${mode}`);
-      }
+    await this.extensionContext.globalState.update('repomix.runner.copyMode', mode);
+    this.context.postMessage({ command: 'updateCopyMode', mode });
+  }
 
-      const config = vscode.workspace.getConfiguration('repomix.runner');
-      await config.update('copyMode', mode, vscode.ConfigurationTarget.Global);
+  private async handleGetVectorDbProvider() {
+    const provider =
+      (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'pinecone';
+    this.context.postMessage({ command: 'vectorDbProvider', provider });
+  }
 
-      // Refresh the UI to confirm
-      await this.handleGetCopyMode();
-    } catch (error) {
-      console.error('Failed to set copy mode:', error);
-      vscode.window.showErrorMessage(`Failed to set copy mode: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  private async handleSetVectorDbProvider(provider: any) {
+    const normalized = provider === 'qdrant' ? 'qdrant' : 'pinecone';
+    await this.extensionContext.globalState.update('repomix.vectorDb.provider', normalized);
+    this.context.postMessage({ command: 'vectorDbProvider', provider: normalized });
+  }
+
+  private async handleGetQdrantConfig() {
+    const url = (this.extensionContext.globalState.get('repomix.qdrant.url') as string) ?? '';
+    const collection =
+      (this.extensionContext.globalState.get('repomix.qdrant.collection') as string) ?? '';
+    this.context.postMessage({ command: 'qdrantConfig', url, collection });
+  }
+
+  private async handleSetQdrantConfig(url: any, collection: any) {
+    const nextUrl = typeof url === 'string' ? url : '';
+    const nextCollection = typeof collection === 'string' ? collection : '';
+
+    await this.extensionContext.globalState.update('repomix.qdrant.url', nextUrl);
+    await this.extensionContext.globalState.update('repomix.qdrant.collection', nextCollection);
+
+    this.context.postMessage({
+      command: 'qdrantConfig',
+      url: nextUrl,
+      collection: nextCollection,
+    });
+    vscode.window.showInformationMessage('Qdrant settings saved.');
   }
 }

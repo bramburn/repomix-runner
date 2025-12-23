@@ -159,7 +159,8 @@ export const SearchTab = () => {
     python: true,
     rust: false,
     csharp: false,
-    java: false,    dart: false,
+    java: false,
+    dart: false,
 
     // common formats
     yaml: true,
@@ -179,114 +180,166 @@ export const SearchTab = () => {
     custom: '',
   });
 
-  const getActiveExtensions = (): { included: Set<string>, excluded: Set<string> } => {
-    const included = new Set<string>();
-    const excluded = new Set<string>();
-
+  const getActiveExtensions = (): {
+    includedExts: Set<string>;
+    includedBases: Set<string>;
+    excludedExts: Set<string>;
+    excludedBases: Set<string>;
+  } => {
+    const includedExts = new Set<string>();
+    const includedBases = new Set<string>();
+    const excludedExts = new Set<string>();
+    const excludedBases = new Set<string>();
+  
+    const addExt = (s: string) => includedExts.add(s);
+    const addBase = (s: string) => includedBases.add(s);
+  
+    const addExcludeExt = (s: string) => excludedExts.add(s);
+    const addExcludeBase = (s: string) => excludedBases.add(s);
+  
     // Languages
-    if (fileTypeFilter.typescript) included.add('.ts'), included.add('.tsx');
-    if (fileTypeFilter.javascript) included.add('.js'), included.add('.jsx');
-    if (fileTypeFilter.python) included.add('.py');
-    if (fileTypeFilter.rust) included.add('.rs');
-    if (fileTypeFilter.csharp) included.add('.cs');
-    if (fileTypeFilter.java) included.add('.java');
-    if (fileTypeFilter.dart) included.add('.dart');
-
+    if (fileTypeFilter.typescript) {
+      addExt('.ts');
+      addExt('.tsx');
+    }
+    if (fileTypeFilter.javascript) {
+      addExt('.js');
+      addExt('.jsx');
+    }
+    if (fileTypeFilter.python) addExt('.py');
+    if (fileTypeFilter.rust) addExt('.rs');
+    if (fileTypeFilter.csharp) addExt('.cs');
+    if (fileTypeFilter.java) addExt('.java');
+    if (fileTypeFilter.dart) addExt('.dart');
+  
     // Formats
-    if (fileTypeFilter.yaml) included.add('.yaml'), included.add('.yml');
-    if (fileTypeFilter.json) included.add('.json'), included.add('.jsonc');
-    if (fileTypeFilter.xml) included.add('.xml');
-    if (fileTypeFilter.markdown) included.add('.md'), included.add('.mdx');
-
+    if (fileTypeFilter.yaml) {
+      addExt('.yaml');
+      addExt('.yml');
+    }
+    if (fileTypeFilter.json) {
+      addExt('.json');
+      addExt('.jsonc');
+    }
+    if (fileTypeFilter.xml) addExt('.xml');
+    if (fileTypeFilter.markdown) {
+      addExt('.md');
+      addExt('.mdx');
+    }
+  
     // Config bucket
     if (fileTypeFilter.config) {
       [
-        '.toml',
-        '.ini',
-        '.cfg',
-        '.conf',
         '.env',
-        '.properties',
-        '.plist',
-        '.xcconfig',
-        '.editorconfig',
+        '.env.local',
+        '.env.development',
+        '.env.production',
         '.gitignore',
         '.gitattributes',
+        '.editorconfig',
         '.npmrc',
-        '.nvmrc',
         '.yarnrc',
-        '.yarnrc.yml',
-        '.eslintrc',
         '.prettierrc',
-        '.babelrc',
+        '.prettierrc.json',
+        '.prettierrc.yaml',
+        '.prettierrc.yml',
+        '.prettierrc.js',
+        '.eslintrc',
+        '.eslintrc.json',
+        '.eslintrc.js',
+        '.eslintignore',
         '.stylelintrc',
+        '.stylelintrc.json',
+        '.stylelintrc.js',
+        '.dockerignore',
+        'dockerfile',
+        'makefile',
         '.lock',
         '.gradle',
         '.kts',
-      ].forEach((e) => included.add(e));
+      ].forEach((e) => {
+        // dotfiles + extensionless config entries should be treated as basenames
+        const lower = e.toLowerCase();
+        // Just add everything in this bucket to bases if it looks like a full filename
+        // Some might be extensions like .kts, but for config bucket exact match is safer
+        // unless it is clearly an extension.
+        if (e.startsWith('.') && e.indexOf('.', 1) === -1) {
+            // It's like .env or .lock - could be ext or base. Treat as base for safety in config bucket.
+            addBase(lower);
+        } else {
+            addBase(lower);
+        }
+      });
+      // Also add extensions that are definitely extensions
+      ['.toml', '.ini', '.cfg', '.conf', '.properties', '.plist', '.xcconfig'].forEach(addExt);
     }
-
+  
     // Mobile bucket (Android/iOS)
     if (fileTypeFilter.mobile) {
       [
-        // Android
         '.kt',
         '.kts',
         '.gradle',
-        '.properties',
-        '.aidl',
-        '.proto',
-        '.xml',
-
-        // iOS
         '.swift',
         '.m',
         '.mm',
         '.h',
         '.plist',
-        '.pbxproj',
         '.xcconfig',
         '.storyboard',
         '.xib',
-      ].forEach((e) => included.add(e));
+      ].forEach((e) => addExt(e));
     }
-
-    // Custom (handles exclusions via !)
+  
+    // Custom (supports exclusions via !, and supports both extensions + basenames)
     if (fileTypeFilter.custom) {
       fileTypeFilter.custom
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-        .forEach((s) => {
+        .forEach((raw) => {
           let isExclude = false;
-          let ext = s;
-          
-          if (ext.startsWith('!')) {
+          let token = raw;
+  
+          if (token.startsWith('!')) {
             isExclude = true;
-            ext = ext.substring(1);
+            token = token.substring(1).trim();
           }
-
-          if (ext && !ext.startsWith('.')) ext = `.${ext}`;
+          if (!token) return;
+  
+          const lower = token.toLowerCase();
+  
+          // If token starts with "." OR contains no "." at all, treat it as a basename (dotfile / extensionless).
+          // If token is like "md" or ".md", treat as extension.
+          // Heuristic: if it has a dot inside (not at start), it's likely a file name (e.g. package.json). 
+          // If it starts with dot and has no other dot, it's extension OR dotfile.
           
-          if (ext) {
-            const lowerExt = ext.toLowerCase();
-            if (isExclude) {
-              excluded.add(lowerExt);
-            } else {
-              included.add(lowerExt);
-            }
+          const looksLikeExt =
+            (lower.startsWith('.') && lower.length <= 5 && lower.indexOf('.', 1) === -1) ||
+            (!lower.startsWith('.') && lower.length <= 4 && lower.indexOf('.') === -1);
+  
+          if (looksLikeExt) {
+            const ext = lower.startsWith('.') ? lower : `.${lower}`;
+            if (isExclude) addExcludeExt(ext);
+            else addExt(ext);
+            return;
           }
+  
+          // Otherwise store as basename (e.g. ".env.local", "dockerfile")
+          const base = lower;
+          if (isExclude) addExcludeBase(base);
+          else addBase(base);
         });
     }
-
-    return { included, excluded };
+  
+    return { includedExts, includedBases, excludedExts, excludedBases };
   };
 
   const hasAnyFileTypeSelected = useMemo(() => {
     if (fileTypeFilter.includeAllExtensions) return true;
-    const { included } = getActiveExtensions();
+    const { includedExts, includedBases } = getActiveExtensions();
     // Exclusions alone don't count as a selection, we need something included
-    return included.size > 0 || fileTypeFilter.includeNoExtKnown;
+    return includedExts.size > 0 || includedBases.size > 0 || fileTypeFilter.includeNoExtKnown;
   }, [fileTypeFilter]);
 
   const canSearch = useMemo(
@@ -317,7 +370,7 @@ export const SearchTab = () => {
   };
 
   const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
-    const { included, excluded } = getActiveExtensions();
+    const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
 
     return incoming.filter((r) => {
       if (!r.path) return false;
@@ -326,19 +379,23 @@ export const SearchTab = () => {
       const ext = extOf(lowerPath);
 
       // 1. Check EXCLUSIONS first (overrides everything)
-      if (ext && excluded.has(ext)) return false;
+      if (excludedBases.has(base)) return false;
+      if (ext && excludedExts.has(ext)) return false;
 
       // 2. Check "Include All" (if enabled, we accept anything not excluded above)
       if (fileTypeFilter.includeAllExtensions) return true;
 
       // 3. Extensionless (including dotfiles like .env)
       if (!ext) {
+        // Explicit custom basenames always count, even if "known extensionless" toggle is off
+        if (includedBases.has(base)) return true;
+
         if (!fileTypeFilter.includeNoExtKnown) return false;
         return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
       }
 
       // 4. Standard Inclusions
-      return included.has(ext);
+      return includedExts.has(ext) || includedBases.has(base);
     });
   };
 

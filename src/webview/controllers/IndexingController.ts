@@ -12,6 +12,7 @@ import { getRepoId } from '../../utils/repoIdentity.js';
 
 import { RepoEmbeddingOrchestrator } from '../../core/indexing/repoEmbeddingOrchestrator.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
+import { PineconeService } from '../../core/indexing/pineconeService.js';
 
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 import type { ExtensionContext } from 'vscode';
@@ -67,6 +68,34 @@ export class IndexingController extends BaseController {
         return;
       }
 
+      // 1. Expand query (Smart Filter)
+      let queriesToSearch: string[] = [q];
+
+      if (useSmartFilter) {
+        if (!googleKey) {
+          this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for smart filter' });
+          return;
+        }
+        const { getAllQueriesToSearch } = await import('../../core/indexing/queryExpansion.js');
+        const queries = await getAllQueriesToSearch(q, googleKey);
+        queriesToSearch = queries.filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0);
+
+        this.context.postMessage({
+          command: 'searchQueryExpanded',
+          queries: queriesToSearch,
+        });
+      }
+
+      // 2. Embed queries to vectors
+      if (!googleKey) {
+        this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for search' });
+        return;
+      }
+      const vectors = await Promise.all(
+        queriesToSearch.map((queryText) => embeddingService.embedText(googleKey, queryText))
+      );
+
+      // 3. Query the Vector DB (adapter abstraction)
       const resList = await Promise.all(
         vectors.map((vector) =>
           adapter.queryVectors({
@@ -110,6 +139,10 @@ export class IndexingController extends BaseController {
 
       // Optional: LLM rerank/filter (only when Smart Filter is enabled)
       if (useSmartFilter && results.length > 0) {
+        if (!googleKey) {
+          this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for smart filter' });
+          return;
+        }
         const { rerankResultsWithLLM } = await import('../../core/indexing/llmReranking.js');
         results = await rerankResultsWithLLM(q, results, googleKey, cwd, {
           maxFiles: 10,
@@ -627,7 +660,8 @@ export class IndexingController extends BaseController {
     }
   }
 
-  private async handleGetRepoVectorCount(preResolvedRepoId?: string) {
+  // Adjusted signature to allow optional params but not required
+  private async handleGetRepoVectorCount(preResolvedRepoId?: string, _unused?: any, _unused2?: any, _unused3?: any) {
     try {
       const cwd = getCwd();
       const repoId = preResolvedRepoId ?? (await getRepoId(cwd));

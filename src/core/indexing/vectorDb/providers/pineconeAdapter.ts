@@ -1,6 +1,6 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import { PineconeService } from '../../pineconeService.js';
-import type { VectorDbAdapter } from '../types.js';
+import type { VectorDbAdapter, VectorDbQueryResult } from '../types.js';
 
 export class PineconeAdapter implements VectorDbAdapter {
   provider: 'pinecone' = 'pinecone';
@@ -14,8 +14,22 @@ export class PineconeAdapter implements VectorDbAdapter {
     await this.svc.upsertVectors(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.vectors);
   }
 
-  async queryVectors(args: { repoId: string; vector: number[]; topK: number }) {
-    return await this.svc.queryVectors(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.vector, args.topK);
+  async queryVectors(args: { repoId: string; vector: number[]; topK: number }): Promise<VectorDbQueryResult> {
+    const response = await this.svc.queryVectors(
+      this.cfg.apiKey,
+      this.cfg.indexName,
+      args.repoId,
+      args.vector,
+      args.topK
+    );
+
+    return {
+      matches: (response.matches || []).map((m) => ({
+        id: m.id,
+        score: m.score ?? 0,
+        metadata: m.metadata,
+      })),
+    };
   }
 
   async deleteRepo(args: { repoId: string }) {
@@ -38,4 +52,3 @@ export class PineconeAdapter implements VectorDbAdapter {
     return { vectorCount: count };
   }
 }
-
