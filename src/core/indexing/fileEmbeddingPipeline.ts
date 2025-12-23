@@ -7,7 +7,7 @@ import { logger } from '../../shared/logger.js';
 import { chunkText, ChunkingConfig } from './textChunker.js';
 import { generateVectorId, computeTextHash } from './vectorIdentity.js';
 import { embeddingService } from './embeddingService.js';
-import { PineconeService, Vector, VectorMetadata } from './pineconeService.js';
+import type { VectorDbAdapter } from './vectorDb/types.js';
 import { retryWithBackoff, batchArray } from './retryService.js';
 import { TreeSitterService } from './treeSitterService.js';
 
@@ -121,17 +121,24 @@ function isBinaryFile(filePath: string): boolean {
   return true;
 }
 
+// Helper type for vector items compatible with VectorDbAdapter
+interface VectorItem {
+  id: string;
+  values: number[];
+  metadata: any;
+}
+
 export interface EmbeddingPipelineConfig {
   chunkingConfig?: ChunkingConfig;
   embeddingBatchSize?: number;
-  pineconeUpsertBatchSize?: number;
+  vectorDbBatchSize?: number;
   maxConcurrentFiles?: number;
   maxConcurrentBatches?: number;
   maxConcurrentUpserts?: number;
 }
 
 export const DEFAULT_EMBEDDING_BATCH_SIZE = 10;
-export const DEFAULT_PINECONE_BATCH_SIZE = 50;
+export const DEFAULT_VECTOR_DB_BATCH_SIZE = 50;
 export const DEFAULT_MAX_CONCURRENT_FILES = 3;
 export const DEFAULT_MAX_CONCURRENT_BATCHES = 2;
 export const DEFAULT_MAX_CONCURRENT_UPSERTS = 2;
@@ -171,9 +178,7 @@ export async function embedAndUpsertFile(
   repoId: string,
   repoRoot: string,
   googleApiKey: string,
-  pineconeApiKey: string,
-  pineconeService: PineconeService,
-  indexName: string,
+  adapter: VectorDbAdapter,
   config: EmbeddingPipelineConfig = {},
   signal?: AbortSignal
 ): Promise<number> {
@@ -246,7 +251,7 @@ export async function embedAndUpsertFile(
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
     const maxConcurrentBatches = config.maxConcurrentBatches ?? DEFAULT_MAX_CONCURRENT_BATCHES;
     const chunkBatches = batchArray(validChunks, embeddingBatchSize);
-    const vectors: Vector[] = [];
+    const vectors: VectorItem[] = [];
     let totalEmbeddingTime = 0;
 
     console.log(
@@ -274,12 +279,12 @@ export async function embedAndUpsertFile(
           const embedDuration = Date.now() - embedStart;
           console.log(`[EMBEDDING_PIPELINE] Embedding batch ${batchIdx + 1} completed in ${embedDuration}ms`);
 
-          const batchVectors: Vector[] = [];
+          const batchVectors: VectorItem[] = [];
           for (let i = 0; i < batch.length; i++) {
             const chunk = batch[i];
             const embedding = embeddings[i];
             const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
-            const metadata: VectorMetadata = {
+            const metadata = {
               repoId,
               filePath: relativeFilePath,
               chunkIndex: chunk.chunkIndex,
@@ -329,7 +334,7 @@ export async function embedAndUpsertFile(
           const chunk = batch[i];
           const embedding = embeddings[i];
           const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
-          const metadata: VectorMetadata = {
+          const metadata = {
             repoId,
             filePath: relativeFilePath,
             chunkIndex: chunk.chunkIndex,
@@ -349,13 +354,13 @@ export async function embedAndUpsertFile(
 
     if (signal?.aborted) throw new Error('Aborted');
 
-    const upsertBatchSize = config.pineconeUpsertBatchSize ?? DEFAULT_PINECONE_BATCH_SIZE;
+    const upsertBatchSize = config.vectorDbBatchSize ?? DEFAULT_VECTOR_DB_BATCH_SIZE;
     const maxConcurrentUpserts = config.maxConcurrentUpserts ?? DEFAULT_MAX_CONCURRENT_UPSERTS;
     const vectorBatches = batchArray(vectors, upsertBatchSize);
     let totalUpsertTime = 0;
 
     console.log(
-      `[EMBEDDING_PIPELINE] Starting Pinecone upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize}, concurrency: ${maxConcurrentUpserts})`
+      `[EMBEDDING_PIPELINE] Starting vector DB upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize}, concurrency: ${maxConcurrentUpserts})`
     );
 
     if (maxConcurrentUpserts > 1 && vectorBatches.length > 1) {
@@ -366,7 +371,7 @@ export async function embedAndUpsertFile(
           const upsertStart = Date.now();
 
           await retryWithBackoff(
-            () => pineconeService.upsertVectors(pineconeApiKey, indexName, repoId, batch),
+            () => adapter.upsertVectors({ repoId, vectors: batch }),
             `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
             { maxRetries: 2 }
           );
@@ -388,7 +393,7 @@ export async function embedAndUpsertFile(
         const upsertStart = Date.now();
 
         await retryWithBackoff(
-          () => pineconeService.upsertVectors(pineconeApiKey, indexName, repoId, batch),
+          () => adapter.upsertVectors({ repoId, vectors: batch }),
           `${context}:upsert[batch ${batchIdx + 1}/${vectorBatches.length}]`,
           { maxRetries: 2 }
         );

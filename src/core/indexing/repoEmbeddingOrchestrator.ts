@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { createHash } from 'crypto';
 import { logger } from '../../shared/logger.js';
 import { DatabaseService } from '../storage/databaseService.js';
-import { PineconeService } from './pineconeService.js';
+import type { VectorDbAdapter } from './vectorDb/types.js';
 import { embedAndUpsertFile, EmbeddingPipelineConfig, DEFAULT_MAX_CONCURRENT_FILES } from './fileEmbeddingPipeline.js';
 
 /**
@@ -20,8 +20,7 @@ function sha256File(absPath: string): string {
  */
 export class RepoEmbeddingOrchestrator {
   constructor(
-    private databaseService: DatabaseService,
-    private pineconeService: PineconeService
+    private databaseService: DatabaseService
   ) { }
 
   /**
@@ -30,8 +29,7 @@ export class RepoEmbeddingOrchestrator {
    * @param repoId Repository identifier
    * @param repoRoot Repository root directory
    * @param googleApiKey Google Gemini API key
-   * @param pineconeApiKey Pinecone API key
-   * @param pineconeIndexName Pinecone index name
+   * @param adapter Vector database adapter
    * @param config Pipeline configuration
    * @param onProgress Optional callback for progress updates
    * @returns Summary of embedding results
@@ -40,8 +38,7 @@ export class RepoEmbeddingOrchestrator {
     repoId: string,
     repoRoot: string,
     googleApiKey: string,
-    pineconeApiKey: string,
-    pineconeIndexName: string,
+    adapter: VectorDbAdapter,
     config: EmbeddingPipelineConfig = {},
     onProgress?: (current: number, total: number, filePath: string) => void,
     signal?: AbortSignal
@@ -97,8 +94,7 @@ export class RepoEmbeddingOrchestrator {
         repoRoot,
         repoId,
         googleApiKey,
-        pineconeApiKey,
-        pineconeIndexName,
+        adapter,
         config,
         maxConcurrentFiles,
         onProgress,
@@ -139,9 +135,7 @@ export class RepoEmbeddingOrchestrator {
             repoId,
             repoRoot,
             googleApiKey,
-            pineconeApiKey,
-            this.pineconeService,
-            pineconeIndexName,
+            adapter,
             config,
             signal
           );
@@ -226,9 +220,9 @@ export class RepoEmbeddingOrchestrator {
    * │ 1. Fetch pending files from database (marked by file watcher)    │
    * │ 2. For each pending file:                                       │
    * │    a. Check if file exists (mark deleted if missing)            │
-   * │    b. DELETE old vectors from Pinecone (prevents duplicates)    │
+   * │    b. DELETE old vectors from vector DB (prevents duplicates)   │
    * │    c. Embed the file content into vectors                        │
-   * │    d. Upsert new vectors to Pinecone                            │
+   * │    d. Upsert new vectors to vector DB                           │
    * │    e. Mark file as 'indexed' with SHA256 hash                   │
    * │ 3. Return summary of results                                    │
    * └─────────────────────────────────────────────────────────────────┘
@@ -241,8 +235,7 @@ export class RepoEmbeddingOrchestrator {
    * @param repoId - Repository identifier (e.g., "git:github.com/user/repo")
    * @param repoRoot - Absolute path to repository root
    * @param googleApiKey - Google Gemini API key for embeddings
-   * @param pineconeApiKey - Pinecone API key for vector operations
-   * @param pineconeIndexName - Name of the Pinecone index
+   * @param adapter - Vector database adapter for vector operations
    * @param config - Pipeline configuration (chunking, concurrency, etc.)
    * @param onProgress - Optional callback for progress updates (current, total, filePath)
    * @param signal - Optional AbortSignal for cancellation (graceful stop)
@@ -254,8 +247,7 @@ export class RepoEmbeddingOrchestrator {
    *   repoId,
    *   repoRoot,
    *   googleApiKey,
-   *   pineconeApiKey,
-   *   'my-index',
+   *   adapter,
    *   { maxConcurrentFiles: 2 } // Conservative for background
    * );
    * console.log(`Re-embedded ${result.successfulFiles} files`);
@@ -264,8 +256,7 @@ export class RepoEmbeddingOrchestrator {
     repoId: string,
     repoRoot: string,
     googleApiKey: string,
-    pineconeApiKey: string,
-    pineconeIndexName: string,
+    adapter: VectorDbAdapter,
     config: EmbeddingPipelineConfig = {},
     onProgress?: (current: number, total: number, filePath: string) => void,
     signal?: AbortSignal
@@ -281,7 +272,7 @@ export class RepoEmbeddingOrchestrator {
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] ===== EMBED PENDING FILES START =====`);
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Repo: ${repoId}`);
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Root: ${repoRoot}`);
-    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Index: ${pineconeIndexName}`);
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Provider: ${adapter.provider}`);
 
     // Step 1: Fetch all files marked as pending in the database
     // These are files that the background watcher detected as changed
@@ -341,15 +332,13 @@ export class RepoEmbeddingOrchestrator {
         }
 
         // 2b. Delete old vectors before re-upserting (CRITICAL - prevents duplicates)
-        // This uses Pinecone's metadata filtering to delete all vectors for this file
+        // This uses the adapter's metadata filtering to delete all vectors for this file
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Deleting old vectors...`);
         const deleteStart = Date.now();
-        await this.pineconeService.deleteVectorsForFile(
-          pineconeApiKey,
-          pineconeIndexName,
+        await adapter.deleteVectorsForFile({
           repoId,
           filePath
-        );
+        });
         const deleteDuration = Date.now() - deleteStart;
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Old vectors deleted (${deleteDuration}ms)`);
 
@@ -361,9 +350,7 @@ export class RepoEmbeddingOrchestrator {
           repoId,
           repoRoot,
           googleApiKey,
-          pineconeApiKey,
-          this.pineconeService,
-          pineconeIndexName,
+          adapter,
           config,
           signal
         );
@@ -440,8 +427,7 @@ export class RepoEmbeddingOrchestrator {
    * @param repoRoot Repository root directory
    * @param repoId Repository identifier
    * @param googleApiKey Google Gemini API key
-   * @param pineconeApiKey Pinecone API key
-   * @param pineconeIndexName Pinecone index name
+   * @param adapter Vector database adapter
    * @param config Pipeline configuration
    * @param concurrency Maximum number of concurrent file operations
    * @param onProgress Optional callback for progress updates
@@ -453,8 +439,7 @@ export class RepoEmbeddingOrchestrator {
     repoRoot: string,
     repoId: string,
     googleApiKey: string,
-    pineconeApiKey: string,
-    pineconeIndexName: string,
+    adapter: VectorDbAdapter,
     config: EmbeddingPipelineConfig,
     concurrency: number,
     onProgress?: (current: number, total: number, filePath: string) => void,
@@ -463,7 +448,6 @@ export class RepoEmbeddingOrchestrator {
     const results: Array<{ success: boolean; filePath: string; vectors: number; time: number; error?: string }> = new Array(files.length);
     let currentIndex = 0;
     let completedCount = 0;
-    const pineconeService = this.pineconeService;
 
 
     const processNext = async (): Promise<void> => {
@@ -492,9 +476,7 @@ export class RepoEmbeddingOrchestrator {
             repoId,
             repoRoot,
             googleApiKey,
-            pineconeApiKey,
-            pineconeService,
-            pineconeIndexName,
+            adapter,
             config,
             signal
           );

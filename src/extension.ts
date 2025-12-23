@@ -30,7 +30,8 @@ import { AgentRunHistory } from './core/storage/databaseService.js';
 import { getRepoId } from './utils/repoIdentity.js';
 import { RepoIndexMonitor, toRelativePosix } from './core/indexing/repoIndexMonitor.js';
 import { RepoEmbeddingOrchestrator } from './core/indexing/repoEmbeddingOrchestrator.js';
-import { PineconeService } from './core/indexing/pineconeService.js';
+import { getVectorDbAdapterForRepo } from './core/indexing/vectorDb/factory.js';
+import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 
 // Import ignore package for .gitignore parsing
@@ -89,27 +90,28 @@ export async function activate(context: vscode.ExtensionContext) {
     const repoId = await getRepoId(repoRoot);
     console.log(`[BackgroundMonitor] Repository ID: ${repoId}`);
 
-    // Get API keys from secure storage
+    // Get Google API key from secure storage
     console.log(`[BackgroundMonitor] Fetching API keys from secure storage...`);
     const googleApiKey = await context.secrets.get(SECRET_GOOGLE_GEMINI) ?? '';
-    const pineconeApiKey = await context.secrets.get(SECRET_PINECONE) ?? '';
 
     const hasGoogleKey = !!googleApiKey;
-    const hasPineconeKey = !!pineconeApiKey;
     console.log(`[BackgroundMonitor]   Google API key: ${hasGoogleKey ? '✓ Found' : '✗ Missing'}`);
-    console.log(`[BackgroundMonitor]   Pinecone API key: ${hasPineconeKey ? '✓ Found' : '✗ Missing'}`);
 
-    // Get selected Pinecone index for this repository
-    const repoConfigs: Record<string, any> = context.globalState.get(STATE_SELECTED_PINECONE_INDEX) as any || {};
-    const selected = repoConfigs[repoId];
-    const pineconeIndexName = typeof selected === 'string' ? selected : selected?.name ?? '';
+    // [CHANGE] Resolve Vector DB Adapter dynamically
+    let adapter: VectorDbAdapter | undefined;
+    let adapterError: string | undefined;
 
-    const hasIndexName = !!pineconeIndexName;
-    console.log(`[BackgroundMonitor]   Pinecone index: ${hasIndexName ? `"${pineconeIndexName}"` : '✗ Not selected'}`);
+    try {
+      const result = await getVectorDbAdapterForRepo(context, repoId);
+      adapter = result.adapter;
+      console.log(`[BackgroundMonitor] ✓ Vector DB Provider: ${result.provider}`);
+    } catch (e) {
+      adapterError = e instanceof Error ? e.message : String(e);
+      console.log(`[BackgroundMonitor] ✗ Vector DB Configuration missing: ${adapterError}`);
+    }
 
-    // Create services for incremental embedding
-    const pineconeService = new PineconeService();
-    const embeddingOrchestrator = new RepoEmbeddingOrchestrator(databaseService, pineconeService);
+    // Create orchestrator for incremental embedding
+    const embeddingOrchestrator = new RepoEmbeddingOrchestrator(databaseService);
 
     // ========================================================================
     // SETUP GITIGNORE-BASED FILTERING
@@ -200,7 +202,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // ========================================================================
 
     // Only set up monitoring if we have all required configuration
-    if (googleApiKey && pineconeApiKey && pineconeIndexName) {
+    if (googleApiKey && adapter) {
       console.log(`[BackgroundMonitor] ✓ All requirements met - setting up file watcher`);
 
       // Create the monitor with 2.5 second debounce
@@ -216,8 +218,7 @@ export async function activate(context: vscode.ExtensionContext) {
             repoId,
             repoRoot,
             googleApiKey,
-            pineconeApiKey,
-            pineconeIndexName,
+            adapter, // [CHANGE] Pass adapter instead of pineconeApiKey + indexName
             { maxConcurrentFiles: 2 }, // Conservative concurrency for background processing
             undefined, // onProgress callback (not needed for background)
             undefined  // no AbortSignal (background runs until complete)
@@ -289,10 +290,9 @@ export async function activate(context: vscode.ExtensionContext) {
       // Missing configuration - skip monitoring (non-fatal)
       console.log(`[BackgroundMonitor] ✗ Skipping background monitor - missing requirements:`);
       console.log(`[BackgroundMonitor]   - Google API key: ${hasGoogleKey ? '✓' : '✗ Required'}`);
-      console.log(`[BackgroundMonitor]   - Pinecone API key: ${hasPineconeKey ? '✓' : '✗ Required'}`);
-      console.log(`[BackgroundMonitor]   - Pinecone index: ${hasIndexName ? '✓' : '✗ Required'}`);
-      console.log(`[BackgroundMonitor] To enable: Configure API keys and select a Pinecone index in Settings`);
-      logger.both.info('[BackgroundMonitor] Skipping (missing API keys or index configuration)');
+      console.log(`[BackgroundMonitor]   - Vector DB: ${adapter ? '✓ Configured' : '✗ ' + adapterError}`);
+      console.log(`[BackgroundMonitor] To enable: Configure API keys and vector database settings in Settings`);
+      logger.both.info('[BackgroundMonitor] Skipping (missing API keys or vector database configuration)');
     }
   } catch (error) {
     // Non-fatal error: log it but continue extension activation
