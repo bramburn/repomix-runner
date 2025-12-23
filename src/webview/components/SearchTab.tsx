@@ -245,6 +245,15 @@ export const SearchTab = () => {
     });
   };
 
+  const handleCopySearchResultsMarkdown = () => {
+    if (dedupedResultPaths.length === 0) return;
+
+    vscode.postMessage({
+      command: 'copySearchResultsMarkdown',
+      files: dedupedResultPaths,
+    });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       <Label weight="semibold">Repository Indexing</Label>
@@ -408,6 +417,16 @@ export const SearchTab = () => {
           onClick={handleCopySearchOutput}
         >
           Copy
+        </Button>
+
+        <Button
+          appearance="secondary"
+          icon={<CopyRegular />}
+          style={{ width: '100%' }}
+          disabled={dedupedResultPaths.length === 0}
+          onClick={handleCopySearchResultsMarkdown}
+        >
+          Copy as Markdown
         </Button>
 
         {dedupedResultPaths.length > 0 && (

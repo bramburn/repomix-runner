@@ -235,6 +235,11 @@ export const CopySearchOutputSchema = z.object({
   outputPath: z.string(),
 });
 
+export const CopySearchResultsMarkdownSchema = z.object({
+  command: z.literal('copySearchResultsMarkdown'),
+  files: z.array(z.string().min(1)).min(1),
+});
+
 // --- UI Notification Schemas ---
 
 export const AgentStateChangeSchema = z.object({
@@ -307,6 +312,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GenerateRepomixFromSearchSchema,
   GetRepoVectorCountSchema,
   CopySearchOutputSchema,
+  CopySearchResultsMarkdownSchema,
   // New Clipboard Schemas
   GetCopyModeSchema,
   SetCopyModeSchema,

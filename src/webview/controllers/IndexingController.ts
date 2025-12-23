@@ -17,6 +17,7 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
+import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
 
 
 
@@ -189,6 +190,36 @@ export class IndexingController extends BaseController {
     }
   }
 
+  private async handleCopySearchResultsMarkdown(files: string[]) {
+    // De-dupe file paths (defensive - webview should already de-dupe)
+    const cleaned = Array.from(
+      new Set((files ?? []).map((f) => (f ?? '').trim()).filter(Boolean))
+    );
+
+    if (cleaned.length === 0) {
+      vscode.window.showWarningMessage('No search result files to copy.');
+      return;
+    }
+
+    const cwd = getCwd();
+
+    console.log(`[INDEXING_CONTROLLER] Copying ${cleaned.length} search results as markdown`);
+    console.log(`[INDEXING_CONTROLLER] Files:`, cleaned);
+
+    try {
+      // Ask Rust binary to generate temp .md + put it on binary clipboard
+      await runRepomixClipboardGenerateMarkdown(this.extensionContext, cwd, cleaned);
+
+      vscode.window.showInformationMessage(
+        `Copied ${cleaned.length} file${cleaned.length === 1 ? '' : 's'} as Markdown to clipboard.`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[INDEXING_CONTROLLER] Failed to copy as markdown:', err);
+      vscode.window.showErrorMessage(`Failed to copy as markdown: ${msg}`);
+    }
+  }
+
 
 
   async handleMessage(message: any): Promise<boolean> {
@@ -203,6 +234,10 @@ export class IndexingController extends BaseController {
 
       case 'copySearchOutput':
         await this.handleCopySearchOutput(message.outputPath);
+        return true;
+
+      case 'copySearchResultsMarkdown':
+        await this.handleCopySearchResultsMarkdown(message.files);
         return true;
 
       case 'indexRepo':
