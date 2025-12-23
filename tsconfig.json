@@ -10,6 +10,8 @@
     "jsx": "react-jsx",
     "sourceMap": true,
     "rootDir": "src",
+    "noEmit": true,
+    "noEmitOnError": true,
     /* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
     "skipLibCheck": true,
     "strict": true, /* enable all strict type-checking options */

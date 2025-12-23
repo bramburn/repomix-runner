@@ -5,42 +5,125 @@ import {
   Spinner,
   Text,
   Input,
-  Card,
-  CardHeader,
-  CardPreview,
-  CardFooter,
+  Accordion,
+  AccordionItem,
+  AccordionHeader,
+  AccordionPanel,
 } from '@fluentui/react-components';
-import { DeleteRegular, DatabaseSearchRegular, SearchRegular, OpenRegular, CopyRegular } from '@fluentui/react-icons';
+import {
+  DeleteRegular,
+  DatabaseSearchRegular,
+  SearchRegular,
+  CopyRegular,
+} from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 
 type RepoSearchResult = {
   id: string;
   score: number;
   path?: string;
-  // snippet?: string;
-  // you can extend metadata as needed
 };
 
 type FileTypeFilterState = {
+  // Languages
   typescript: boolean;
   javascript: boolean;
   python: boolean;
   rust: boolean;
   csharp: boolean;
   java: boolean;
-  dart: boolean;      // Added Dart
-  yaml: boolean;      // Added YAML
-  excludeMd: boolean; // Added Exclude Markdown option
-  custom: string;     // comma-separated extensions, e.g. ".md,.json"
+  dart: boolean;
+
+  // Common formats
+  yaml: boolean;
+  json: boolean;
+  xml: boolean;
+  markdown: boolean;
+
+  // Buckets
+  config: boolean; // .env/.toml/.ini/.properties/.plist/.xcconfig/etc.
+  mobile: boolean; // Android/iOS project files (.kt/.kts/.gradle/.swift/.m/.mm/.storyboard/...)
+
+  // Catch-alls
+  includeNoExtKnown: boolean; // Dockerfile, Makefile, .gitignore, Podfile, etc.
+  includeAllExtensions: boolean; // show everything (UI filter bypass)
+
+  // Custom
+  custom: string; // comma-separated extensions, e.g. ".md,.json"
 };
+
+const KNOWN_EXTENSIONLESS_TEXT_FILES = new Set(
+  [
+    // Common
+    'readme',
+    'license',
+    'changelog',
+
+    // Build / tooling
+    'makefile',
+    'dockerfile',
+    'podfile',
+    'gemfile',
+    'fastfile',
+    'appfile',
+    'brewfile',
+
+    // Node / JS
+    '.npmrc',
+    '.nvmrc',
+    '.yarnrc',
+    '.yarnrc.yml',
+    '.pnp.cjs',
+
+    // Git
+    '.gitignore',
+    '.gitattributes',
+    '.gitmodules',
+
+    // Editors / lint
+    '.editorconfig',
+    '.prettierrc',
+    '.prettierignore',
+    '.eslintrc',
+    '.eslintignore',
+    '.stylelintrc',
+
+    // Env
+    '.env',
+    '.env.local',
+    '.env.development',
+    '.env.production',
+    '.env.test',
+
+    // CI
+    '.github', // directory-like, but leave here in case results include it
+  ].map((s) => s.toLowerCase())
+);
+
+function extOf(p: string): string {
+  const lower = p.toLowerCase();
+  const lastSlash = Math.max(lower.lastIndexOf('/'), lower.lastIndexOf('\\'));
+  const base = lastSlash >= 0 ? lower.slice(lastSlash + 1) : lower;
+
+  // handle dotfiles like ".env" / ".gitignore" where extname would be ""
+  if (base.startsWith('.') && base.indexOf('.', 1) === -1) return '';
+
+  const lastDot = base.lastIndexOf('.');
+  if (lastDot === -1) return '';
+  return base.slice(lastDot);
+}
+
+function baseNameOf(p: string): string {
+  const lower = p.toLowerCase();
+  const lastSlash = Math.max(lower.lastIndexOf('/'), lower.lastIndexOf('\\'));
+  return lastSlash >= 0 ? lower.slice(lastSlash + 1) : lower;
+}
 
 export const SearchTab = () => {
   const [fileCount, setFileCount] = useState<number | null>(null);
   const [vectorCount, setVectorCount] = useState<number | null>(null);
 
   const [isIndexing, setIsIndexing] = useState(false);
-
-  // New state for pause/resume/stop functionality
   const [indexingState, setIndexingState] = useState<'idle' | 'running' | 'paused' | 'stopping'>('idle');
   const [pausedProgress, setPausedProgress] = useState<{ completed: number; total: number } | null>(null);
 
@@ -68,46 +151,123 @@ export const SearchTab = () => {
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
+
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>({
+    // languages
     typescript: true,
     javascript: true,
     python: true,
     rust: false,
     csharp: false,
     java: false,
-    dart: false,     // Default false
-    yaml: false,     // Default false
-    excludeMd: false,// Default false (markdown included unless filtered out later or not in other sets if applicable)
+    dart: false,
+
+    // common formats
+    yaml: true,
+    json: true,
+    xml: false,
+    markdown: true,
+
+    // buckets
+    config: true,
+    mobile: true,
+
+    // catch-alls
+    includeNoExtKnown: true,
+    includeAllExtensions: false,
+
+    // custom
     custom: '',
   });
 
-  const getActiveExtensions = (): string[] => {
-    const exts: string[] = [];
+  const getActiveExtensions = (): Set<string> => {
+    const exts = new Set<string>();
 
-    if (fileTypeFilter.typescript) exts.push('.ts', '.tsx');
-    if (fileTypeFilter.javascript) exts.push('.js', '.jsx');
-    if (fileTypeFilter.python) exts.push('.py');
-    if (fileTypeFilter.rust) exts.push('.rs');
-    if (fileTypeFilter.csharp) exts.push('.cs');
-    if (fileTypeFilter.java) exts.push('.java');
-    if (fileTypeFilter.dart) exts.push('.dart');
-    if (fileTypeFilter.yaml) exts.push('.yaml', '.yml');
+    // Languages
+    if (fileTypeFilter.typescript) exts.add('.ts'), exts.add('.tsx');
+    if (fileTypeFilter.javascript) exts.add('.js'), exts.add('.jsx');
+    if (fileTypeFilter.python) exts.add('.py');
+    if (fileTypeFilter.rust) exts.add('.rs');
+    if (fileTypeFilter.csharp) exts.add('.cs');
+    if (fileTypeFilter.java) exts.add('.java');
+    if (fileTypeFilter.dart) exts.add('.dart');
 
+    // Formats
+    if (fileTypeFilter.yaml) exts.add('.yaml'), exts.add('.yml');
+    if (fileTypeFilter.json) exts.add('.json'), exts.add('.jsonc');
+    if (fileTypeFilter.xml) exts.add('.xml');
+    if (fileTypeFilter.markdown) exts.add('.md'), exts.add('.mdx');
+
+    // Config bucket
+    if (fileTypeFilter.config) {
+      [
+        '.toml',
+        '.ini',
+        '.cfg',
+        '.conf',
+        '.env',
+        '.properties',
+        '.plist',
+        '.xcconfig',
+        '.editorconfig',
+        '.gitignore',
+        '.gitattributes',
+        '.npmrc',
+        '.nvmrc',
+        '.yarnrc',
+        '.yarnrc.yml',
+        '.eslintrc',
+        '.prettierrc',
+        '.babelrc',
+        '.stylelintrc',
+        '.lock',
+        '.gradle',
+        '.kts',
+      ].forEach((e) => exts.add(e));
+    }
+
+    // Mobile bucket (Android/iOS)
+    if (fileTypeFilter.mobile) {
+      [
+        // Android
+        '.kt',
+        '.kts',
+        '.gradle',
+        '.properties',
+        '.aidl',
+        '.proto',
+        '.xml',
+
+        // iOS
+        '.swift',
+        '.m',
+        '.mm',
+        '.h',
+        '.plist',
+        '.pbxproj',
+        '.xcconfig',
+        '.storyboard',
+        '.xib',
+      ].forEach((e) => exts.add(e));
+    }
+
+    // Custom
     if (fileTypeFilter.custom) {
-      const customExts = fileTypeFilter.custom
+      fileTypeFilter.custom
         .split(',')
         .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((s) => (s.startsWith('.') ? s : `.${s}`));
-      exts.push(...customExts);
+        .filter(Boolean)
+        .map((s) => (s.startsWith('.') ? s : `.${s}`))
+        .forEach((e) => exts.add(e.toLowerCase()));
     }
 
     return exts;
   };
 
   const hasAnyFileTypeSelected = useMemo(() => {
+    if (fileTypeFilter.includeAllExtensions) return true;
     const active = getActiveExtensions();
-    return active.length > 0;
+    return active.size > 0 || fileTypeFilter.includeNoExtKnown;
   }, [fileTypeFilter]);
 
   const canSearch = useMemo(
@@ -115,7 +275,6 @@ export const SearchTab = () => {
     [query, isSearching, hasAnyFileTypeSelected]
   );
 
-  // De-dupe file paths from search results (stable order)
   const dedupedResultPaths = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -131,43 +290,32 @@ export const SearchTab = () => {
     return out;
   }, [results]);
 
-  const canGenerate = useMemo(
-    () => dedupedResultPaths.length > 0 && !isSearching,
-    [dedupedResultPaths, isSearching]
-  );
+  const canGenerate = useMemo(() => dedupedResultPaths.length > 0 && !isSearching, [dedupedResultPaths, isSearching]);
 
   const handleGenerate = () => {
     if (dedupedResultPaths.length === 0) return;
-
-    vscode.postMessage({
-      command: 'generateRepomixFromSearch',
-      files: dedupedResultPaths,
-    });
+    vscode.postMessage({ command: 'generateRepomixFromSearch', files: dedupedResultPaths });
   };
 
   const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
-    const activeExts = getActiveExtensions();
+    if (fileTypeFilter.includeAllExtensions) {
+      return incoming.filter((r) => Boolean(r.path));
+    }
+
+    const extSet = getActiveExtensions();
 
     return incoming.filter((r) => {
       if (!r.path) return false;
       const lowerPath = r.path.toLowerCase();
-      
-      // 1. Handle Exclusions First
-      if (fileTypeFilter.excludeMd && lowerPath.endsWith('.md')) {
-        return false;
+      const base = baseNameOf(lowerPath);
+      const ext = extOf(lowerPath);
+
+      // Extensionless (including dotfiles like .env)
+      if (!ext) {
+        if (!fileTypeFilter.includeNoExtKnown) return false;
+        return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
       }
 
-      // 2. If no positive filters are selected, assume "all" (except excluded)
-      if (activeExts.length === 0) {
-          return true;
-      }
-      
-      // 3. Check specific extensions
-      const lastDot = r.path.lastIndexOf('.');
-      if (lastDot === -1) return false; // files without extensions usually filtered unless we want to keep them? defaulting to false for strictness
-      const ext = r.path.slice(lastDot).toLowerCase();
-      
-      const extSet = new Set(activeExts.map((e) => e.toLowerCase()));
       return extSet.has(ext);
     });
   };
@@ -182,11 +330,7 @@ export const SearchTab = () => {
           break;
 
         case 'indexRepoProgress':
-          setIndexProgress({
-            current: message.current,
-            total: message.total,
-            filePath: message.filePath,
-          });
+          setIndexProgress({ current: message.current, total: message.total, filePath: message.filePath });
           break;
 
         case 'indexRepoComplete':
@@ -201,16 +345,11 @@ export const SearchTab = () => {
             failedFiles: message.failedFiles,
             durationMs: message.durationMs,
           });
-
-          // reflect local DB count immediately
           setFileCount(message.filesIndexed);
-
-          // refresh Pinecone vector count after indexing:
           vscode.postMessage({ command: 'getRepoVectorCount' });
           break;
 
         case 'repoIndexComplete':
-          // Backward compatible path (older controller behavior)
           setFileCount(message.count);
           setIsIndexing(false);
           setIndexProgress(null);
@@ -229,9 +368,7 @@ export const SearchTab = () => {
 
         case 'indexRepoStateChange':
           setIndexingState(message.state);
-          if (message.progress) {
-            setIndexProgress(message.progress);
-          }
+          if (message.progress) setIndexProgress(message.progress);
           break;
 
         case 'indexRepoPaused':
@@ -250,20 +387,19 @@ export const SearchTab = () => {
         case 'repoVectorCount':
           setVectorCount(message.count);
           break;
+
         case 'searchQueryExpanded':
           setExpandedQueries(Array.isArray(message.queries) ? message.queries : []);
           break;
+
         case 'repoSearchResults': {
           setIsSearching(false);
           setSearchError(null);
-          const rawResults: RepoSearchResult[] = Array.isArray(message.results)
-            ? message.results
-            : [];
+          const rawResults: RepoSearchResult[] = Array.isArray(message.results) ? message.results : [];
           const filteredResults = filterByFileType(rawResults);
           setResults(filteredResults);
           break;
         }
-
 
         case 'repoSearchError':
           setIsSearching(false);
@@ -278,23 +414,11 @@ export const SearchTab = () => {
 
     window.addEventListener('message', handleMessage);
 
-    // Existing count:
     vscode.postMessage({ command: 'getRepoIndexCount' });
-    // Optional pinecone count:
     vscode.postMessage({ command: 'getRepoVectorCount' });
 
     return () => window.removeEventListener('message', handleMessage);
-  }, [fileTypeFilter]); // Re-subscribe if filter logic inside effect changes (though here logic is outside, but good practice if we move filterByFileType inside)
-
-  // Re-run filter when fileTypeFilter changes locally if we already have results
-  // Note: The main filtering happens on receiving 'repoSearchResults', but if user toggles checkbox AFTER search,
-  // we might want to re-filter the *original* results. However, we only store 'results' which are already filtered.
-  // To do this properly without re-searching, we'd need to store 'rawResults'.
-  // For now, let's keep it simple: The filter applies to NEW searches or we could just rely on the user searching again.
-  // actually, let's just let the user search again or we can implement client-side refiltering if we stored raw results.
-  // Given the current structure, the user will need to hit "Search" again to apply new filters unless we change the architecture.
-  // Wait, the user asked to "add further file types".
-  // Let's Just keep the current flow: User selects types -> Hits Search.
+  }, [fileTypeFilter]);
 
   const handleIndex = () => {
     setIsIndexing(true);
@@ -304,9 +428,7 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'indexRepo' });
   };
 
-  const handlePause = () => {
-    vscode.postMessage({ command: 'pauseRepoIndexing' });
-  };
+  const handlePause = () => vscode.postMessage({ command: 'pauseRepoIndexing' });
 
   const handleResume = () => {
     setIsIndexing(true);
@@ -314,13 +436,9 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'resumeRepoIndexing' });
   };
 
-  const handleStop = () => {
-    vscode.postMessage({ command: 'stopRepoIndexing' });
-  };
+  const handleStop = () => vscode.postMessage({ command: 'stopRepoIndexing' });
 
-  const handleDestroy = () => {
-    vscode.postMessage({ command: 'deleteRepoIndex' });
-  };
+  const handleDestroy = () => vscode.postMessage({ command: 'deleteRepoIndex' });
 
   const handleSearch = () => {
     const q = query.trim();
@@ -339,35 +457,20 @@ export const SearchTab = () => {
     });
   };
 
-
-  const openFile = (path?: string) => {
-    if (!path) return;
-    vscode.postMessage({ command: 'openFile', path });
-  };
-
   const handleCopySearchOutput = () => {
     if (!lastSearchOutputPath) return;
-    vscode.postMessage({
-      command: 'copySearchOutput',
-      outputPath: lastSearchOutputPath,
-    });
+    vscode.postMessage({ command: 'copySearchOutput', outputPath: lastSearchOutputPath });
   };
 
   const handleCopySearchResultsMarkdown = () => {
     if (dedupedResultPaths.length === 0) return;
-
-    vscode.postMessage({
-      command: 'copySearchResultsMarkdown',
-      files: dedupedResultPaths,
-    });
+    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: dedupedResultPaths });
   };
 
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       <Label weight="semibold">Repository Indexing</Label>
 
-
-      {/* Indexing card (existing) */}
       <div
         style={{
           padding: '15px',
@@ -403,9 +506,7 @@ export const SearchTab = () => {
                 Indexing progress: <b>{indexProgress.current}</b> / {indexProgress.total}
               </Text>
               <br />
-              <Text size={200} style={{ opacity: 0.6, whiteSpace: 'pre-wrap' }}>
-                {indexProgress.filePath}
-              </Text>
+              <Text size={200} style={{ opacity: 0.6, whiteSpace: 'pre-wrap' }}>{indexProgress.filePath}</Text>
             </div>
           )}
 
@@ -424,24 +525,16 @@ export const SearchTab = () => {
               </Text>
             </div>
           )}
-
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {/* Show Index Repository button when idle or paused */}
         {indexingState === 'idle' && (
-          <Button
-            appearance="primary"
-            onClick={handleIndex}
-            disabled={isIndexing}
-            icon={isIndexing ? <Spinner size="tiny" /> : undefined}
-          >
+          <Button appearance="primary" onClick={handleIndex} disabled={isIndexing} icon={isIndexing ? <Spinner size="tiny" /> : undefined}>
             {isIndexing ? 'Indexing…' : 'Index Repository'}
           </Button>
         )}
 
-        {/* Show Pause/Stop buttons when running */}
         {indexingState === 'running' && (
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button appearance="secondary" onClick={handlePause}>Pause</Button>
@@ -449,7 +542,6 @@ export const SearchTab = () => {
           </div>
         )}
 
-        {/* Show Resume/Stop buttons when paused */}
         {indexingState === 'paused' && (
           <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', alignItems: 'flex-start' }}>
             {pausedProgress && (
@@ -464,13 +556,10 @@ export const SearchTab = () => {
           </div>
         )}
 
-        {/* Show stopping indicator */}
         {indexingState === 'stopping' && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <Spinner size="tiny" />
-            <Text size={200} style={{ opacity: 0.7 }}>
-              Stopping...
-            </Text>
+            <Text size={200} style={{ opacity: 0.7 }}>Stopping...</Text>
           </div>
         )}
 
@@ -484,75 +573,79 @@ export const SearchTab = () => {
         </Button>
       </div>
 
-      {/* NEW: Search */}
       <Label weight="semibold" style={{ marginTop: '10px' }}>Vector Search</Label>
-      {/* File type filters */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: '6px',
-          marginTop: '6px',
-          marginBottom: '4px',
-        }}
-      >
-        {[
-          { key: 'typescript', label: 'TypeScript (.ts/.tsx)' },
-          { key: 'javascript', label: 'JavaScript (.js/.jsx)' },
-          { key: 'python', label: 'Python (.py)' },
-          { key: 'rust', label: 'Rust (.rs)' },
-          { key: 'csharp', label: 'C# (.cs)' },
-          { key: 'java', label: 'Java (.java)' },
-          { key: 'dart', label: 'Dart (.dart)' },  // Added UI
-          { key: 'yaml', label: 'YAML (.yaml/.yml)' }, // Added UI
-        ].map(({ key, label }) => (
-          <label
-            key={key}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '11px',
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
-              onChange={(e) =>
-                setFileTypeFilter((prev) => ({
-                  ...prev,
-                  [key]: e.target.checked,
-                }))
-              }
-            />
-            <span>{label}</span>
-          </label>
-        ))}
-        {/* Separate exclude markdown option */}
-        <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              color: 'var(--vscode-errorForeground)'
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={fileTypeFilter.excludeMd}
-              onChange={(e) =>
-                setFileTypeFilter((prev) => ({
-                  ...prev,
-                  excludeMd: e.target.checked,
-                }))
-              }
-            />
-            <span>Exclude .md</span>
-          </label>
-      </div>
+
+      {/* Collapsible accordion for file filters */}
+      <Accordion collapsible defaultOpenItems={['filters']}>
+        <AccordionItem value="filters">
+          <AccordionHeader>File Filters</AccordionHeader>
+          <AccordionPanel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: '6px',
+                }}
+              >
+                {[
+                  { key: 'typescript', label: 'TypeScript (.ts/.tsx)' },
+                  { key: 'javascript', label: 'JavaScript (.js/.jsx)' },
+                  { key: 'python', label: 'Python (.py)' },
+                  { key: 'rust', label: 'Rust (.rs)' },
+                  { key: 'csharp', label: 'C# (.cs)' },
+                  { key: 'java', label: 'Java (.java)' },
+                  { key: 'dart', label: 'Dart (.dart)' },
+                  { key: 'yaml', label: 'YAML (.yaml/.yml)' },
+                  { key: 'json', label: 'JSON (.json/.jsonc)' },
+                  { key: 'xml', label: 'XML (.xml)' },
+                  { key: 'markdown', label: 'Markdown (.md/.mdx)' },
+                  { key: 'config', label: 'Config files (.env/.toml/.ini/...)' },
+                  { key: 'mobile', label: 'Android/iOS (.kt/.gradle/.swift/...)' },
+                  { key: 'includeNoExtKnown', label: 'Known extensionless (Dockerfile, .gitignore, ...)' },
+                  { key: 'includeAllExtensions', label: 'Catch-all: include all extensions' },
+                ].map(({ key, label }) => (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
+                      onChange={(e) =>
+                        setFileTypeFilter((prev) => ({
+                          ...prev,
+                          [key]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Label size="small">Custom extensions (comma-separated)</Label>
+                <Input
+                  value={fileTypeFilter.custom}
+                  onChange={(e, data) => setFileTypeFilter((prev) => ({ ...prev, custom: data.value }))}
+                  placeholder="e.g. .txt,.log,.proto,.gradle"
+                />
+                <Text size={200} style={{ opacity: 0.7 }}>
+                  Tip: turn on <b>Catch-all</b> if you want to avoid missing anything; otherwise use Config/Mobile for most projects.
+                </Text>
+              </div>
+            </div>
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
         <Input
           value={query}
@@ -584,11 +677,8 @@ export const SearchTab = () => {
         </div>
 
         {smartFilterEnabled && expandedQueries.length > 0 && (
-          <Text size={200} style={{ opacity: 0.7 }}>
-            Expanded: {expandedQueries.join(' • ')}
-          </Text>
+          <Text size={200} style={{ opacity: 0.7 }}>Expanded: {expandedQueries.join(' • ')}</Text>
         )}
-
 
         <Button
           appearance="primary"
@@ -600,46 +690,24 @@ export const SearchTab = () => {
           {isSearching ? 'Searching…' : 'Search'}
         </Button>
 
-        <Button
-          appearance="secondary"
-          icon={<DatabaseSearchRegular />}
-          style={{ width: '100%' }}
-          disabled={!canGenerate}
-          onClick={handleGenerate}
-        >
+        <Button appearance="secondary" icon={<DatabaseSearchRegular />} style={{ width: '100%' }} disabled={!canGenerate} onClick={handleGenerate}>
           Generate
         </Button>
 
-        <Button
-          appearance="secondary"
-          icon={<CopyRegular />}
-          style={{ width: '100%' }}
-          disabled={!lastSearchOutputPath}
-          onClick={handleCopySearchOutput}
-        >
+        <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={!lastSearchOutputPath} onClick={handleCopySearchOutput}>
           Copy
         </Button>
 
-        <Button
-          appearance="secondary"
-          icon={<CopyRegular />}
-          style={{ width: '100%' }}
-          disabled={dedupedResultPaths.length === 0}
-          onClick={handleCopySearchResultsMarkdown}
-        >
+        <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResultPaths.length === 0} onClick={handleCopySearchResultsMarkdown}>
           Copy as Markdown
         </Button>
 
         {dedupedResultPaths.length > 0 && (
-          <Text size={200} style={{ opacity: 0.8 }}>
-            Unique files found: {dedupedResultPaths.length}
-          </Text>
+          <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResultPaths.length}</Text>
         )}
 
         {searchError && (
-          <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>
-            {searchError}
-          </Text>
+          <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>{searchError}</Text>
         )}
       </div>
 
@@ -649,3 +717,4 @@ export const SearchTab = () => {
     </div>
   );
 };
+

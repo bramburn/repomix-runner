@@ -1,3 +1,6 @@
+// -----------------------------------------------------------------------------
+// 2) src/core/indexing/fileEmbeddingPipeline.ts
+// -----------------------------------------------------------------------------
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../shared/logger.js';
@@ -28,8 +31,41 @@ const BINARY_EXTENSIONS = new Set([
   '.ttf', '.otf', '.woff', '.woff2', '.eot',
   // Other binary files
   '.sqlite', '.db', '.jar', '.war', '.ear', '.class', '.pyc', '.pyo',
-  '.obj', '.lib', '.pdb', '.idb', '.suo', '.sln', '.dmg', '.pkg'
+  '.obj', '.lib', '.pdb', '.idb', '.suo', '.sln', '.dmg', '.pkg',
 ]);
+
+/**
+ * Known text basenames (including dotfiles) that often have NO extension.
+ * NOTE: Node's path.extname('.gitignore') is '' (so we must whitelist by basename).
+ */
+const TEXT_BASENAMES = new Set([
+  // Docs
+  'readme', 'license', 'changelog',
+
+  // Build / tooling
+  'makefile', 'dockerfile', 'podfile', 'gemfile', 'fastfile', 'appfile', 'brewfile',
+
+  // iOS / CocoaPods
+  'podfile.lock',
+
+  // Python
+  'pipfile', 'pipfile.lock', 'requirements.txt',
+
+  // Rust
+  'cargo.toml', 'cargo.lock',
+
+  // JS
+  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+
+  // Java / Android
+  'gradle.properties', 'settings.gradle', 'settings.gradle.kts', 'build.gradle', 'build.gradle.kts',
+
+  // Dotfiles
+  '.env', '.env.local', '.env.development', '.env.production', '.env.test',
+  '.gitignore', '.gitattributes', '.gitmodules',
+  '.editorconfig', '.npmrc', '.nvmrc',
+  '.prettierrc', '.prettierignore', '.eslintrc', '.eslintignore',
+].map((s) => s.toLowerCase()));
 
 /**
  * List of text-based file extensions to process
@@ -37,61 +73,61 @@ const BINARY_EXTENSIONS = new Set([
 const TEXT_EXTENSIONS = new Set([
   // Code files
   '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
-  '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.dart',
+  '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.dart',
+  '.m', '.mm',
+
+  // Web / markup
   '.html', '.htm', '.css', '.scss', '.sass', '.less', '.styl',
-  '.xml', '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+  '.xml',
+
+  // Data / config
+  '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.env',
+  '.plist', '.xcconfig', '.pbxproj',
+  '.sql', '.graphql', '.gql', '.proto',
+
+  // Docs / plain text
+  '.md', '.mdx', '.txt', '.log',
+
+  // Shell / scripts
   '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-  '.sql', '.graphql', '.gql', '.md', '.mdx', '.txt', '.log',
-  // Config files
-  '.env', '.gitignore', '.dockerfile', 'dockerfile.yml', 'dockerfile.yaml',
-  // Package files
-  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-  'composer.json', 'requirements.txt', 'Pipfile', 'poetry.lock',
-  'Cargo.toml', 'Cargo.lock', 'pom.xml', 'build.gradle'
 ]);
 
 /**
- * Check if a file is likely a binary file
+ * Check if a file is likely a binary file.
+ * Strategy:
+ * - Known binary extensions => binary
+ * - Known text extensions or known text basenames (including dotfiles) => text
+ * - No extension => text ONLY if basename is in TEXT_BASENAMES
+ * - Unknown extension => assume binary (conservative)
  */
 function isBinaryFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   const basename = path.basename(filePath).toLowerCase();
 
-  // Check against known binary extensions
-  if (BINARY_EXTENSIONS.has(ext)) {
-    return true;
-  }
+  if (BINARY_EXTENSIONS.has(ext)) return true;
 
-  // Check against known text files
-  if (TEXT_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(basename)) {
-    return false;
-  }
+  if (TEXT_EXTENSIONS.has(ext)) return false;
+
+  // Basename whitelist (covers extensionless + dotfiles)
+  if (TEXT_BASENAMES.has(basename)) return false;
 
   // Common text files without extensions
-  if (basename === 'readme' || basename === 'license' || basename === 'changelog') {
-    return false;
-  }
+  if (basename === 'readme' || basename === 'license' || basename === 'changelog') return false;
 
-  // If no extension, assume it's binary (conservative approach)
-  if (!ext) {
-    return true;
-  }
+  // If no extension, default to binary unless whitelisted above
+  if (!ext) return true;
 
   // Unknown extensions - assume binary for safety
   return true;
 }
 
-/**
- * Configuration for the embedding pipeline.
- */
 export interface EmbeddingPipelineConfig {
   chunkingConfig?: ChunkingConfig;
   embeddingBatchSize?: number;
   pineconeUpsertBatchSize?: number;
-  // Concurrency settings
-  maxConcurrentFiles?: number; // Max files to process concurrently (default: 3)
-  maxConcurrentBatches?: number; // Max embedding batches to process concurrently (default: 2)
-  maxConcurrentUpserts?: number; // Max Pinecone upsert batches to process concurrently (default: 2)
+  maxConcurrentFiles?: number;
+  maxConcurrentBatches?: number;
+  maxConcurrentUpserts?: number;
 }
 
 export const DEFAULT_EMBEDDING_BATCH_SIZE = 10;
@@ -100,10 +136,6 @@ export const DEFAULT_MAX_CONCURRENT_FILES = 3;
 export const DEFAULT_MAX_CONCURRENT_BATCHES = 2;
 export const DEFAULT_MAX_CONCURRENT_UPSERTS = 2;
 
-/**
- * Process items in batches with concurrency limit.
- * Uses a sliding window approach to limit concurrent operations.
- */
 async function processConcurrently<T, R>(
   items: T[],
   handler: (item: T, index: number) => Promise<R>,
@@ -128,27 +160,12 @@ async function processConcurrently<T, R>(
     }
   }
 
-  // Create worker pool
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => processNext());
   await Promise.all(workers);
 
   return results;
 }
 
-/**
- * Embeds a single file and upserts vectors to Pinecone.
- *
- * Flow: Read file → Check Language → Chunk (with token estimation for non-AST files) → Embed → Upsert
- *
- * @param filePath Absolute path to file
- * @param repoId Repository identifier
- * @param repoRoot Repository root directory
- * @param apiKey Google Gemini API key
- * @param pineconeService Pinecone service instance
- * @param indexName Pinecone index name
- * @param config Pipeline configuration
- * @returns Number of vectors upserted
- */
 export async function embedAndUpsertFile(
   filePath: string,
   repoId: string,
@@ -184,59 +201,68 @@ export async function embedAndUpsertFile(
     const readDuration = Date.now() - readStart;
     console.log(`[EMBEDDING_PIPELINE] File read in ${readDuration}ms, size: ${content.length} chars`);
 
-    // Check for abort after reading file
+    if (!content || content.trim().length === 0) {
+      console.log(`[EMBEDDING_PIPELINE] Skipping empty file: ${relativeFilePath}`);
+      logger.both.info(`${context}: Skipping empty file`);
+      return 0;
+    }
+
     if (signal?.aborted) throw new Error('Aborted');
 
-    // 2. Determine chunking strategy based on language support
     const language = TreeSitterService.detectLanguage(relativeFilePath);
     const isASTSupported = language && TreeSitterService.isLanguageSupported(language);
 
-    // Configure chunking based on file type and language
     const chunkingConfig: ChunkingConfig = {
       ...config.chunkingConfig,
       filePath: relativeFilePath,
-      useSemanticChunking: isASTSupported || false, // Enable semantic chunking for supported languages
-      useTokenEstimation: !isASTSupported // Use token estimation for non-AST files
+      useSemanticChunking: isASTSupported || false,
+      useTokenEstimation: !isASTSupported,
     };
 
-    console.log(`[EMBEDDING_PIPELINE] Language: ${language || 'unknown'}, AST supported: ${isASTSupported}, semantic chunking: ${chunkingConfig.useSemanticChunking}`);
+    console.log(
+      `[EMBEDDING_PIPELINE] Language: ${language || 'unknown'}, AST supported: ${isASTSupported}, semantic chunking: ${chunkingConfig.useSemanticChunking}`
+    );
 
-    // 3. Chunk the content
     console.log(`[EMBEDDING_PIPELINE] Chunking content...`);
     const chunkStart = Date.now();
     const chunks = await chunkText(content, chunkingConfig);
     const chunkDuration = Date.now() - chunkStart;
     console.log(`[EMBEDDING_PIPELINE] Chunking completed in ${chunkDuration}ms, generated ${chunks.length} chunks`);
 
-    if (chunks.length === 0) {
-      console.log(`[EMBEDDING_PIPELINE] No chunks generated for ${relativeFilePath}`);
-      logger.both.warn(`${context}: No chunks generated`);
+    const validChunks = chunks.filter((c) => c.text.trim().length > 0);
+    const emptyChunksCount = chunks.length - validChunks.length;
+    if (emptyChunksCount > 0) console.log(`[EMBEDDING_PIPELINE] Filtered out ${emptyChunksCount} empty chunks`);
+
+    if (validChunks.length === 0) {
+      console.log(`[EMBEDDING_PIPELINE] No valid chunks (all empty/whitespace) for ${relativeFilePath}`);
+      logger.both.warn(`${context}: No valid chunks after filtering`);
       return 0;
     }
 
-    logger.both.info(`${context}: Generated ${chunks.length} chunks`);
+    logger.both.info(`${context}: Generated ${validChunks.length} valid chunks`);
 
-    // Check for abort after chunking
     if (signal?.aborted) throw new Error('Aborted');
 
-    // 4. Embed chunks in batches (with optional concurrency)
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
     const maxConcurrentBatches = config.maxConcurrentBatches ?? DEFAULT_MAX_CONCURRENT_BATCHES;
-    const chunkBatches = batchArray(chunks, embeddingBatchSize);
+    const chunkBatches = batchArray(validChunks, embeddingBatchSize);
     const vectors: Vector[] = [];
     let totalEmbeddingTime = 0;
 
-    console.log(`[EMBEDDING_PIPELINE] Starting embedding for ${chunkBatches.length} batches (batch size: ${embeddingBatchSize}, concurrency: ${maxConcurrentBatches})`);
+    console.log(
+      `[EMBEDDING_PIPELINE] Starting embedding for ${chunkBatches.length} batches (batch size: ${embeddingBatchSize}, concurrency: ${maxConcurrentBatches})`
+    );
 
     if (maxConcurrentBatches > 1 && chunkBatches.length > 1) {
-      // Concurrent batch processing
       const batchResults = await processConcurrently(
         chunkBatches,
         async (batch, batchIdx) => {
-          const texts = batch.map(c => c.text);
+          const texts = batch.map((c) => c.text);
           const batchTextSize = texts.reduce((sum, text) => sum + text.length, 0);
 
-          console.log(`[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`);
+          console.log(
+            `[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`
+          );
           const embedStart = Date.now();
 
           const embeddings = await retryWithBackoff(
@@ -248,7 +274,6 @@ export async function embedAndUpsertFile(
           const embedDuration = Date.now() - embedStart;
           console.log(`[EMBEDDING_PIPELINE] Embedding batch ${batchIdx + 1} completed in ${embedDuration}ms`);
 
-          // Create vectors
           const batchVectors: Vector[] = [];
           for (let i = 0; i < batch.length; i++) {
             const chunk = batch[i];
@@ -262,14 +287,10 @@ export async function embedAndUpsertFile(
               endLine: chunk.endLine,
               source: 'repomix',
               textHash: computeTextHash(chunk.text),
-              updatedAt: new Date().toISOString()
+              updatedAt: new Date().toISOString(),
             };
 
-            batchVectors.push({
-              id: vectorId,
-              values: embedding,
-              metadata
-            });
+            batchVectors.push({ id: vectorId, values: embedding, metadata });
           }
 
           return { vectors: batchVectors, duration: embedDuration };
@@ -277,7 +298,6 @@ export async function embedAndUpsertFile(
         maxConcurrentBatches
       );
 
-      // Combine results
       for (const result of batchResults) {
         if (result.success && result.result) {
           vectors.push(...result.result.vectors);
@@ -285,13 +305,14 @@ export async function embedAndUpsertFile(
         }
       }
     } else {
-      // Sequential batch processing (original behavior)
       for (let batchIdx = 0; batchIdx < chunkBatches.length; batchIdx++) {
         const batch = chunkBatches[batchIdx];
-        const texts = batch.map(c => c.text);
+        const texts = batch.map((c) => c.text);
         const batchTextSize = texts.reduce((sum, text) => sum + text.length, 0);
 
-        console.log(`[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`);
+        console.log(
+          `[EMBEDDING_PIPELINE] Processing embedding batch ${batchIdx + 1}/${chunkBatches.length} (${texts.length} chunks, ${batchTextSize} chars)`
+        );
         const embedStart = Date.now();
 
         const embeddings = await retryWithBackoff(
@@ -316,33 +337,28 @@ export async function embedAndUpsertFile(
             endLine: chunk.endLine,
             source: 'repomix',
             textHash: computeTextHash(chunk.text),
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
           };
 
-          vectors.push({
-            id: vectorId,
-            values: embedding,
-            metadata
-          });
+          vectors.push({ id: vectorId, values: embedding, metadata });
         }
       }
     }
 
     console.log(`[EMBEDDING_PIPELINE] Total embedding time: ${totalEmbeddingTime}ms for ${vectors.length} vectors`);
 
-    // Check for abort after embedding batches
     if (signal?.aborted) throw new Error('Aborted');
 
-    // 5. Upsert vectors to Pinecone in batches (with optional concurrency)
     const upsertBatchSize = config.pineconeUpsertBatchSize ?? DEFAULT_PINECONE_BATCH_SIZE;
     const maxConcurrentUpserts = config.maxConcurrentUpserts ?? DEFAULT_MAX_CONCURRENT_UPSERTS;
     const vectorBatches = batchArray(vectors, upsertBatchSize);
     let totalUpsertTime = 0;
 
-    console.log(`[EMBEDDING_PIPELINE] Starting Pinecone upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize}, concurrency: ${maxConcurrentUpserts})`);
+    console.log(
+      `[EMBEDDING_PIPELINE] Starting Pinecone upsert for ${vectorBatches.length} batches (batch size: ${upsertBatchSize}, concurrency: ${maxConcurrentUpserts})`
+    );
 
     if (maxConcurrentUpserts > 1 && vectorBatches.length > 1) {
-      // Concurrent upsert processing
       const upsertResults = await processConcurrently(
         vectorBatches,
         async (batch, batchIdx) => {
@@ -362,14 +378,10 @@ export async function embedAndUpsertFile(
         maxConcurrentUpserts
       );
 
-      // Sum up durations
       for (const result of upsertResults) {
-        if (result.success && result.result) {
-          totalUpsertTime += result.result.duration;
-        }
+        if (result.success && result.result) totalUpsertTime += result.result.duration;
       }
     } else {
-      // Sequential upsert processing (original behavior)
       for (let batchIdx = 0; batchIdx < vectorBatches.length; batchIdx++) {
         const batch = vectorBatches[batchIdx];
         console.log(`[EMBEDDING_PIPELINE] Upserting batch ${batchIdx + 1}/${vectorBatches.length} (${batch.length} vectors)`);
@@ -387,11 +399,12 @@ export async function embedAndUpsertFile(
       }
     }
 
-    // Check for abort after upsert batches
     if (signal?.aborted) throw new Error('Aborted');
 
     const totalDuration = Date.now() - startTime;
-    console.log(`[EMBEDDING_PIPELINE] Completed ${relativeFilePath} in ${totalDuration}ms (read: ${readDuration}ms, chunk: ${chunkDuration}ms, embed: ${totalEmbeddingTime}ms, upsert: ${totalUpsertTime}ms)`);
+    console.log(
+      `[EMBEDDING_PIPELINE] Completed ${relativeFilePath} in ${totalDuration}ms (read/chunk/embed/upsert timings available in logs)`
+    );
     logger.both.info(`${context}: Successfully upserted ${vectors.length} vectors`);
     return vectors.length;
   } catch (error) {
@@ -401,4 +414,3 @@ export async function embedAndUpsertFile(
     throw error;
   }
 }
-
