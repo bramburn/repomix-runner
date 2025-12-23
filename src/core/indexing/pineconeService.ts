@@ -257,7 +257,8 @@ export class PineconeService {
         });
 
         if (listResponse.vectors) {
-          vectorIds.push(...listResponse.vectors.map(v => v.id));
+          vectorIds.push(...listResponse.vectors.map(v => v.id).filter((id): id is string => typeof id === 'string'));
+
           console.log(`[PineconeService] Listed page ${pageCount}: ${listResponse.vectors.length} vectors`);
         }
 

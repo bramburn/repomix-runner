@@ -19,6 +19,8 @@ import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
+// Fixed: Added missing import for RepoSearchResult
+import { RepoSearchResult } from '../../core/indexing/llmReranking.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -45,7 +47,7 @@ export class IndexingController extends BaseController {
   private currentAbortController: AbortController | null = null;
   private currentRepoId: string | null = null;
 
-  private async handleSearchRepo(query: string, topK?: number) {
+  private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean) {
     try {
       const q = (query ?? '').trim();
       if (!q) return;
@@ -82,24 +84,85 @@ export class IndexingController extends BaseController {
         return;
       }
 
-      const vector = await embeddingService.embedText(googleKey, q);
+      let queriesToSearch: string[] = [q];
 
-      const pinecone = new PineconeService();
-      const res = await pinecone.queryVectors(
-        pineconeKey,
-        indexName,
-        repoId, // namespace
-        vector,
-        typeof topK === 'number' ? topK : 50
+      if (useSmartFilter) {
+        // Fixed: Corrected import path (../../) and extension (.js)
+        const { getAllQueriesToSearch } = await import('../../core/indexing/queryExpansion.js');
+        // Type assertion to ensure it's a string array
+        const queries = await getAllQueriesToSearch(q, googleKey);
+        // Fixed: Explicit type for 'q' in filter
+        queriesToSearch = queries.filter((q: string): q is string => typeof q === 'string');
+
+
+        // Tell UI what we’re doing
+        this.context.postMessage({
+          command: 'searchQueryExpanded',
+          queries: queriesToSearch,
+        });
+      }
+
+      // Ensure all queries are strings
+      const validQueries = queriesToSearch.filter((q): q is string => typeof q === 'string');
+      const vectors = await Promise.all(
+        validQueries.map((queryText) => embeddingService.embedText(googleKey, queryText))
       );
 
-      const matches = res?.matches ?? [];
-      let results = matches.map((m: any) => ({
-        id: m.id,
-        score: m.score ?? 0,
-        path: m.metadata?.filePath,
-        snippet: m.metadata?.snippet ?? m.metadata?.text,
-      }));
+
+      const pinecone = new PineconeService();
+      const resList = await Promise.all(
+        vectors.map((vector) =>
+          pinecone.queryVectors(
+            pineconeKey,
+            indexName,
+            repoId, // namespace
+            vector,
+            typeof topK === 'number' ? topK : 50
+          )
+        )
+      );
+
+      // Merge by file path (keep best score per file)
+      const bestByPath = new Map<string, { id: string; score: number; path: string; snippet?: string }>();
+
+
+      for (const res of resList) {
+        const matches = res?.matches ?? [];
+        for (const m of matches) {
+          const filePath = m.metadata?.filePath;
+          if (!filePath || typeof filePath !== 'string') continue;
+
+
+          const score = m.score ?? 0;
+          const existing = bestByPath.get(filePath);
+
+          if (!existing || score > existing.score) {
+            bestByPath.set(filePath, {
+              id: m.id,
+              score,
+              path: filePath,
+              // Fixed: Type assertion for metadata snippet
+              snippet: (m.metadata?.snippet ?? m.metadata?.text) as string | undefined,
+            });
+
+          }
+        }
+      }
+
+      let results: RepoSearchResult[] = Array.from(bestByPath.values()).sort((a, b) => b.score - a.score);
+
+
+      // Optional: LLM rerank/filter (only when Smart Filter is enabled)
+      if (useSmartFilter && results.length > 0) {
+        const { rerankResultsWithLLM } = await import('../../core/indexing/llmReranking.js');
+        results = await rerankResultsWithLLM(q, results, googleKey, cwd, {
+          maxFiles: 10,
+          confidenceThreshold: 0.5,
+          useFileContent: false,
+        });
+
+      }
+
 
       // --- FILTERING START ---
       // Robustly filter out files that are currently ignored by .gitignore,
@@ -107,13 +170,13 @@ export class IndexingController extends BaseController {
       try {
         const ig = ignore();
         const gitignorePath = path.join(cwd, '.gitignore');
-        
+
         // Add .gitignore rules if file exists
         if (fs.existsSync(gitignorePath)) {
           const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
           ig.add(gitignoreContent);
         }
-        
+
         // Always add standard exclusions to be safe
         ig.add(['.git', 'node_modules', '.DS_Store', 'dist', 'out', 'build']);
 
@@ -256,8 +319,9 @@ export class IndexingController extends BaseController {
   async handleMessage(message: any): Promise<boolean> {
     switch (message.command) {
       case 'searchRepo':
-        await this.handleSearchRepo(message.query, message.topK);
+        await this.handleSearchRepo(message.query, message.topK, message.useSmartFilter);
         return true;
+
 
       case 'generateRepomixFromSearch':
         await this.handleGenerateRepomixFromSearch(message.files);

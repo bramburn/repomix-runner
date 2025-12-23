@@ -57,6 +57,9 @@ export const SearchTab = () => {
   } | null>(null);
 
   const [query, setQuery] = useState('');
+  const [smartFilterEnabled, setSmartFilterEnabled] = useState(false);
+  const [expandedQueries, setExpandedQueries] = useState<string[]>([]);
+
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -232,7 +235,9 @@ export const SearchTab = () => {
         case 'repoVectorCount':
           setVectorCount(message.count);
           break;
-
+        case 'searchQueryExpanded':
+          setExpandedQueries(Array.isArray(message.queries) ? message.queries : []);
+          break;
         case 'repoSearchResults': {
           setIsSearching(false);
           setSearchError(null);
@@ -299,13 +304,16 @@ export const SearchTab = () => {
     setIsSearching(true);
     setSearchError(null);
     setResults([]);
+    setExpandedQueries([]);
 
     vscode.postMessage({
       command: 'searchRepo',
       query: q,
       topK: 50,
+      useSmartFilter: smartFilterEnabled,
     });
   };
+
 
   const openFile = (path?: string) => {
     if (!path) return;
@@ -498,13 +506,39 @@ export const SearchTab = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
         <Input
           value={query}
-          onChange={(_, data) => setQuery(data.value)}
+          onChange={(e, data) => setQuery(data.value)}
           placeholder="Enter search query..."
           style={{ width: '100%' }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && canSearch) handleSearch();
-          }}
+          onKeyDown={(e) => e.key === 'Enter' && canSearch && handleSearch()}
         />
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 10px',
+            border: '1px solid var(--vscode-widget-border)',
+            borderRadius: 4,
+          }}
+        >
+          <input
+            id="repomix-smart-filter"
+            type="checkbox"
+            checked={smartFilterEnabled}
+            onChange={(e) => setSmartFilterEnabled(e.target.checked)}
+          />
+          <Label htmlFor="repomix-smart-filter" style={{ margin: 0 }}>
+            Smart Filter
+          </Label>
+        </div>
+
+        {smartFilterEnabled && expandedQueries.length > 0 && (
+          <Text size={200} style={{ opacity: 0.7 }}>
+            Expanded: {expandedQueries.join(' • ')}
+          </Text>
+        )}
+
 
         <Button
           appearance="primary"

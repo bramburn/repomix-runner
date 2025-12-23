@@ -19,3 +19,5 @@ assets/bin/
 bin/
 repomix-output.*
 package.json.bak
+src/**/*.map
+src/**/*.js

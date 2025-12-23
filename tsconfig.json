@@ -2,19 +2,30 @@
   "compilerOptions": {
     "module": "Node16",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-jsx",
     "sourceMap": true,
     "rootDir": "src",
-/* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
+    /* Enabled for performance. If mysterious type errors occur after updating libraries, temporarily disable this to debug. */
     "skipLibCheck": true,
     "strict": true, /* enable all strict type-checking options */
     "downlevelIteration": true, /* Enable support for iterating over generators, Maps, Sets, etc. when targeting ES5 or below */
-
+    
+    
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
     /* Additional Checks */
     // "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
     // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
     // "noUnusedParameters": true,  /* Report errors on unused parameters. */
   },
-  "exclude": ["node_modules", "assets", "dist"]
+  "exclude": [
+    "node_modules",
+    "assets",
+    "dist"
+  ]
 }
