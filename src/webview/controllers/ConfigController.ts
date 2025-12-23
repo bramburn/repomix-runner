@@ -52,6 +52,10 @@ export class ConfigController extends BaseController {
       case 'setQdrantConfig':
         await this.handleSetQdrantConfig(message.url, message.collection);
         return true;
+
+      case 'testQdrantConnection':
+        await this.handleTestQdrantConnection(message.url, message.collection, message.apiKey);
+        return true;
     }
     return false;
   }
@@ -224,5 +228,59 @@ export class ConfigController extends BaseController {
       collection: nextCollection,
     });
     vscode.window.showInformationMessage('Qdrant settings saved.');
+  }
+
+  private async handleTestQdrantConnection(url: string, collection: string, apiKey?: string) {
+    try {
+      const { QdrantClient } = await import('@qdrant/js-client-rest');
+
+      const clientConfig: any = { url };
+      if (apiKey) {
+        clientConfig.apiKey = apiKey;
+      }
+
+      const client = new QdrantClient(clientConfig);
+
+      // Test connection by listing collections
+      const collectionsResponse = await client.getCollections();
+      const collections = collectionsResponse.collections || [];
+      const collectionExists = collections.some((c: any) => c.name === collection);
+
+      if (!collectionExists) {
+        // Create collection with default vector config (768 dimensions for common embeddings)
+        await client.createCollection(collection, {
+          vectors: {
+            size: 768,
+            distance: 'Cosine',
+          },
+        });
+
+        this.context.postMessage({
+          command: 'qdrantConnectionResult',
+          success: true,
+          collectionCreated: true,
+          message: `Connected to Qdrant and created collection "${collection}"`,
+        });
+        vscode.window.showInformationMessage(`✓ Connected to Qdrant and created collection "${collection}"`);
+      } else {
+        this.context.postMessage({
+          command: 'qdrantConnectionResult',
+          success: true,
+          collectionCreated: false,
+          message: `Connected to Qdrant. Collection "${collection}" already exists.`,
+        });
+        vscode.window.showInformationMessage(`✓ Connected to Qdrant. Collection "${collection}" already exists.`);
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to test Qdrant connection:', error);
+
+      this.context.postMessage({
+        command: 'qdrantConnectionResult',
+        success: false,
+        error: errorMessage,
+      });
+      vscode.window.showErrorMessage(`✗ Qdrant connection failed: ${errorMessage}`);
+    }
   }
 }

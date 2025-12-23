@@ -312,6 +312,7 @@ export const SearchTab = () => {
     // Mobile bucket (Android/iOS)
     if (fileTypeFilter.mobile) {
       [
+        '.dart',
         '.kt',
         '.kts',
         '.gradle',
@@ -553,7 +554,7 @@ export const SearchTab = () => {
     vscode.postMessage({
       command: 'searchRepo',
       query: q,
-      topK: 50,
+      topK: 200,
       useSmartFilter: smartFilterEnabled,
     });
   };

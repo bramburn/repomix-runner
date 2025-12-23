@@ -44,7 +44,7 @@ export const SaveApiKeySchema = z.object({
 
 export const SaveSecretBaseSchema = z.object({
   command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey']),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
   value: z.string().min(1),
 });
 
@@ -69,7 +69,7 @@ export const SaveSecretSchema = SaveSecretBaseSchema.superRefine((data, ctx) => 
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey']),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
 });
 
 export const GetAgentHistorySchema = z.object({
@@ -269,6 +269,34 @@ export const SetCopyModeSchema = z.object({
   mode: z.enum(['content', 'file']),
 });
 
+// --- Qdrant Configuration Schemas ---
+
+export const GetVectorDbProviderSchema = z.object({
+  command: z.literal('getVectorDbProvider'),
+});
+
+export const SetVectorDbProviderSchema = z.object({
+  command: z.literal('setVectorDbProvider'),
+  provider: z.enum(['pinecone', 'qdrant']),
+});
+
+export const GetQdrantConfigSchema = z.object({
+  command: z.literal('getQdrantConfig'),
+});
+
+export const SetQdrantConfigSchema = z.object({
+  command: z.literal('setQdrantConfig'),
+  url: z.string().min(1),
+  collection: z.string().min(1),
+});
+
+export const TestQdrantConnectionSchema = z.object({
+  command: z.literal('testQdrantConnection'),
+  url: z.string().min(1),
+  collection: z.string().min(1),
+  apiKey: z.string().optional(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -316,6 +344,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   // New Clipboard Schemas
   GetCopyModeSchema,
   SetCopyModeSchema,
+  // Qdrant Configuration Schemas
+  GetVectorDbProviderSchema,
+  SetVectorDbProviderSchema,
+  GetQdrantConfigSchema,
+  SetQdrantConfigSchema,
+  TestQdrantConnectionSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

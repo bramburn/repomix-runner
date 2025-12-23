@@ -127,6 +127,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   const [qdrantUrl, setQdrantUrl] = useState('');
   const [qdrantCollection, setQdrantCollection] = useState('');
+  const [qdrantTestLoading, setQdrantTestLoading] = useState(false);
 
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
@@ -183,6 +184,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         case 'updateCopyMode':
           setCopyMode(message.mode);
           break;
+
+        case 'qdrantConnectionResult':
+          setQdrantTestLoading(false);
+          // Message is shown by the extension, no need to handle here
+          break;
         // updatePineconeIndexes and updateSelectedIndex are handled by App.tsx
       }
     };
@@ -220,6 +226,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       command: 'setQdrantConfig',
       url: qdrantUrl.trim(),
       collection: qdrantCollection.trim(),
+    });
+  };
+
+  const handleTestQdrantConnection = () => {
+    setQdrantTestLoading(true);
+    vscode.postMessage({
+      command: 'testQdrantConnection',
+      url: qdrantUrl.trim(),
+      collection: qdrantCollection.trim(),
+      apiKey: qdrantKey.trim() || undefined,
     });
   };
 
@@ -354,9 +370,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             value={qdrantCollection}
             onChange={(_e, data) => setQdrantCollection(data.value)}
           />
-          <Button onClick={handleSaveQdrantConfig} disabled={!qdrantUrl.trim() || !qdrantCollection.trim()}>
-            Save Qdrant Settings
-          </Button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              onClick={handleTestQdrantConnection}
+              disabled={!qdrantUrl.trim() || !qdrantCollection.trim() || qdrantTestLoading}
+              appearance="secondary"
+            >
+              {qdrantTestLoading ? 'Testing...' : 'Test Connection'}
+            </Button>
+            <Button
+              onClick={handleSaveQdrantConfig}
+              disabled={!qdrantUrl.trim() || !qdrantCollection.trim()}
+            >
+              Save Qdrant Settings
+            </Button>
+          </div>
         </div>
       </ConfigSection>
 
