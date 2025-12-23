@@ -20,6 +20,15 @@ type RepoSearchResult = {
   // snippet?: string;
   // you can extend metadata as needed
 };
+type FileTypeFilterState = {
+  typescript: boolean;
+  javascript: boolean;
+  python: boolean;
+  rust: boolean;
+  csharp: boolean;
+  java: boolean;
+  custom: string; // comma-separated extensions, e.g. ".md,.json"
+};
 
 export const SearchTab = () => {
   const [fileCount, setFileCount] = useState<number | null>(null);
@@ -52,8 +61,47 @@ export const SearchTab = () => {
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>({
+    typescript: true,
+    javascript: true,
+    python: true,
+    rust: false,
+    csharp: false,
+    java: false,
+    custom: '',
+  });
 
-  const canSearch = useMemo(() => query.trim().length > 0 && !isSearching, [query, isSearching]);
+  const getActiveExtensions = (): string[] => {
+    const exts: string[] = [];
+
+    if (fileTypeFilter.typescript) exts.push('.ts', '.tsx');
+    if (fileTypeFilter.javascript) exts.push('.js', '.jsx');
+    if (fileTypeFilter.python) exts.push('.py');
+    if (fileTypeFilter.rust) exts.push('.rs');
+    if (fileTypeFilter.csharp) exts.push('.cs');
+    if (fileTypeFilter.java) exts.push('.java');
+
+    if (fileTypeFilter.custom) {
+      const customExts = fileTypeFilter.custom
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((s) => (s.startsWith('.') ? s : `.${s}`));
+      exts.push(...customExts);
+    }
+
+    return exts;
+  };
+
+  const hasAnyFileTypeSelected = useMemo(() => {
+    const active = getActiveExtensions();
+    return active.length > 0;
+  }, [fileTypeFilter]);
+
+  const canSearch = useMemo(
+    () => query.trim().length > 0 && !isSearching && hasAnyFileTypeSelected,
+    [query, isSearching, hasAnyFileTypeSelected]
+  );
 
   // De-dupe file paths from search results (stable order)
   const dedupedResultPaths = useMemo(() => {
@@ -84,6 +132,27 @@ export const SearchTab = () => {
       files: dedupedResultPaths,
     });
   };
+
+
+
+  const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
+    const activeExts = getActiveExtensions();
+    if (activeExts.length === 0) {
+      // If nothing selected, do not filter at all
+      return incoming;
+    }
+
+    const extSet = new Set(activeExts.map((e) => e.toLowerCase()));
+
+    return incoming.filter((r) => {
+      if (!r.path) return false;
+      const lastDot = r.path.lastIndexOf('.');
+      if (lastDot === -1) return false;
+      const ext = r.path.slice(lastDot).toLowerCase();
+      return extSet.has(ext);
+    });
+  };
+
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -164,11 +233,17 @@ export const SearchTab = () => {
           setVectorCount(message.count);
           break;
 
-        case 'repoSearchResults':
+        case 'repoSearchResults': {
           setIsSearching(false);
           setSearchError(null);
-          setResults(Array.isArray(message.results) ? message.results : []);
+          const rawResults: RepoSearchResult[] = Array.isArray(message.results)
+            ? message.results
+            : [];
+          const filteredResults = filterByFileType(rawResults);
+          setResults(filteredResults);
           break;
+        }
+
 
         case 'repoSearchError':
           setIsSearching(false);
@@ -257,6 +332,7 @@ export const SearchTab = () => {
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       <Label weight="semibold">Repository Indexing</Label>
+
 
       {/* Indexing card (existing) */}
       <div
@@ -377,7 +453,48 @@ export const SearchTab = () => {
 
       {/* NEW: Search */}
       <Label weight="semibold" style={{ marginTop: '10px' }}>Vector Search</Label>
-
+      {/* File type filters */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: '6px',
+          marginTop: '6px',
+          marginBottom: '4px',
+        }}
+      >
+        {[
+          { key: 'typescript', label: 'TypeScript (.ts/.tsx)' },
+          { key: 'javascript', label: 'JavaScript (.js/.jsx)' },
+          { key: 'python', label: 'Python (.py)' },
+          { key: 'rust', label: 'Rust (.rs)' },
+          { key: 'csharp', label: 'C# (.cs)' },
+          { key: 'java', label: 'Java (.java)' },
+        ].map(({ key, label }) => (
+          <label
+            key={key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '11px',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
+              onChange={(e) =>
+                setFileTypeFilter((prev) => ({
+                  ...prev,
+                  [key]: e.target.checked,
+                }))
+              }
+            />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
         <Input
           value={query}

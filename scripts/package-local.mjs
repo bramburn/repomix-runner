@@ -7,11 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Checks if tree-sitter WASM files already exist in the dist directory.
+ * Checks if tree-sitter WASM files already exist in the assets directory.
  * @returns {boolean} True if the directory exists and contains .wasm files
  */
 function checkTreeSitterWasmExists() {
-  const treeSitterDir = path.resolve(__dirname, '..', 'dist', 'tree-sitter-wasm');
+  const treeSitterDir = path.resolve(__dirname, '..', 'assets', 'tree-sitter-wasm');
 
   if (!fs.existsSync(treeSitterDir)) {
     return false;
@@ -83,7 +83,7 @@ try {
 
   // Setup tree-sitter WASM files before packaging (only if they don't already exist)
   if (checkTreeSitterWasmExists()) {
-    console.log('Tree-sitter WASM files already exist in dist/tree-sitter-wasm/. Skipping setup.');
+    console.log('Tree-sitter WASM files already exist in assets/tree-sitter-wasm/. Skipping setup.');
   } else {
     console.log('Setting up tree-sitter WASM files...');
     execSync('npm run setup:treesitter', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });

@@ -26,7 +26,9 @@ const esbuildProblemMatcherPlugin = {
 };
 
 /**
- * Plugin to copy WASM files to dist directory (only if they don't already exist)
+ * Plugin to copy WASM files to dist directory
+ * - sql.wasm: copied from node_modules (only if not already present)
+ * - tree-sitter WASM: copied from assets/tree-sitter-wasm/ (on every build to ensure they're present)
  */
 const copyWasmPlugin = {
   name: 'copy-wasm',
@@ -54,18 +56,36 @@ const copyWasmPlugin = {
         console.warn('sql-wasm.wasm not found in node_modules/sql.js/dist/');
       }
 
-      // Verify tree-sitter WASM files exist in dist directory
-      const treeSitterDir = path.join(__dirname, 'dist', 'tree-sitter-wasm');
+      // Copy tree-sitter WASM files from assets/ to dist/ (on every build)
+      const treeSitterSourceDir = path.join(__dirname, 'assets', 'tree-sitter-wasm');
+      const treeSitterDestDir = path.join(__dirname, 'dist', 'tree-sitter-wasm');
 
-      if (fs.existsSync(treeSitterDir)) {
-        const wasmFiles = fs.readdirSync(treeSitterDir).filter(file => file.endsWith('.wasm'));
+      if (fs.existsSync(treeSitterSourceDir)) {
+        // Create destination directory if it doesn't exist
+        if (!fs.existsSync(treeSitterDestDir)) {
+          fs.mkdirSync(treeSitterDestDir, { recursive: true });
+        }
+
+        const wasmFiles = fs.readdirSync(treeSitterSourceDir).filter(file => file.endsWith('.wasm'));
         if (wasmFiles.length > 0) {
-          console.log(`Found ${wasmFiles.length} tree-sitter WASM files in dist/tree-sitter-wasm/ (skipping setup)`);
+          let copiedCount = 0;
+          for (const file of wasmFiles) {
+            const sourcePath = path.join(treeSitterSourceDir, file);
+            const destPath = path.join(treeSitterDestDir, file);
+
+            // Copy if dest doesn't exist or source is newer
+            if (!fs.existsSync(destPath) ||
+                fs.statSync(sourcePath).mtimeMs > fs.statSync(destPath).mtimeMs) {
+              fs.copyFileSync(sourcePath, destPath);
+              copiedCount++;
+            }
+          }
+          console.log(`Copied ${copiedCount} tree-sitter WASM files from assets/ to dist/`);
         } else {
           console.warn('tree-sitter-wasm directory exists but contains no .wasm files. Run "npm run setup:treesitter" first.');
         }
       } else {
-        console.warn('tree-sitter-wasm directory not found in dist/. Run "npm run setup:treesitter" first.');
+        console.warn('tree-sitter-wasm directory not found in assets/. Run "npm run setup:treesitter" first.');
       }
     });
   }

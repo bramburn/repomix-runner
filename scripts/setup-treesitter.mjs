@@ -15,7 +15,8 @@ import { createWriteStream } from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
-const wasmDir = path.resolve(projectRoot, 'dist', 'tree-sitter-wasm');
+// Store WASM files in assets/ to persist across builds (dist/ is wiped by rimraf)
+const wasmDir = path.resolve(projectRoot, 'assets', 'tree-sitter-wasm');
 
 // Tree-sitter language parsers to download
 const LANGUAGES = {
@@ -264,7 +265,7 @@ The C# parser (tree-sitter-c-sharp) is available from GitHub releases but may re
 
   console.log('\n✅ Tree-sitter setup complete!');
   console.log(`📁 WASM files location: ${wasmDir}`);
-  console.log('\nNote: WASM files are not included in git. They will be rebuilt during build.');
+  console.log('\nNote: These files will be copied to dist/ during build by esbuild.');
   console.log('🚀 WASM files are now ready for use in semantic code analysis!');
 }
 
