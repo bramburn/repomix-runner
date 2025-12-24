@@ -42,20 +42,11 @@ export const SaveApiKeySchema = z.object({
   apiKey: z.string().startsWith('AIza', "API Key must start with 'AIza'").min(30, "API Key is too short"),
 });
 
-export const SaveSecretBaseSchema = z.object({
-  command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
-  value: z.string().min(1),
-});
-
-
-// FIX: SaveSecretSchema now properly extends with validation
 export const SaveSecretSchema = z.object({
   command: z.literal('saveSecret'),
   key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
   value: z.string().min(1),
 });
-
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
@@ -136,7 +127,7 @@ export const GetPineconeIndexSchema = z.object({
   command: z.literal('getPineconeIndex'),
 });
 
-// --- Repository Indexing Schemas (Merged from main branch) ---
+// --- Repository Indexing Schemas ---
 
 export const IndexRepoSchema = z.object({
   command: z.literal('indexRepo'),
@@ -149,7 +140,6 @@ export const IndexRepoProgressSchema = z.object({
   filePath: z.string(),
 });
 
-// Pause/Resume/Stop Schemas
 export const IndexRepoStateChangeSchema = z.object({
   command: z.literal('indexRepoStateChange'),
   state: z.enum(['idle', 'running', 'paused', 'stopping']),
@@ -210,7 +200,7 @@ export const GetRepoIndexCountSchema = z.object({
 export const SearchRepoSchema = z.object({
   command: z.literal('searchRepo'),
   query: z.string().min(1),
-  topK: z.number().int().min(1).max(200).optional(), // default in handler
+  topK: z.number().int().min(1).max(200).optional(),
   useSmartFilter: z.boolean().optional(),
 });
 
@@ -236,24 +226,6 @@ export const CopySearchResultsMarkdownSchema = z.object({
 export const CopySearchFilePathsSchema = z.object({
   command: z.literal('copySearchFilePaths'),
   files: z.array(z.string().min(1)).min(1),
-});
-
-// --- UI Notification Schemas ---
-
-export const AgentStateChangeSchema = z.object({
-  command: z.literal('agentStateChange'),
-  status: z.enum(['running', 'idle'])
-});
-
-export const AgentRunCompleteSchema = z.object({
-  command: z.literal('agentRunComplete'),
-  outputPath: z.string(),
-  fileCount: z.number(),
-  query: z.string()
-});
-
-export const AgentRunFailedSchema = z.object({
-  command: z.literal('agentRunFailed')
 });
 
 // --- Clipboard Configuration Schemas ---
@@ -284,19 +256,23 @@ export const GetQdrantConfigSchema = z.object({
 
 export const SetQdrantConfigSchema = z.object({
   command: z.literal('setQdrantConfig'),
-  url: z.string().min(1),
-  collection: z.string().min(1),
+  url: z.string().min(1, "URL is required"),
+  collection: z.string().min(1, "Collection name is required"),
 });
 
 export const TestQdrantConnectionSchema = z.object({
   command: z.literal('testQdrantConnection'),
-  url: z.string().min(1),
-  collection: z.string().min(1),
+  url: z.string().min(1, "URL is required"),
+  collection: z.string().min(1, "Collection name is required"),
   apiKey: z.string().optional(),
 });
 
-// FIX: Removed SecretStatusSchema and SecretStatusBaseSchema (they weren't defined)
-// FIX: All schemas in the discriminated union now have proper 'command' literal types
+export const ShowNotificationSchema = z.object({
+  command: z.literal('showNotification'),
+  type: z.enum(['info', 'warning', 'error']).optional(),
+  message: z.string().min(1, "Message is required"),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -320,11 +296,9 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ReRunDebugSchema,
   CopyDebugOutputSchema,
   DeleteDebugRunSchema,
-  // Feature branch additions
   FetchPineconeIndexesSchema,
   SavePineconeIndexSchema,
   GetPineconeIndexSchema,
-  // Main branch additions
   IndexRepoSchema,
   IndexRepoProgressSchema,
   IndexRepoCompleteSchema,
@@ -342,15 +316,14 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopySearchOutputSchema,
   CopySearchResultsMarkdownSchema,
   CopySearchFilePathsSchema,
-  // New Clipboard Schemas
   GetCopyModeSchema,
   SetCopyModeSchema,
-  // Qdrant Configuration Schemas
   GetVectorDbProviderSchema,
   SetVectorDbProviderSchema,
   GetQdrantConfigSchema,
   SetQdrantConfigSchema,
   TestQdrantConnectionSchema,
+  ShowNotificationSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

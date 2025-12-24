@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { ExtensionContext } from 'vscode';
 import { BaseController } from './BaseController.js';
-import { getRepoId } from '../../utils/repoIdentity.js'; //
+import { getRepoId } from '../../utils/repoIdentity.js';
 
 export class ConfigController extends BaseController {
   constructor(context: any, private readonly extensionContext: ExtensionContext) {
@@ -9,8 +9,13 @@ export class ConfigController extends BaseController {
   }
 
   async handleMessage(message: any): Promise<boolean> {
+    console.log('[ConfigController] handleMessage received command:', message.command);
+    if (message.command === 'testQdrantConnection') {
+      console.log('[ConfigController] testQdrantConnection details:', JSON.stringify(message, null, 2));
+    }
+
     switch (message.command) {
-      // --- Secrets Management (New & Correct) ---
+      // --- Secrets Management ---
       case 'checkSecret':
         await this.handleCheckSecret(message.key);
         return true;
@@ -18,8 +23,7 @@ export class ConfigController extends BaseController {
         await this.handleSaveSecret(message.key, message.value);
         return true;
 
-      // --- Pinecone Index Management (RESTORED) ---
-      // These are required for the Settings Dropdown to work
+      // --- Pinecone Index Management ---
       case 'fetchPineconeIndexes':
         await this.handleFetchPineconeIndexes(message.apiKey);
         return true;
@@ -38,7 +42,7 @@ export class ConfigController extends BaseController {
         await this.handleSetCopyMode(message.mode);
         return true;
 
-      // --- Vector DB Provider & Qdrant (New) ---
+      // --- Vector DB Provider & Qdrant ---
       case 'getVectorDbProvider':
         await this.handleGetVectorDbProvider();
         return true;
@@ -50,7 +54,8 @@ export class ConfigController extends BaseController {
         await this.handleGetQdrantConfig();
         return true;
       case 'setQdrantConfig':
-        await this.handleSetQdrantConfig(message.url, message.collection);
+        // Ensure inputs are strings
+        await this.handleSetQdrantConfig(String(message.url), String(message.collection));
         return true;
 
       case 'testQdrantConnection':
@@ -97,7 +102,7 @@ export class ConfigController extends BaseController {
     }
   }
 
-  // --- RESTORED: Pinecone Index Logic ---
+  // --- Pinecone Index Logic ---
   private async handleFetchPineconeIndexes(explicitKey?: string) {
     try {
       let apiKey = explicitKey;
@@ -150,8 +155,6 @@ export class ConfigController extends BaseController {
       repoConfigs[repoId] = index;
 
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndexByRepo', repoConfigs);
-
-      // Clear legacy global key if it exists
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', undefined);
 
     } catch (error) {
@@ -183,10 +186,8 @@ export class ConfigController extends BaseController {
       this.context.postMessage({ command: 'updateSelectedIndex', index: null });
     }
   }
-  // --- END RESTORED ---
 
   private async handleGetCopyMode() {
-    // Note: Switched to globalState as per your diff (was config.get before)
     const mode = this.extensionContext.globalState.get('repomix.runner.copyMode') ?? 'content';
     this.context.postMessage({ command: 'updateCopyMode', mode });
   }
@@ -215,9 +216,10 @@ export class ConfigController extends BaseController {
     this.context.postMessage({ command: 'qdrantConfig', url, collection });
   }
 
-  private async handleSetQdrantConfig(url: any, collection: any) {
-    const nextUrl = typeof url === 'string' ? url : '';
-    const nextCollection = typeof collection === 'string' ? collection : '';
+  private async handleSetQdrantConfig(url: string, collection: string) {
+    // Explicitly validate strings to prevent bad state
+    const nextUrl = url || '';
+    const nextCollection = collection || '';
 
     await this.extensionContext.globalState.update('repomix.qdrant.url', nextUrl);
     await this.extensionContext.globalState.update('repomix.qdrant.collection', nextCollection);
@@ -240,79 +242,121 @@ export class ConfigController extends BaseController {
     }
   }
 
-
   private async handleTestQdrantConnection(url: string, collection: string, apiKey?: string) {
+    console.log('[ConfigController] === Qdrant Test Connection Handler Started ===');
+    console.log('[ConfigController] Received URL:', url);
+    console.log('[ConfigController] Received collection:', collection);
+    console.log('[ConfigController] Received apiKey present:', !!apiKey);
+    console.log('[ConfigController] Received apiKey length:', apiKey?.length);
+
     try {
-      // Validate URL format
+      // Step 1: Validate URL format
+      console.log('[ConfigController] Step 1: Validating URL format...');
       if (!this.validateQdrantUrl(url)) {
+        console.error('[ConfigController] URL validation FAILED');
         throw new Error('Invalid URL format. Must be a valid http:// or https:// URL');
       }
+      console.log('[ConfigController] URL validation PASSED');
 
-      // DYNAMIC IMPORT: Use the new official client
+      // Step 2: Import QdrantClient
+      console.log('[ConfigController] Step 2: Importing @qdrant/js-client-rest...');
       const { QdrantClient } = await import('@qdrant/js-client-rest');
+      console.log('[ConfigController] QdrantClient imported successfully');
 
+      // Step 3: Build client config
+      console.log('[ConfigController] Step 3: Building client config...');
       const clientConfig: any = {
         url,
         timeout: 30000,
         // Custom fetch for VSCode extension host compatibility
+        // Fix: Use standard AbortController logic compatible with older Node versions
         fetch: (input: any, init: any) => {
+          console.log('[ConfigController] Custom fetch called with input:', input);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+          // Merge signals if one is already provided
+          const signal = init?.signal
+             ? (anySignal(init.signal, controller.signal)) // Simplified logic below
+             : controller.signal;
+
+          console.log('[ConfigController] Fetch request about to be sent...');
           return fetch(input, {
             ...init,
             cache: 'no-store',
-            signal: AbortSignal.timeout(30000)
-          });
+            signal: signal
+          }).finally(() => clearTimeout(timeoutId));
         }
       };
+      console.log('[ConfigController] Client config built:', JSON.stringify({ url: clientConfig.url, timeout: clientConfig.timeout, hasApiKey: !!clientConfig.apiKey }));
 
       if (apiKey) {
         clientConfig.apiKey = apiKey;
+        console.log('[ConfigController] API key added to config (first 8 chars):', apiKey.substring(0, 8) + '...');
       }
 
+      // Step 4: Create client
+      console.log('[ConfigController] Step 4: Creating QdrantClient instance...');
       const client = new QdrantClient(clientConfig);
+      console.log('[ConfigController] QdrantClient instance created');
 
-      // Test connection by listing collections
+      // Step 5: Test connection by listing collections
+      console.log('[ConfigController] Step 5: Calling client.getCollections()...');
       const response = await client.getCollections();
+      console.log('[ConfigController] getCollections() succeeded!');
+      console.log('[ConfigController] Response status:', response.status ? response.status : 'no status field');
+      console.log('[ConfigController] Collections found:', response.collections?.length || 0);
+      console.log('[ConfigController] Collection names:', response.collections?.map((c: any) => c.name) || []);
 
-      // API DIFFERENCE: The new client returns { collections: [{ name: string }] }
       const exists = response.collections.some((c: any) => c.name === collection);
+      console.log('[ConfigController] Collection "' + collection + '" exists:', exists);
 
+      // Step 6: Create collection if it doesn't exist
       if (!exists) {
-        // Create collection if it doesn't exist
-        // API DIFFERENCE: structure for vectors config is slightly stricter
+        console.log('[ConfigController] Step 6: Creating collection "' + collection + '"...');
         await client.createCollection(collection, {
           vectors: {
             size: 768,
             distance: 'Cosine'
           }
         });
+        console.log('[ConfigController] Collection created successfully');
 
+        const resultMessage = `Connected to Qdrant and created collection "${collection}"`;
+        console.log('[ConfigController] Sending success result:', resultMessage);
         this.context.postMessage({
           command: 'qdrantConnectionResult',
           success: true,
-          message: `Connected to Qdrant and created collection "${collection}"`
+          message: resultMessage
         });
-        vscode.window.showInformationMessage(`Connected to Qdrant and created collection "${collection}"`);
+        vscode.window.showInformationMessage(resultMessage);
       } else {
+        const resultMessage = `Connected to Qdrant. Collection "${collection}" already exists.`;
+        console.log('[ConfigController] Sending success result:', resultMessage);
         this.context.postMessage({
           command: 'qdrantConnectionResult',
           success: true,
-          message: `Connected to Qdrant. Collection "${collection}" already exists.`
+          message: resultMessage
         });
-        vscode.window.showInformationMessage(`Connected to Qdrant. Collection "${collection}" already exists.`);
+        vscode.window.showInformationMessage(resultMessage);
       }
+      console.log('[ConfigController] === Qdrant Test Connection Completed Successfully ===');
 
     } catch (error: unknown) {
       let errorMessage = error instanceof Error ? error.message : String(error);
 
-      // Log full error details for debugging
-      console.error('Failed to test Qdrant connection', {
-        message: errorMessage,
-        cause: error instanceof Error ? error.cause : undefined,
-        stack: error instanceof Error ? error.stack : undefined,
-        url: url
-      });
+      // More descriptive error for fetch failures
+      if (errorMessage.includes('fetch failed')) {
+        errorMessage = `Could not connect to ${url}. Please check if the Qdrant server is running and accessible.`;
+      }
 
+      console.error('[ConfigController] === Qdrant Test Connection Failed ===');
+      console.error('[ConfigController] Error message:', errorMessage);
+      console.error('[ConfigController] Error name:', error instanceof Error ? error.name : 'unknown');
+      console.error('[ConfigController] Full error:', error);
+      console.error('[ConfigController] Stack trace:', error instanceof Error ? error.stack : 'no stack');
 
+      console.error('[ConfigController] Sending failure result to webview...');
       this.context.postMessage({
         command: 'qdrantConnectionResult',
         success: false,
@@ -320,6 +364,13 @@ export class ConfigController extends BaseController {
       });
       vscode.window.showErrorMessage(`Qdrant connection failed: ${errorMessage}`);
     }
-
   }
+}
+
+// Helper to support signal composition if needed (though usually not strict for this case)
+function anySignal(s1: AbortSignal, s2: AbortSignal): AbortSignal {
+  if (s1.aborted) return s1;
+  if (s2.aborted) return s2;
+  // Fallback: just return the controller signal as it's the timeout one which is most critical
+  return s2;
 }

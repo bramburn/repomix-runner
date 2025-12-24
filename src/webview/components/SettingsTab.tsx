@@ -139,7 +139,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [copyMode, setCopyMode] = useState<string>('file');
 
   // Auto-fetch indexes if we have the key but no indexes yet
-  // This replaces the generic fetch-on-mount logic
   useEffect(() => {
     if (pineconeKeyExists && pineconeIndexes.length === 0 && !isFetchingIndexes) {
       setIsFetchingIndexes(true);
@@ -151,7 +150,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   // Handle explicit key entry (debounce)
   useEffect(() => {
     if (!pineconeKey) {
-      // Don't modify fetching state here, just return
       return;
     }
     setIsFetchingIndexes(true);
@@ -192,16 +190,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           break;
 
         case 'qdrantConnectionResult':
+          console.log('[SettingsTab] Received qdrantConnectionResult:', message);
           setQdrantTestLoading(false);
           if (message.success) {
-            // Show success message
+            console.log('[SettingsTab] Connection successful:', message.message);
             vscode.postMessage({
               command: 'showNotification',
               type: 'info',
               message: message.message,
             });
           } else {
-            // Show error message
+            console.error('[SettingsTab] Connection failed:', message.error);
             vscode.postMessage({
               command: 'showNotification',
               type: 'error',
@@ -209,8 +208,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             });
           }
           break;
-
-        // updatePineconeIndexes and updateSelectedIndex are handled by App.tsx
       }
     };
     window.addEventListener('message', handler);
@@ -243,21 +240,40 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   const handleSaveQdrantConfig = () => {
+    // Explicit check to ensure we never send empty values causing Zod errors
+    const url = qdrantUrl.trim();
+    const collection = qdrantCollection.trim();
+    
+    if (!url || !collection) return;
+
     vscode.postMessage({
       command: 'setQdrantConfig',
-      url: qdrantUrl.trim(),
-      collection: qdrantCollection.trim(),
+      url: url,
+      collection: collection,
     });
   };
 
   const handleTestQdrantConnection = () => {
+    // Debug logging before sending message
+    console.log('[SettingsTab] === Qdrant Test Connection Started ===');
+    console.log('[SettingsTab] qdrantUrl:', qdrantUrl);
+    console.log('[SettingsTab] qdrantUrl.trim():', qdrantUrl.trim());
+    console.log('[SettingsTab] qdrantCollection:', qdrantCollection);
+    console.log('[SettingsTab] qdrantCollection.trim():', qdrantCollection.trim());
+    console.log('[SettingsTab] qdrantKey present:', !!qdrantKey);
+    console.log('[SettingsTab] qdrantKey.trim():', qdrantKey.trim());
+    console.log('[SettingsTab] apiKey to send:', qdrantKey.trim() || undefined);
+
     setQdrantTestLoading(true);
-    vscode.postMessage({
+    const message = {
       command: 'testQdrantConnection',
       url: qdrantUrl.trim(),
       collection: qdrantCollection.trim(),
       apiKey: qdrantKey.trim() || undefined,
-    });
+    };
+    console.log('[SettingsTab] Sending message to extension:', JSON.stringify(message, null, 2));
+    vscode.postMessage(message);
+    console.log('[SettingsTab] Message sent, waiting for response...');
   };
 
   const handleProviderChange = (_e: any, data: any) => {
@@ -342,7 +358,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         placeholder="Enter Pinecone API Key"
         description="Required for vector search. Stored securely."
       >
-        {/* Pinecone Index Selection UI nestled inside the section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
           <Label size="small">Active Index</Label>
           <div style={{ display: 'flex', gap: '8px' }}>

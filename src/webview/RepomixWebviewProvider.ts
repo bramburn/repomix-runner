@@ -66,9 +66,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     // Main Message Dispatcher
     webviewView.webview.onDidReceiveMessage(async (data) => {
+      // Debug: Log incoming message before parsing
+      console.log('[RepomixWebviewProvider] Received message from webview, command:', data.command);
+      if (data.command === 'testQdrantConnection') {
+        console.log('[RepomixWebviewProvider] testQdrantConnection message details:', JSON.stringify(data, null, 2));
+      }
+
       let message;
       try {
         message = WebviewMessageSchema.parse(data);
+        console.log('[RepomixWebviewProvider] Message schema validation passed for command:', message.command);
 
         // Manual refine check for SaveSecretSchema because discriminatedUnion
         // uses the base schema which lacks the superRefine validation
@@ -77,13 +84,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
             message = SaveSecretSchema.parse(data);
         }
       } catch (error) {
-        console.error('Invalid webview message:', error);
+        console.error('[RepomixWebviewProvider] Message validation FAILED for command:', data.command);
+        console.error('[RepomixWebviewProvider] Validation error:', error);
+        console.error('[RepomixWebviewProvider] Original data:', data);
         vscode.window.showErrorMessage(`Invalid message: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
 
       // Handle global events
       if (message.command === 'webviewLoaded') {
+        console.log('[RepomixWebviewProvider] Handling webviewLoaded');
         await this._sendVersion();
         await Promise.all(this._controllers.map(c => c.onWebviewLoaded()));
         // Also get initial Pinecone index status
@@ -97,17 +107,34 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
+      // Handle showNotification command for displaying notifications from controllers
+      if (message.command === 'showNotification') {
+        console.log('[RepomixWebviewProvider] Handling showNotification:', message);
+        if (message.type === 'error') {
+          vscode.window.showErrorMessage(message.message);
+        } else if (message.type === 'warning') {
+          vscode.window.showWarningMessage(message.message);
+        } else {
+          vscode.window.showInformationMessage(message.message);
+        }
+        return;
+      }
+
       // Dispatch to controllers
+      console.log('[RepomixWebviewProvider] Dispatching to controllers...');
       let handled = false;
       for (const controller of this._controllers) {
+        const controllerName = controller.constructor.name;
+        console.log(`[RepomixWebviewProvider] Trying ${controllerName}.handleMessage(${message.command})...`);
         if (await controller.handleMessage(message)) {
+          console.log(`[RepomixWebviewProvider] ${controllerName}.handleMessage() handled the command`);
           handled = true;
           break;
         }
       }
 
       if (!handled) {
-        console.warn(`Unhandled command: ${message.command}`);
+        console.warn(`[RepomixWebviewProvider] Unhandled command: ${message.command}`);
       }
     });
 
