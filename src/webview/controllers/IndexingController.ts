@@ -302,7 +302,33 @@ export class IndexingController extends BaseController {
     }
   }
 
+  private async handleCopySearchFilePaths(files: string[]) {
+    // De-dupe file paths (defensive - webview should already de-dupe)
+    const cleaned = Array.from(
+      new Set((files ?? []).map((f) => (f ?? '').trim()).filter(Boolean))
+    );
 
+    if (cleaned.length === 0) {
+      vscode.window.showWarningMessage('No search result files to copy.');
+      return;
+    }
+
+    // Format paths with @ prefix and comma separation
+    // Example: @src/webview/components/SearchTab.tsx, @src/webview/App.tsx
+    const formattedPaths = cleaned.map(path => `@${path}`).join(', ');
+
+    try {
+      // Use VS Code's clipboard API
+      await vscode.env.clipboard.writeText(formattedPaths);
+      vscode.window.showInformationMessage(
+        `Copied ${cleaned.length} file path${cleaned.length === 1 ? '' : 's'} to clipboard.`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[INDEXING_CONTROLLER] Failed to copy file paths:', err);
+      vscode.window.showErrorMessage(`Failed to copy file paths: ${msg}`);
+    }
+  }
 
   async handleMessage(message: any): Promise<boolean> {
     switch (message.command) {
@@ -321,6 +347,10 @@ export class IndexingController extends BaseController {
 
       case 'copySearchResultsMarkdown':
         await this.handleCopySearchResultsMarkdown(message.files);
+        return true;
+
+      case 'copySearchFilePaths':
+        await this.handleCopySearchFilePaths(message.files);
         return true;
 
       case 'indexRepo':

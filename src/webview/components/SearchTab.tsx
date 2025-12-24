@@ -569,6 +569,11 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'copySearchResultsMarkdown', files: dedupedResultPaths });
   };
 
+  const handleCopyFilePaths = () => {
+    if (dedupedResultPaths.length === 0) return;
+    vscode.postMessage({ command: 'copySearchFilePaths', files: dedupedResultPaths });
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       
@@ -814,6 +819,12 @@ export const SearchTab = () => {
 
         {dedupedResultPaths.length > 0 && (
           <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResultPaths.length}</Text>
+        )}
+
+        {dedupedResultPaths.length > 0 && (
+          <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResultPaths.length === 0} onClick={handleCopyFilePaths}>
+            Copy File Paths
+          </Button>
         )}
 
         {dedupedResultPaths.length > 0 && (

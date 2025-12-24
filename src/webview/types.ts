@@ -95,4 +95,5 @@ export interface WebViewState {
   agentLastRun?: AgentState;
   pineconeIndexes?: PineconeIndex[];
   selectedPineconeIndex?: PineconeIndex | null;
+  smartFilterEnabled?: boolean;
 }

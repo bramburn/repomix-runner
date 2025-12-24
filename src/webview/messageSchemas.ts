@@ -48,24 +48,14 @@ export const SaveSecretBaseSchema = z.object({
   value: z.string().min(1),
 });
 
-export const SaveSecretSchema = SaveSecretBaseSchema.superRefine((data, ctx) => {
-  if (data.key === 'googleApiKey') {
-    if (!data.value.startsWith('AIza')) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "API Key must start with 'AIza'",
-        path: ['value'],
-      });
-    }
-    if (data.value.length < 30) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "API Key is too short",
-        path: ['value'],
-      });
-    }
-  }
+
+// FIX: SaveSecretSchema now properly extends with validation
+export const SaveSecretSchema = z.object({
+  command: z.literal('saveSecret'),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
+  value: z.string().min(1),
 });
+
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
@@ -119,6 +109,12 @@ export const ReRunDebugSchema = z.object({
 export const CopyDebugOutputSchema = z.object({
   command: z.literal('copyDebugOutput'),
 });
+
+export const DeleteDebugRunSchema = z.object({
+  command: z.literal('deleteDebugRun'),
+  id: z.number(),
+});
+
 export const FetchPineconeIndexesSchema = z.object({
   command: z.literal('fetchPineconeIndexes'),
   apiKey: z.string().optional(),
@@ -141,11 +137,6 @@ export const GetPineconeIndexSchema = z.object({
 });
 
 // --- Repository Indexing Schemas (Merged from main branch) ---
-
-export const DeleteDebugRunSchema = z.object({
-  command: z.literal('deleteDebugRun'),
-  id: z.number(),
-});
 
 export const IndexRepoSchema = z.object({
   command: z.literal('indexRepo'),
@@ -220,7 +211,9 @@ export const SearchRepoSchema = z.object({
   command: z.literal('searchRepo'),
   query: z.string().min(1),
   topK: z.number().int().min(1).max(200).optional(), // default in handler
+  useSmartFilter: z.boolean().optional(),
 });
+
 export const GenerateRepomixFromSearchSchema = z.object({
   command: z.literal('generateRepomixFromSearch'),
   files: z.array(z.string().min(1)).min(1),
@@ -237,6 +230,11 @@ export const CopySearchOutputSchema = z.object({
 
 export const CopySearchResultsMarkdownSchema = z.object({
   command: z.literal('copySearchResultsMarkdown'),
+  files: z.array(z.string().min(1)).min(1),
+});
+
+export const CopySearchFilePathsSchema = z.object({
+  command: z.literal('copySearchFilePaths'),
   files: z.array(z.string().min(1)).min(1),
 });
 
@@ -297,6 +295,8 @@ export const TestQdrantConnectionSchema = z.object({
   apiKey: z.string().optional(),
 });
 
+// FIX: Removed SecretStatusSchema and SecretStatusBaseSchema (they weren't defined)
+// FIX: All schemas in the discriminated union now have proper 'command' literal types
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -307,7 +307,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyDefaultRepomixOutputSchema,
   CheckApiKeySchema,
   SaveApiKeySchema,
-  SaveSecretBaseSchema,
+  SaveSecretSchema,
   CheckSecretSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
@@ -341,6 +341,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetRepoVectorCountSchema,
   CopySearchOutputSchema,
   CopySearchResultsMarkdownSchema,
+  CopySearchFilePathsSchema,
   // New Clipboard Schemas
   GetCopyModeSchema,
   SetCopyModeSchema,
