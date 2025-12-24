@@ -816,6 +816,40 @@ export const SearchTab = () => {
           <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResultPaths.length}</Text>
         )}
 
+        {dedupedResultPaths.length > 0 && (
+          <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <Label weight="semibold">Files Found</Label>
+            <div
+              style={{
+                maxHeight: '300px',
+                overflowY: 'auto',
+                border: '1px solid var(--vscode-widget-border)',
+                borderRadius: '4px',
+                backgroundColor: 'var(--vscode-editor-background)',
+                padding: '8px',
+              }}
+            >
+              {dedupedResultPaths.map((path, index) => (
+                <div
+                  key={index}
+                  style={{
+                    padding: '6px 8px',
+                    borderBottom: index < dedupedResultPaths.length - 1
+                      ? '1px solid var(--vscode-widget-border)'
+                      : 'none',
+                    fontSize: '13px',
+                    fontFamily: 'var(--vscode-editor-font-family)',
+                    color: 'var(--vscode-foreground)',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {path}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {searchError && (
           <Text size={200} style={{ color: 'var(--vscode-errorForeground)' }}>{searchError}</Text>
         )}

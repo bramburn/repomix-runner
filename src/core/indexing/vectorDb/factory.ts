@@ -37,16 +37,16 @@ export async function getVectorDbAdapterForRepo(
 
   if (provider === 'qdrant') {
     const baseUrl = extensionContext.globalState.get(STATE_QDRANT_URL) as string | undefined;
-    
+
     // [FIX] Read single global collection string instead of per-repo map
     const collection = extensionContext.globalState.get(STATE_QDRANT_COLLECTION) as string | undefined;
-    
-    const apiKey = await extensionContext.secrets.get(SECRET_QDRANT); 
+
+    const apiKey = await extensionContext.secrets.get(SECRET_QDRANT);
 
     if (!baseUrl) throw new Error('Missing Qdrant URL');
     if (!collection) throw new Error('No Qdrant collection configured');
 
-    return { provider, adapter: new QdrantAdapter({ baseUrl, apiKey, collection }) };
+    return { provider, adapter: new QdrantAdapter(baseUrl, apiKey, collection) };
   }
 
   throw new Error(`Unsupported provider: ${provider}`);

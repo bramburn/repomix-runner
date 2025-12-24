@@ -21,3 +21,4 @@ repomix-output.*
 package.json.bak
 src/**/*.map
 src/**/*.js
+.idea/

@@ -17,7 +17,7 @@ import {
   ArrowClockwiseRegular,
   SearchRegular,
   ChevronRightRegular,
-  ChevronDownRegular
+  ChevronDownRegular,
 } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 import { PineconeIndex } from '../types.js';
@@ -44,21 +44,27 @@ interface SettingsTabProps {
 // --- Reusable Components ---
 
 const ConfigSection: React.FC<ConfigSectionProps> = ({
-  title,
-  isConfigured,
-  value,
-  onChange,
-  onSave,
-  placeholder,
-  description,
-  children
-}) => {
+                                                       title,
+                                                       isConfigured,
+                                                       value,
+                                                       onChange,
+                                                       onSave,
+                                                       placeholder,
+                                                       description,
+                                                       children,
+                                                     }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -111,10 +117,10 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
 // --- Main Component ---
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
-  pineconeIndexes,
-  selectedPineconeIndex,
-  indexError
-}) => {
+                                                          pineconeIndexes,
+                                                          selectedPineconeIndex,
+                                                          indexError,
+                                                        }) => {
   const [googleKey, setGoogleKey] = useState('');
   const [pineconeKey, setPineconeKey] = useState('');
   const [qdrantKey, setQdrantKey] = useState('');
@@ -187,8 +193,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
         case 'qdrantConnectionResult':
           setQdrantTestLoading(false);
-          // Message is shown by the extension, no need to handle here
+          if (message.success) {
+            // Show success message
+            vscode.postMessage({
+              command: 'showNotification',
+              type: 'info',
+              message: message.message,
+            });
+          } else {
+            // Show error message
+            vscode.postMessage({
+              command: 'showNotification',
+              type: 'error',
+              message: `Connection failed: ${message.error}`,
+            });
+          }
           break;
+
         // updatePineconeIndexes and updateSelectedIndex are handled by App.tsx
       }
     };
@@ -272,7 +293,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <Label weight="semibold">General Settings</Label>
         <div style={{ paddingLeft: '20px' }}>
           <Switch
-            label={copyMode === 'content' ? "Copy content to clipboard (Text)" : "Copy file to clipboard (File Object)"}
+            label={copyMode === 'content' ? 'Copy content to clipboard (Text)' : 'Copy file to clipboard (File Object)'}
             checked={copyMode === 'content'}
             onChange={handleCopyModeChange}
           />

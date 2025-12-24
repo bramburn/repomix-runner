@@ -68,8 +68,8 @@ export class ConfigController extends BaseController {
         key === 'googleApiKey'
           ? 'repomix.agent.googleApiKey'
           : key === 'pineconeApiKey'
-          ? 'repomix.agent.pineconeApiKey'
-          : 'repomix.agent.qdrantApiKey';
+            ? 'repomix.agent.pineconeApiKey'
+            : 'repomix.agent.qdrantApiKey';
       const secret = await this.extensionContext.secrets.get(storageKey);
       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
     } catch (err) {
@@ -83,8 +83,8 @@ export class ConfigController extends BaseController {
         key === 'googleApiKey'
           ? 'repomix.agent.googleApiKey'
           : key === 'pineconeApiKey'
-          ? 'repomix.agent.pineconeApiKey'
-          : 'repomix.agent.qdrantApiKey';
+            ? 'repomix.agent.pineconeApiKey'
+            : 'repomix.agent.qdrantApiKey';
       await this.extensionContext.secrets.store(storageKey, value);
       this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
@@ -150,7 +150,7 @@ export class ConfigController extends BaseController {
       repoConfigs[repoId] = index;
 
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndexByRepo', repoConfigs);
-      
+
       // Clear legacy global key if it exists
       await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', undefined);
 
@@ -230,11 +230,40 @@ export class ConfigController extends BaseController {
     vscode.window.showInformationMessage('Qdrant settings saved.');
   }
 
+  private validateQdrantUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+        parsed.hostname.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+
   private async handleTestQdrantConnection(url: string, collection: string, apiKey?: string) {
     try {
+      // Validate URL format
+      if (!this.validateQdrantUrl(url)) {
+        throw new Error('Invalid URL format. Must be a valid http:// or https:// URL');
+      }
+
+      // DYNAMIC IMPORT: Use the new official client
       const { QdrantClient } = await import('@qdrant/js-client-rest');
 
-      const clientConfig: any = { url };
+      const clientConfig: any = {
+        url,
+        timeout: 30000,
+        // Custom fetch for VSCode extension host compatibility
+        fetch: (input: any, init: any) => {
+          return fetch(input, {
+            ...init,
+            cache: 'no-store',
+            signal: AbortSignal.timeout(30000)
+          });
+        }
+      };
+
       if (apiKey) {
         clientConfig.apiKey = apiKey;
       }
@@ -242,45 +271,55 @@ export class ConfigController extends BaseController {
       const client = new QdrantClient(clientConfig);
 
       // Test connection by listing collections
-      const collectionsResponse = await client.getCollections();
-      const collections = collectionsResponse.collections || [];
-      const collectionExists = collections.some((c: any) => c.name === collection);
+      const response = await client.getCollections();
 
-      if (!collectionExists) {
-        // Create collection with default vector config (768 dimensions for common embeddings)
+      // API DIFFERENCE: The new client returns { collections: [{ name: string }] }
+      const exists = response.collections.some((c: any) => c.name === collection);
+
+      if (!exists) {
+        // Create collection if it doesn't exist
+        // API DIFFERENCE: structure for vectors config is slightly stricter
         await client.createCollection(collection, {
           vectors: {
             size: 768,
-            distance: 'Cosine',
-          },
+            distance: 'Cosine'
+          }
         });
 
         this.context.postMessage({
           command: 'qdrantConnectionResult',
           success: true,
-          collectionCreated: true,
-          message: `Connected to Qdrant and created collection "${collection}"`,
+          message: `Connected to Qdrant and created collection "${collection}"`
         });
-        vscode.window.showInformationMessage(`✓ Connected to Qdrant and created collection "${collection}"`);
+        vscode.window.showInformationMessage(`Connected to Qdrant and created collection "${collection}"`);
       } else {
         this.context.postMessage({
           command: 'qdrantConnectionResult',
           success: true,
-          collectionCreated: false,
-          message: `Connected to Qdrant. Collection "${collection}" already exists.`,
+          message: `Connected to Qdrant. Collection "${collection}" already exists.`
         });
-        vscode.window.showInformationMessage(`✓ Connected to Qdrant. Collection "${collection}" already exists.`);
+        vscode.window.showInformationMessage(`Connected to Qdrant. Collection "${collection}" already exists.`);
       }
+
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Failed to test Qdrant connection:', error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Log full error details for debugging
+      console.error('Failed to test Qdrant connection', {
+        message: errorMessage,
+        cause: error instanceof Error ? error.cause : undefined,
+        stack: error instanceof Error ? error.stack : undefined,
+        url: url
+      });
+
 
       this.context.postMessage({
         command: 'qdrantConnectionResult',
         success: false,
-        error: errorMessage,
+        error: errorMessage
       });
-      vscode.window.showErrorMessage(`✗ Qdrant connection failed: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Qdrant connection failed: ${errorMessage}`);
     }
+
   }
 }

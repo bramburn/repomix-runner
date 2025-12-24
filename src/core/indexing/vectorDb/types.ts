@@ -1,5 +1,11 @@
 export type VectorDbProvider = 'pinecone' | 'qdrant';
 
+export type Vector = {
+  id: string;
+  values: number[];
+  metadata: any;
+};
+
 export type VectorDbQueryResult = {
   matches: Array<{ id: string; score: number; metadata?: any }>;
 };
