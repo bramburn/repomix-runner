@@ -2,10 +2,22 @@ import * as vscode from 'vscode';
 import type { ExtensionContext } from 'vscode';
 import { BaseController } from './BaseController.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
+import { MigrationService } from '../../core/indexing/migrationService.js';
+import { DatabaseService } from '../../core/storage/databaseService.js';
+
+const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
+const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
+const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
 
 export class ConfigController extends BaseController {
-  constructor(context: any, private readonly extensionContext: ExtensionContext) {
+  private migrationService: MigrationService;
+  constructor(
+    context: any,
+    private readonly extensionContext: ExtensionContext,
+    private readonly databaseService: DatabaseService
+  ) {
     super(context);
+    this.migrationService = new MigrationService(this.extensionContext.secrets, this.extensionContext.globalState, this.databaseService);
   }
 
   async handleMessage(message: any): Promise<boolean> {
@@ -71,10 +83,10 @@ export class ConfigController extends BaseController {
     try {
       const storageKey =
         key === 'googleApiKey'
-          ? 'repomix.agent.googleApiKey'
+          ? SECRET_GOOGLE_GEMINI
           : key === 'pineconeApiKey'
-            ? 'repomix.agent.pineconeApiKey'
-            : 'repomix.agent.qdrantApiKey';
+            ? SECRET_PINECONE
+            : SECRET_QDRANT;
       const secret = await this.extensionContext.secrets.get(storageKey);
       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
     } catch (err) {
@@ -86,10 +98,10 @@ export class ConfigController extends BaseController {
     try {
       const storageKey =
         key === 'googleApiKey'
-          ? 'repomix.agent.googleApiKey'
+          ? SECRET_GOOGLE_GEMINI
           : key === 'pineconeApiKey'
-            ? 'repomix.agent.pineconeApiKey'
-            : 'repomix.agent.qdrantApiKey';
+            ? SECRET_PINECONE
+            : SECRET_QDRANT;
       await this.extensionContext.secrets.store(storageKey, value);
       this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
@@ -107,7 +119,7 @@ export class ConfigController extends BaseController {
     try {
       let apiKey = explicitKey;
       if (!apiKey) {
-        apiKey = await this.extensionContext.secrets.get('repomix.agent.pineconeApiKey');
+        apiKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
       }
 
       if (!apiKey) {
@@ -205,8 +217,32 @@ export class ConfigController extends BaseController {
 
   private async handleSetVectorDbProvider(provider: any) {
     const normalized = provider === 'qdrant' ? 'qdrant' : 'pinecone';
-    await this.extensionContext.globalState.update('repomix.vectorDb.provider', normalized);
-    this.context.postMessage({ command: 'vectorDbProvider', provider: normalized });
+
+    try {
+      // 1. Attempt the atomic switch via MigrationService
+      // This validates credentials and clears the local index state (DatabaseService.clearRepoFiles)
+      // to trigger a full re-index in the new database.
+      const didSwitch = await this.migrationService.switchProvider(normalized);
+
+      // 2. Update the UI state
+      this.context.postMessage({ command: 'vectorDbProvider', provider: normalized });
+
+      if (didSwitch) {
+        // 3. Notify the webview that the index count is now 0 so it updates visually
+        this.context.postMessage({ command: 'repoIndexDeleted' });
+        vscode.window.showInformationMessage(
+          `Successfully switched to ${normalized}. Local state reset to trigger re-indexing.`
+        );
+      }
+    } catch (error) {
+      // 4. Handle validation failures (e.g. switching to Qdrant without a URL set)
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(errorMsg);
+
+      // Revert the UI state to the currently stored provider to keep settings in sync
+      const current = this.extensionContext.globalState.get('repomix.vectorDb.provider') || 'pinecone';
+      this.context.postMessage({ command: 'vectorDbProvider', provider: current });
+    }
   }
 
   private async handleGetQdrantConfig() {
@@ -249,6 +285,18 @@ export class ConfigController extends BaseController {
     console.log('[ConfigController] Received apiKey present:', !!apiKey);
     console.log('[ConfigController] Received apiKey length:', apiKey?.length);
 
+    // FIX: Retrieve API Key from secrets if not provided in the message
+    if (!apiKey) {
+      console.log('[ConfigController] API Key missing in message payload. Attempting to retrieve from secrets...');
+      apiKey = await this.extensionContext.secrets.get(SECRET_QDRANT);
+
+      if (apiKey) {
+        console.log('[ConfigController] API Key successfully retrieved from secrets (length:', apiKey.length, ')');
+      } else {
+        console.warn('[ConfigController] API Key not found in secrets. Connection will be attempted without authentication.');
+      }
+    }
+
     try {
       // Step 1: Validate URL format
       console.log('[ConfigController] Step 1: Validating URL format...');
@@ -277,8 +325,8 @@ export class ConfigController extends BaseController {
 
           // Merge signals if one is already provided
           const signal = init?.signal
-             ? (anySignal(init.signal, controller.signal)) // Simplified logic below
-             : controller.signal;
+            ? (anySignal(init.signal, controller.signal)) // Simplified logic below
+            : controller.signal;
 
           console.log('[ConfigController] Fetch request about to be sent...');
           return fetch(input, {
@@ -304,7 +352,7 @@ export class ConfigController extends BaseController {
       console.log('[ConfigController] Step 5: Calling client.getCollections()...');
       const response = await client.getCollections();
       console.log('[ConfigController] getCollections() succeeded!');
-      console.log('[ConfigController] Response status:', response.status ? response.status : 'no status field');
+      // console.log('[ConfigController] Response status:', response.status ? response.status : 'no status field');
       console.log('[ConfigController] Collections found:', response.collections?.length || 0);
       console.log('[ConfigController] Collection names:', response.collections?.map((c: any) => c.name) || []);
 

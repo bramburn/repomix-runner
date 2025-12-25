@@ -23,6 +23,7 @@ type RepoSearchResult = {
   id: string;
   score: number;
   path?: string;
+  reason?: string;
 };
 
 type FileTypeFilterState = {
@@ -192,6 +193,8 @@ export const SearchTab = () => {
   const [results, setResults] = useState<RepoSearchResult[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
+
+  const [copyDecisionsLabel, setCopyDecisionsLabel] = useState('Copy Smart Filter Decisions');
 
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>(
     loadedState?.fileTypeFilter || DEFAULT_FILTERS
@@ -574,6 +577,49 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'copySearchFilePaths', files: dedupedResultPaths });
   };
 
+  const handleCopySmartDecisions = () => {
+    const seen = new Set<string>();
+    const output: string[] = [];
+
+    // Use filtered results (which is 'results' state)
+    for (const r of results) {
+      const p = r.path?.trim();
+      // We need both path and reason
+      if (!p || !r.reason) continue;
+      
+      if (seen.has(p)) continue;
+      seen.add(p);
+
+      output.push(`File: ${p}\nDecision: ${r.reason}`);
+    }
+
+    if (output.length === 0) return;
+
+    const text = output.join('\n\n');
+    
+    // Copy to clipboard
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    // Make it invisible
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    
+    textarea.focus();
+    textarea.select();
+    
+    try {
+      document.execCommand('copy');
+      setCopyDecisionsLabel('Copied!');
+      setTimeout(() => setCopyDecisionsLabel('Copy Smart Filter Decisions'), 2000);
+    } catch (e) {
+      console.error('Failed to copy decisions', e);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       
@@ -816,6 +862,17 @@ export const SearchTab = () => {
         <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResultPaths.length === 0} onClick={handleCopySearchResultsMarkdown}>
           Copy as Markdown
         </Button>
+
+        {smartFilterEnabled && results.some(r => r.reason) && (
+          <Button 
+            appearance="secondary" 
+            icon={<CopyRegular />} 
+            style={{ width: '100%' }} 
+            onClick={handleCopySmartDecisions}
+          >
+            {copyDecisionsLabel}
+          </Button>
+        )}
 
         {dedupedResultPaths.length > 0 && (
           <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResultPaths.length}</Text>

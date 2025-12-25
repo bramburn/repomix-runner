@@ -7,7 +7,6 @@ import { ExecutionQueueManager, DEFAULT_REPOMIX_ID } from '../services/Execution
 import { resolveBundleOutputPath } from '../../core/files/outputPathResolver.js';
 import { calculateBundleStats, getCachedBundleStats, invalidateStatsCache } from '../../core/files/fileStats.js';
 import { getCwd } from '../../config/getCwd.js';
-import { WebviewBundle } from '../../core/bundles/types.js';
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';

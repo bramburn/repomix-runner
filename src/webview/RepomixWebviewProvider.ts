@@ -59,7 +59,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     this._controllers = [
       new BundleController(webviewContext, this._bundleManager, this._queueManager),
       new AgentController(webviewContext, this._databaseService, this._context),
-      new ConfigController(webviewContext, this._context),
+      new ConfigController(webviewContext, this._context, this._databaseService),
       new IndexingController(webviewContext, this._databaseService, this._context),
       new DebugController(webviewContext, this._databaseService)
     ];
