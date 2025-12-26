@@ -62,6 +62,8 @@ interface SearchTabState {
   query: string;
   smartFilterEnabled: boolean;
   openAccordionItems: string[];
+  topK: number;
+  confidenceThreshold: number;
 }
 
 const DEFAULT_FILTERS: FileTypeFilterState = {
@@ -161,10 +163,6 @@ function baseNameOf(p: string): string {
 
 export const SearchTab = () => {
 
-  const [topK, setTopK] = useState(200);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
-
-
   // Try to load state from vscode context
   const loadedState = vscode.getState() as SearchTabState | undefined;
 
@@ -208,15 +206,23 @@ export const SearchTab = () => {
     loadedState?.fileTypeFilter || DEFAULT_FILTERS
   );
 
-  // Persist state changes
+  // Initialize sliders with saved state or defaults
+  const [topK, setTopK] = useState(loadedState?.topK ?? 200);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(loadedState?.confidenceThreshold ?? 0.5);
+
+  // Persist state changes (merge with existing state to avoid clobbering other tabs)
   useEffect(() => {
+    const prev = vscode.getState() ?? {};
     vscode.setState({
+      ...prev,
       fileTypeFilter,
       query,
       smartFilterEnabled,
       openAccordionItems: openItems,
+      topK,
+      confidenceThreshold,
     });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems]);
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold]);
 
   const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
     const val = data.value as string;
@@ -862,7 +868,7 @@ export const SearchTab = () => {
               max={1}
               step={0.1}
               value={confidenceThreshold}
-              onChange={(e, data) => setConfidenceThreshold(data.value || 0.5)}
+              onChange={(e, data) => setConfidenceThreshold(data.value ?? 0.5)}
               style={{ width: '100%' }}
             />
           </>
@@ -875,7 +881,7 @@ export const SearchTab = () => {
           max={1000}
           step={10}
           value={topK}
-          onChange={(e, data) => setTopK(data.value || 200)}
+          onChange={(e, data) => setTopK(data.value ?? 200)}
           style={{ width: '100%' }}
         />
 
