@@ -580,12 +580,14 @@ export const SearchTab = () => {
 
   const handleCopySearchResultsMarkdown = () => {
     if (dedupedResults.length === 0) return;
-    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: dedupedResults });
+    const filePaths = dedupedResults.map(r => r.path).filter((p): p is string => !!p);
+    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: filePaths });
   };
 
   const handleCopyFilePaths = () => {
     if (dedupedResults.length === 0) return;
-    vscode.postMessage({ command: 'copySearchFilePaths', files: dedupedResults });
+    const filePaths = dedupedResults.map(r => r.path).filter((p): p is string => !!p);
+    vscode.postMessage({ command: 'copySearchFilePaths', files: filePaths });
   };
 
   const handleCopySmartDecisions = () => {
