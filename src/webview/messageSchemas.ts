@@ -200,8 +200,9 @@ export const GetRepoIndexCountSchema = z.object({
 export const SearchRepoSchema = z.object({
   command: z.literal('searchRepo'),
   query: z.string().min(1),
-  topK: z.number().int().min(1).max(200).optional(),
+  topK: z.number().int().min(1).max(1000).optional(),
   useSmartFilter: z.boolean().optional(),
+  confidenceThreshold: z.number().min(0).max(1).optional(),
 });
 
 export const GenerateRepomixFromSearchSchema = z.object({

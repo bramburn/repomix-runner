@@ -34,7 +34,7 @@ import { getVectorDbAdapterForRepo } from './core/indexing/vectorDb/factory.js';
 import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 
-// Import ignore package for .gitignore parsing
+import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import ignore from 'ignore';
 
 export async function activate(context: vscode.ExtensionContext) {

@@ -5,6 +5,7 @@ import {
   Spinner,
   Text,
   Input,
+  Slider,
   Accordion,
   AccordionItem,
   AccordionHeader,
@@ -18,12 +19,14 @@ import {
   CopyRegular,
 } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
+import { Tooltip } from '@fluentui/react-components';
 
-type RepoSearchResult = {
+export type RepoSearchResult = {
   id: string;
   score: number;
   path?: string;
   reason?: string;
+  snippet?: string;
 };
 
 type FileTypeFilterState = {
@@ -157,6 +160,11 @@ function baseNameOf(p: string): string {
 }
 
 export const SearchTab = () => {
+
+  const [topK, setTopK] = useState(200);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+
+
   // Try to load state from vscode context
   const loadedState = vscode.getState() as SearchTabState | undefined;
 
@@ -231,13 +239,13 @@ export const SearchTab = () => {
     const includedBases = new Set<string>();
     const excludedExts = new Set<string>();
     const excludedBases = new Set<string>();
-  
+
     const addExt = (s: string) => includedExts.add(s);
     const addBase = (s: string) => includedBases.add(s);
-  
+
     const addExcludeExt = (s: string) => excludedExts.add(s);
     const addExcludeBase = (s: string) => excludedBases.add(s);
-  
+
     // Languages
     if (fileTypeFilter.typescript) {
       addExt('.ts');
@@ -252,7 +260,7 @@ export const SearchTab = () => {
     if (fileTypeFilter.csharp) addExt('.cs');
     if (fileTypeFilter.java) addExt('.java');
     if (fileTypeFilter.dart) addExt('.dart');
-  
+
     // Formats
     if (fileTypeFilter.yaml) {
       addExt('.yaml');
@@ -267,7 +275,7 @@ export const SearchTab = () => {
       addExt('.md');
       addExt('.mdx');
     }
-  
+
     // Config bucket
     if (fileTypeFilter.config) {
       [
@@ -303,15 +311,15 @@ export const SearchTab = () => {
         const lower = e.toLowerCase();
         // Just add everything in this bucket to bases if it looks like a full filename
         if (e.startsWith('.') && e.indexOf('.', 1) === -1) {
-            addBase(lower);
+          addBase(lower);
         } else {
-            addBase(lower);
+          addBase(lower);
         }
       });
       // Also add extensions that are definitely extensions
       ['.toml', '.ini', '.cfg', '.conf', '.properties', '.plist', '.xcconfig'].forEach(addExt);
     }
-  
+
     // Mobile bucket (Android/iOS)
     if (fileTypeFilter.mobile) {
       [
@@ -329,7 +337,7 @@ export const SearchTab = () => {
         '.xib',
       ].forEach((e) => addExt(e));
     }
-  
+
     // Custom
     if (fileTypeFilter.custom) {
       fileTypeFilter.custom
@@ -339,32 +347,32 @@ export const SearchTab = () => {
         .forEach((raw) => {
           let isExclude = false;
           let token = raw;
-  
+
           if (token.startsWith('!')) {
             isExclude = true;
             token = token.substring(1).trim();
           }
           if (!token) return;
-  
+
           const lower = token.toLowerCase();
-  
+
           const looksLikeExt =
             (lower.startsWith('.') && lower.length <= 5 && lower.indexOf('.', 1) === -1) ||
             (!lower.startsWith('.') && lower.length <= 4 && lower.indexOf('.') === -1);
-  
+
           if (looksLikeExt) {
             const ext = lower.startsWith('.') ? lower : `.${lower}`;
             if (isExclude) addExcludeExt(ext);
             else addExt(ext);
             return;
           }
-  
+
           const base = lower;
           if (isExclude) addExcludeBase(base);
           else addBase(base);
         });
     }
-  
+
     return { includedExts, includedBases, excludedExts, excludedBases };
   };
 
@@ -379,27 +387,29 @@ export const SearchTab = () => {
     [query, isSearching, hasAnyFileTypeSelected]
   );
 
-  const dedupedResultPaths = useMemo(() => {
+  const dedupedResults = useMemo(() => {
     const seen = new Set<string>();
-    const out: string[] = [];
+    const out: RepoSearchResult[] = [];
 
     for (const r of results) {
       const p = r.path?.trim();
       if (!p) continue;
       if (seen.has(p)) continue;
       seen.add(p);
-      out.push(p);
+      out.push(r);
     }
 
     return out;
   }, [results]);
 
-  const canGenerate = useMemo(() => dedupedResultPaths.length > 0 && !isSearching, [dedupedResultPaths, isSearching]);
+  const canGenerate = useMemo(() => dedupedResults.length > 0 && !isSearching, [dedupedResults, isSearching]);
 
   const handleGenerate = () => {
-    if (dedupedResultPaths.length === 0) return;
-    vscode.postMessage({ command: 'generateRepomixFromSearch', files: dedupedResultPaths });
+    if (dedupedResults.length === 0) return;
+    vscode.postMessage({ command: 'generateRepomixFromSearch', files: dedupedResults });
   };
+
+
 
   const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
     const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
@@ -557,8 +567,9 @@ export const SearchTab = () => {
     vscode.postMessage({
       command: 'searchRepo',
       query: q,
-      topK: 200,
+      topK: topK,
       useSmartFilter: smartFilterEnabled,
+      confidenceThreshold: confidenceThreshold,
     });
   };
 
@@ -568,13 +579,13 @@ export const SearchTab = () => {
   };
 
   const handleCopySearchResultsMarkdown = () => {
-    if (dedupedResultPaths.length === 0) return;
-    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: dedupedResultPaths });
+    if (dedupedResults.length === 0) return;
+    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: dedupedResults });
   };
 
   const handleCopyFilePaths = () => {
-    if (dedupedResultPaths.length === 0) return;
-    vscode.postMessage({ command: 'copySearchFilePaths', files: dedupedResultPaths });
+    if (dedupedResults.length === 0) return;
+    vscode.postMessage({ command: 'copySearchFilePaths', files: dedupedResults });
   };
 
   const handleCopySmartDecisions = () => {
@@ -586,7 +597,7 @@ export const SearchTab = () => {
       const p = r.path?.trim();
       // We need both path and reason
       if (!p || !r.reason) continue;
-      
+
       if (seen.has(p)) continue;
       seen.add(p);
 
@@ -596,7 +607,7 @@ export const SearchTab = () => {
     if (output.length === 0) return;
 
     const text = output.join('\n\n');
-    
+
     // Copy to clipboard
     const textarea = document.createElement('textarea');
     textarea.value = text;
@@ -605,10 +616,10 @@ export const SearchTab = () => {
     textarea.style.left = '-9999px';
     textarea.style.top = '0';
     document.body.appendChild(textarea);
-    
+
     textarea.focus();
     textarea.select();
-    
+
     try {
       document.execCommand('copy');
       setCopyDecisionsLabel('Copied!');
@@ -622,7 +633,7 @@ export const SearchTab = () => {
 
   return (
     <div style={{ padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-      
+
       {/* Indexing Section Accordion */}
       <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
         <AccordionItem value="indexing">
@@ -816,6 +827,7 @@ export const SearchTab = () => {
           onKeyDown={(e) => e.key === 'Enter' && canSearch && handleSearch()}
         />
 
+        {/* Smart Filter checkbox */}
         <div
           style={{
             display: 'flex',
@@ -836,6 +848,34 @@ export const SearchTab = () => {
             Smart Filter
           </Label>
         </div>
+
+        {/* Smart Filter Controls */}
+        {smartFilterEnabled && (
+          <>
+            <Label size="small">
+              Confidence Threshold: {confidenceThreshold.toFixed(1)}
+            </Label>
+            <Slider
+              min={0}
+              max={1}
+              step={0.1}
+              value={confidenceThreshold}
+              onChange={(e, data) => setConfidenceThreshold(data.value || 0.5)}
+              style={{ width: '100%' }}
+            />
+          </>
+        )}
+
+        {/* VectorDB Results Limit */}
+        <Label size="small">Max VectorDB Results (topK): {topK}</Label>
+        <Slider
+          min={10}
+          max={1000}
+          step={10}
+          value={topK}
+          onChange={(e, data) => setTopK(data.value || 200)}
+          style={{ width: '100%' }}
+        />
 
         {smartFilterEnabled && expandedQueries.length > 0 && (
           <Text size={200} style={{ opacity: 0.7 }}>Expanded: {expandedQueries.join(' • ')}</Text>
@@ -859,32 +899,32 @@ export const SearchTab = () => {
           Copy
         </Button>
 
-        <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResultPaths.length === 0} onClick={handleCopySearchResultsMarkdown}>
+        <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResults.length === 0} onClick={handleCopySearchResultsMarkdown}>
           Copy as Markdown
         </Button>
 
         {smartFilterEnabled && results.some(r => r.reason) && (
-          <Button 
-            appearance="secondary" 
-            icon={<CopyRegular />} 
-            style={{ width: '100%' }} 
+          <Button
+            appearance="secondary"
+            icon={<CopyRegular />}
+            style={{ width: '100%' }}
             onClick={handleCopySmartDecisions}
           >
             {copyDecisionsLabel}
           </Button>
         )}
 
-        {dedupedResultPaths.length > 0 && (
-          <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResultPaths.length}</Text>
+        {dedupedResults.length > 0 && (
+          <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResults.length}</Text>
         )}
 
-        {dedupedResultPaths.length > 0 && (
-          <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResultPaths.length === 0} onClick={handleCopyFilePaths}>
+        {dedupedResults.length > 0 && (
+          <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResults.length === 0} onClick={handleCopyFilePaths}>
             Copy File Paths
           </Button>
         )}
 
-        {dedupedResultPaths.length > 0 && (
+        {dedupedResults.length > 0 && (
           <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <Label weight="semibold">Files Found</Label>
             <div
@@ -897,21 +937,57 @@ export const SearchTab = () => {
                 padding: '8px',
               }}
             >
-              {dedupedResultPaths.map((path, index) => (
+              {dedupedResults.map((r, index) => (
                 <div
                   key={index}
                   style={{
                     padding: '6px 8px',
-                    borderBottom: index < dedupedResultPaths.length - 1
+                    borderBottom: index < dedupedResults.length - 1
                       ? '1px solid var(--vscode-widget-border)'
                       : 'none',
                     fontSize: '13px',
                     fontFamily: 'var(--vscode-editor-font-family)',
                     color: 'var(--vscode-foreground)',
                     wordBreak: 'break-all',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
-                  {path}
+                  <span>{r.path}</span>
+                  {smartFilterEnabled && r.reason && (
+                    <Tooltip
+                      content={`${r.reason} (Score: ${r.score.toFixed(3)})`}
+                      relationship="description"
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          cursor: 'help',
+                          marginLeft: '8px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '10px',
+                            height: '10px',
+                            borderRadius: '50%',
+                            backgroundColor: r.score > 0.7
+                              ? 'var(--vscode-terminal-ansiGreen)'
+                              : 'var(--vscode-terminal-ansiYellow)',
+                            border: '1px solid var(--vscode-widget-border)',
+                            display: 'inline-block'
+                          }}
+                        />
+                        <Text size={100} style={{ opacity: 0.7 }}>
+                          {r.score > 0.7 ? 'High' : 'Medium'}
+                        </Text>
+                      </div>
+                    </Tooltip>
+                  )}
                 </div>
               ))}
             </div>

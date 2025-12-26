@@ -8,6 +8,9 @@ export interface RepoSearchResult {
   score: number;
   path?: string;
   snippet?: string;
+  reason?: string;
+  _llmConfidence?: number;
+  _llmReason?: string;
 }
 
 export interface RerankingConfig {
@@ -122,6 +125,7 @@ export async function rerankResultsWithLLM(
         return {
           ...r,
           score: combinedScore,
+          reason: verified.reason,
           _llmConfidence: verified.confidence,
           _llmReason: verified.reason,
         };

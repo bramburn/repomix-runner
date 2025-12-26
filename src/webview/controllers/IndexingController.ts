@@ -49,7 +49,7 @@ export class IndexingController extends BaseController {
   private currentAbortController: AbortController | null = null;
   private currentRepoId: string | null = null;
 
-  private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean) {
+  private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean, confidenceThreshold?: number) {
     try {
       const q = (query ?? '').trim();
       if (!q) return;
@@ -145,7 +145,7 @@ export class IndexingController extends BaseController {
         const { rerankResultsWithLLM } = await import('../../core/indexing/llmReranking.js');
         results = await rerankResultsWithLLM(q, results, googleKey, cwd, {
           maxFiles: 10,
-          confidenceThreshold: 0.5,
+          confidenceThreshold: typeof confidenceThreshold === 'number' ? confidenceThreshold : 0.5,
           useFileContent: false,
         });
 
@@ -333,7 +333,7 @@ export class IndexingController extends BaseController {
   async handleMessage(message: any): Promise<boolean> {
     switch (message.command) {
       case 'searchRepo':
-        await this.handleSearchRepo(message.query, message.topK, message.useSmartFilter);
+        await this.handleSearchRepo(message.query, message.topK, message.useSmartFilter, message.confidenceThreshold);
         return true;
 
 
