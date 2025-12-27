@@ -11,6 +11,7 @@ import { AgentController } from './controllers/AgentController.js';
 import { ConfigController } from './controllers/ConfigController.js';
 import { DebugController } from './controllers/DebugController.js';
 import { IndexingController } from './controllers/IndexingController.js';
+import { ApplyController } from './controllers/ApplyController.js';
 import { ExecutionQueueManager } from './services/ExecutionQueueManager.js';
 import * as fs from 'fs';
 
@@ -61,7 +62,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new AgentController(webviewContext, this._databaseService, this._context),
       new ConfigController(webviewContext, this._context, this._databaseService),
       new IndexingController(webviewContext, this._databaseService, this._context),
-      new DebugController(webviewContext, this._databaseService)
+      new DebugController(webviewContext, this._databaseService),
+      new ApplyController(webviewContext, this._context)
     ];
 
     // Main Message Dispatcher

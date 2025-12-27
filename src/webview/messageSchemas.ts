@@ -274,6 +274,11 @@ export const ShowNotificationSchema = z.object({
   message: z.string().min(1, "Message is required"),
 });
 
+export const ApplyPatchesSchema = z.object({
+  command: z.literal('applyPatches'),
+  text: z.string(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -325,6 +330,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   SetQdrantConfigSchema,
   TestQdrantConnectionSchema,
   ShowNotificationSchema,
+  ApplyPatchesSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

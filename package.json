@@ -543,6 +543,7 @@
     "@qdrant/js-client-rest": "^1.16.2",
     "@types/sql.js": "^1.4.9",
     "fast-xml-parser": "^5.3.3",
+    "fastest-levenshtein": "^1.0.16",
     "glob-gitignore": "^1.0.15",
     "gpt-tokenizer": "^3.4.0",
     "ignore": "^7.0.5",
