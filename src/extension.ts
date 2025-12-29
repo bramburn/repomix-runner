@@ -270,8 +270,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (!shouldIgnore(rel)) {
           console.log(`[BackgroundMonitor] File deleted: ${rel} (total deletes: ${deleteCount})`);
-          // Mark as deleted in database (vectors will be cleaned up later)
-          void databaseService.markRepoFileDeleted(repoId, rel);
+          // Queue for processing (will detect missing file and clean up vectors)
+          monitor.queue(rel);
         } else {
           ignoredCount++;
         }
