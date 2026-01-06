@@ -13,13 +13,20 @@ export function addFileExtension(filePath: string, style: string): string {
   const expectedExt = extensionMap[normalized];
   if (!expectedExt) return filePath;
 
-  // ✅ NEW: if the user already specified ANY extension, respect it.
-  // (This is the key behavior change.)
   const currentExt = path.extname(filePath);
-  if (currentExt) {
-    return filePath;
+
+  // If the file has no extension, or has an extension that we manage (xml, md, txt, json)
+  // but it doesn't match the expected one for the current style, update it.
+  const managedExtensions = Object.values(extensionMap);
+  if (!currentExt || managedExtensions.includes(currentExt)) {
+    if (filePath.endsWith(expectedExt)) {
+      return filePath;
+    }
+    // Swap extension or add it
+    const base = currentExt ? filePath.slice(0, -currentExt.length) : filePath;
+    return base + expectedExt;
   }
 
-  // No extension provided -> add one based on style
-  return filePath.endsWith(expectedExt) ? filePath : filePath + expectedExt;
+  // If it's a completely custom extension (like .myext), respect it.
+  return filePath;
 }

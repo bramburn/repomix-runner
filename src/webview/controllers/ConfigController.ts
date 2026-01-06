@@ -4,6 +4,7 @@ import { BaseController } from './BaseController.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
 import { MigrationService } from '../../core/indexing/migrationService.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
+import { IndexingController } from './IndexingController.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -13,8 +14,9 @@ export class ConfigController extends BaseController {
   private migrationService: MigrationService;
   constructor(
     context: any,
-    private readonly extensionContext: ExtensionContext,
-    private readonly databaseService: DatabaseService
+    private readonly extensionContext: vscode.ExtensionContext,
+    private readonly databaseService: DatabaseService,
+    private readonly indexingController: IndexingController
   ) {
     super(context);
     this.migrationService = new MigrationService(this.extensionContext.secrets, this.extensionContext.globalState, this.databaseService);
@@ -219,6 +221,10 @@ export class ConfigController extends BaseController {
     const normalized = provider === 'qdrant' ? 'qdrant' : 'pinecone';
 
     try {
+      // 0. Stop any in-flight indexing before switching
+      // This ensures no races and a clean slate for the new provider.
+      await this.indexingController.abortIndexing();
+
       // 1. Attempt the atomic switch via MigrationService
       // This validates credentials and clears the local index state (DatabaseService.clearRepoFiles)
       // to trigger a full re-index in the new database.

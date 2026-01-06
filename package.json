@@ -435,7 +435,7 @@
       "explorer/context": [
         {
           "command": "repomixRunner.copySelectedFilesToClipboard",
-          "when": "!explorerResourceIsFolder",
+          "when": "explorerResourceIsFolder || !explorerResourceIsFolder",
           "group": "2_workspace"
         },
         {

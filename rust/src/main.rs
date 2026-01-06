@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use ignore::WalkBuilder;
 
 use tempfile::Builder;
 
@@ -81,16 +82,41 @@ fn handle_generate_md_mode(args: &[String]) -> Result<(), Box<dyn std::error::Er
         cwd.display()
     );
 
-    // De-dupe (defensive); preserve order
+    // Expand directories and de-dupe
     let mut seen = HashSet::<String>::new();
     let mut deduped: Vec<String> = Vec::new();
+
     for f in rel_files {
         let t = f.trim();
         if t.is_empty() {
             continue;
         }
-        if seen.insert(t.to_string()) {
-            deduped.push(t.to_string());
+
+        let abs_path = cwd.join(t);
+        if abs_path.is_dir() {
+            // It's a directory: walk it respecting .gitignore
+            let walker = WalkBuilder::new(&abs_path).build();
+            for result in walker {
+                match result {
+                    Ok(entry) => {
+                        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                            // Convert back to relative path for consistency with file arguments
+                            if let Ok(rel) = entry.path().strip_prefix(&cwd) {
+                                let rel_str = rel.to_string_lossy().to_string();
+                                if seen.insert(rel_str.clone()) {
+                                    deduped.push(rel_str);
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => eprintln!("Warning: Error walking {}: {}", t, err),
+                }
+            }
+        } else {
+            // It's a file (or invalid path): keep it and let build_markdown handle it
+            if seen.insert(t.to_string()) {
+                deduped.push(t.to_string());
+            }
         }
     }
 

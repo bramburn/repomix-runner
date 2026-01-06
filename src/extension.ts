@@ -286,6 +286,43 @@ export async function activate(context: vscode.ExtensionContext) {
       console.log(`[BackgroundMonitor] Event counts will be tracked in console`);
       logger.both.info('[BackgroundMonitor] File watcher initialized for incremental re-embedding');
 
+      // ========================================================================
+      // STARTUP SYNCHRONIZATION
+      // ========================================================================
+      // Perform a background check for changes that occurred while offline.
+      // 1. Scan disk vs Database state
+      // 2. Queue any Added, Modified, or Deleted files
+      // 3. Trigger initial incremental embedding run
+      // ========================================================================
+      console.log(`[BackgroundMonitor] starting startup synchronization...`);
+      setTimeout(async () => {
+        try {
+          const syncResult = await embeddingOrchestrator.synchronizeRepoFiles(
+            repoId,
+            repoRoot,
+            shouldIgnore
+          );
+
+          const totalChanges = syncResult.added.length + syncResult.modified.length + syncResult.deleted.length;
+
+          if (totalChanges > 0) {
+            console.log(`[BackgroundMonitor] Startup sync found ${totalChanges} changes, triggering re-embedding`);
+            await embeddingOrchestrator.embedPendingFiles(
+              repoId,
+              repoRoot,
+              googleApiKey,
+              adapter!,
+              { maxConcurrentFiles: 2 }
+            );
+          } else {
+            console.log(`[BackgroundMonitor] Startup sync: No offline changes detected.`);
+          }
+        } catch (error) {
+          console.error(`[BackgroundMonitor] Startup sync failed:`, error);
+        }
+      }, 5000); // Wait 5 seconds after startup to not block other activities
+      // ========================================================================
+
     } else {
       // Missing configuration - skip monitoring (non-fatal)
       console.log(`[BackgroundMonitor] ✗ Skipping background monitor - missing requirements:`);
@@ -625,43 +662,43 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
   const copySelectedFilesToClipboardCommand = vscode.commands.registerCommand(
-  "repomixRunner.copySelectedFilesToClipboard",
-  async (clickedFile: vscode.Uri, selectedFiles?: vscode.Uri[]) => {
-    try {
-      const cwd = getCwd();
-      const filesToCopy = selectedFiles?.length ? selectedFiles : [clickedFile];
+    "repomixRunner.copySelectedFilesToClipboard",
+    async (clickedFile: vscode.Uri, selectedFiles?: vscode.Uri[]) => {
+      try {
+        const cwd = getCwd();
+        const filesToCopy = selectedFiles?.length ? selectedFiles : [clickedFile];
 
-      const relativeFiles = filesToCopy
-        .map((uri) => path.relative(cwd, uri.fsPath))
-        .filter((f) => !f.startsWith(".."));
+        const relativeFiles = filesToCopy
+          .map((uri) => path.relative(cwd, uri.fsPath))
+          .filter((f) => !f.startsWith(".."));
 
-      if (relativeFiles.length === 0) {
-        vscode.window.showWarningMessage(
-          "Selected files are outside the workspace"
-        );
-        return;
-      }
-
-      console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown`);
-
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification },
-        async () => {
-          await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+        if (relativeFiles.length === 0) {
+          vscode.window.showWarningMessage(
+            "Selected files are outside the workspace"
+          );
+          return;
         }
-      );
 
-      const fileWord = relativeFiles.length === 1 ? "file" : "files";
-      vscode.window.showInformationMessage(
-        `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown to clipboard`
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[Repomix] Failed to copy selected files:", err);
-      vscode.window.showErrorMessage(`Failed to copy files: ${msg}`);
+        console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown`);
+
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification },
+          async () => {
+            await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+          }
+        );
+
+        const fileWord = relativeFiles.length === 1 ? "file" : "files";
+        vscode.window.showInformationMessage(
+          `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown to clipboard`
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[Repomix] Failed to copy selected files:", err);
+        vscode.window.showErrorMessage(`Failed to copy files: ${msg}`);
+      }
     }
-  }
-);
+  );
 
 
 

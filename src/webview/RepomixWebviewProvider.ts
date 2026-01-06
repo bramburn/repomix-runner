@@ -26,7 +26,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     private readonly _bundleManager: BundleManager,
     private readonly _context: vscode.ExtensionContext,
     private readonly _databaseService: DatabaseService
-  ) {}
+  ) { }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -57,11 +57,12 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     this._queueManager = new ExecutionQueueManager(webviewContext, this._bundleManager, onRunComplete);
 
+    const indexingCtrl = new IndexingController(webviewContext, this._databaseService, this._context);
     this._controllers = [
       new BundleController(webviewContext, this._bundleManager, this._queueManager),
       new AgentController(webviewContext, this._databaseService, this._context),
-      new ConfigController(webviewContext, this._context, this._databaseService),
-      new IndexingController(webviewContext, this._databaseService, this._context),
+      new ConfigController(webviewContext, this._context, this._databaseService, indexingCtrl),
+      indexingCtrl,
       new DebugController(webviewContext, this._databaseService),
       new ApplyController(webviewContext, this._context)
     ];
@@ -82,8 +83,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         // Manual refine check for SaveSecretSchema because discriminatedUnion
         // uses the base schema which lacks the superRefine validation
         if (message.command === 'saveSecret') {
-            const { SaveSecretSchema } = await import('./messageSchemas.js');
-            message = SaveSecretSchema.parse(data);
+          const { SaveSecretSchema } = await import('./messageSchemas.js');
+          message = SaveSecretSchema.parse(data);
         }
       } catch (error) {
         console.error('[RepomixWebviewProvider] Message validation FAILED for command:', data.command);

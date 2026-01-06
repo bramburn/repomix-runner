@@ -844,6 +844,42 @@ export class DatabaseService {
     console.log(`[DatabaseService] markRepoFileDeleted: Complete`);
   }
 
+  /**
+   * Get the state of all files in a repository.
+   *
+   * Used during startup synchronization to compare the database state
+   * with the actual files on disk.
+   *
+   * @param repoId - Repository identifier
+   * @returns Map of file paths to their last known state (status and hash)
+   */
+  async getAllRepoFileStates(repoId: string): Promise<Map<string, { status: string; lastIndexedHash?: string }>> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT file_path, status, last_indexed_hash
+      FROM repo_file_state
+      WHERE repo_id = ?
+    `);
+
+    const states = new Map<string, { status: string; lastIndexedHash?: string }>();
+    try {
+      stmt.bind([repoId]);
+      while (stmt.step()) {
+        const row = stmt.getAsObject() as any;
+        states.set(String(row.file_path), {
+          status: String(row.status),
+          lastIndexedHash: row.last_indexed_hash ? String(row.last_indexed_hash) : undefined
+        });
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return states;
+  }
+
   dispose(): void {
     if (this.db) {
       this.saveDatabase();

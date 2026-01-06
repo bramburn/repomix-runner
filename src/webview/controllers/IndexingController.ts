@@ -398,13 +398,6 @@ export class IndexingController extends BaseController {
 
     const repoIdStart = Date.now();
     const repoId = await getRepoId(cwd);
-    const provider = (this.extensionContext.globalState.get(STATE_VECTORDB_PROVIDER) as any) ?? 'pinecone';
-    if (provider !== 'pinecone') {
-      vscode.window.showWarningMessage(`Indexing is not yet implemented for ${provider}.`);
-      this.context.postMessage({ command: 'indexRepoStateChange', state: 'idle' });
-      this.indexingState = IndexingState.IDLE;
-      return;
-    }
 
     const repoIdDuration = Date.now() - repoIdStart;
     console.log(`[INDEXING_CONTROLLER] Repo ID generated in ${repoIdDuration}ms: ${repoId}`);
@@ -722,5 +715,40 @@ export class IndexingController extends BaseController {
     } catch (error) {
       console.error('Failed to get repo index count:', error);
     }
+  }
+
+  /**
+   * Public API to abort any active indexing and wait for it to return to IDLE.
+   * This is used during provider switching to ensure no races.
+   */
+  public async abortIndexing(): Promise<void> {
+    if ((this.indexingState as any) === 'idle') {
+      return;
+    }
+
+    console.log(`[IndexingController] abortIndexing called (current state: ${this.indexingState})`);
+
+    // Trigger stop if not already stopping
+    if ((this.indexingState as any) !== 'stopping') {
+      await this.handleStopRepoIndexing();
+    }
+
+    // Wait for state to transition back to IDLE
+    // (The handleIndexRepo loop is responsible for setting state back to IDLE)
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const check = setInterval(() => {
+        if ((this.indexingState as any) === 'idle') {
+          clearInterval(check);
+          resolve();
+        }
+        // Safety timeout (30 seconds)
+        if (Date.now() - startTime > 30000) {
+          console.warn('[IndexingController] abortIndexing timed out waiting for IDLE state');
+          clearInterval(check);
+          resolve();
+        }
+      }, 100);
+    });
   }
 }

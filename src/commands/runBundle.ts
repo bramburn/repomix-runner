@@ -24,17 +24,16 @@ export async function runBundle(
   // Load bundle config if exists
   let overrideConfig: RepomixConfigFile = {};
   const vscodeConfig = readRepomixRunnerVscodeConfig();
-  const configPath = bundle.configPath || vscodeConfig.runner.configPath;
+  // Load configuration if exists (either bundle-specific or global)
+  const configPath = bundle.configPath || vscodeConfig.runner.configPath || undefined;
 
-  if (configPath) {
-    try {
-      const bundleConfig = await readRepomixFileConfig(cwd, configPath);
-      overrideConfig = bundleConfig || {};
-    } catch (error: any) {
-      logger.both.error('Failed to parse bundle config:', error);
-      vscode.window.showErrorMessage(`Failed to parse bundle config: ${error.message}`);
-      return;
-    }
+  try {
+    const bundleConfig = await readRepomixFileConfig(cwd, configPath);
+    overrideConfig = bundleConfig || {};
+  } catch (error: any) {
+    logger.both.error('Failed to parse repomix configuration:', error);
+    vscode.window.showErrorMessage(`Failed to parse repomix configuration: ${error.message}`);
+    return;
   }
 
   // Validate and merge additional overrides

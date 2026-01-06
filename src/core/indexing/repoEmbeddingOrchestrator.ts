@@ -326,8 +326,17 @@ export class RepoEmbeddingOrchestrator {
       try {
         // 2a. Check if file still exists (might have been deleted after being queued)
         if (!fs.existsSync(absolutePath)) {
-          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] File not found (likely deleted), marking as deleted: ${filePath}`);
+          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] File not found (likely deleted), cleaning up: ${filePath}`);
+
+          // CRITICAL: Delete vectors even if file is missing!
+          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Deleting old vectors for missing file...`);
+          await adapter.deleteVectorsForFile({
+            repoId,
+            filePath
+          });
+
           await this.databaseService.markRepoFileDeleted(repoId, filePath);
+          successfulFiles++; // Count as "processed successfully" (cleaned up)
           continue; // Skip to next file
         }
 
@@ -508,6 +517,108 @@ export class RepoEmbeddingOrchestrator {
     await Promise.all(workers);
 
     return results;
+  }
+
+  /**
+   * Synchronizes the repository's database state with the actual files on disk.
+   * Detects new, modified, and deleted files and updates the database accordingly.
+   *
+   * @param repoId Repository identifier
+   * @param repoRoot Repository root directory
+   * @param shouldIgnore Function to determine if a file should be ignored
+   */
+  async synchronizeRepoFiles(
+    repoId: string,
+    repoRoot: string,
+    shouldIgnore: (rel: string) => boolean
+  ): Promise<{ added: string[]; modified: string[]; deleted: string[] }> {
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Synchronizing repo: ${repoId}`);
+
+    // 1. Get current state from database
+    const dbStates = await this.databaseService.getAllRepoFileStates(repoId);
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Found ${dbStates.size} files in DB state`);
+
+    // 2. Scan filesystem (recursive)
+    const fsFiles: string[] = [];
+    const scan = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(repoRoot, fullPath).split(path.sep).join('/');
+
+        if (shouldIgnore(relPath)) continue;
+
+        if (entry.isDirectory()) {
+          scan(fullPath);
+        } else if (entry.isFile()) {
+          fsFiles.push(relPath);
+        }
+      }
+    };
+
+    try {
+      scan(repoRoot);
+    } catch (err) {
+      console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to scan filesystem:`, err);
+      return { added: [], modified: [], deleted: [] };
+    }
+
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Found ${fsFiles.length} files on disk`);
+
+    const added: string[] = [];
+    const modified: string[] = [];
+    const deleted: string[] = [];
+    const fsSet = new Set(fsFiles);
+
+    // 3. Compare FS vs DB
+    // Check for deleted files (in DB but not on FS)
+    for (const [filePath, state] of dbStates.entries()) {
+      if (state.status === 'deleted') continue; // Already marked as deleted
+
+      if (!fsSet.has(filePath)) {
+        deleted.push(filePath);
+      }
+    }
+
+    // Check for added and modified files
+    for (const filePath of fsFiles) {
+      const state = dbStates.get(filePath);
+
+      if (!state || state.status === 'deleted') {
+        added.push(filePath);
+      } else {
+        // Check for modifications using hash
+        const absPath = path.join(repoRoot, filePath);
+        try {
+          const currentHash = sha256File(absPath);
+          if (currentHash !== state.lastIndexedHash) {
+            modified.push(filePath);
+          }
+        } catch (err) {
+          console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to hash ${filePath}:`, err);
+        }
+      }
+    }
+
+    console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Sync results:`);
+    console.log(`  - Added: ${added.length}`);
+    console.log(`  - Modified: ${modified.length}`);
+    console.log(`  - Deleted: ${deleted.length}`);
+
+    // 4. Update database
+    if (added.length > 0 || modified.length > 0) {
+      await this.databaseService.markRepoFilesPending(repoId, [...added, ...modified]);
+    }
+
+    if (deleted.length > 0) {
+      for (const filePath of deleted) {
+        // For deleted files, we don't just mark as deleted, 
+        // we mark as pending so embedPendingFiles can clean up vectors
+        await this.databaseService.markRepoFilesPending(repoId, [filePath]);
+      }
+    }
+
+    return { added, modified, deleted };
   }
 }
 
