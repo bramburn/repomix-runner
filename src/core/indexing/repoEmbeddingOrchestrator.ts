@@ -328,12 +328,17 @@ export class RepoEmbeddingOrchestrator {
         if (!fs.existsSync(absolutePath)) {
           console.log(`[REPO_EMBEDDING_ORCHESTRATOR] File not found (likely deleted), cleaning up: ${filePath}`);
 
-          // CRITICAL: Delete vectors even if file is missing!
-          console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Deleting old vectors for missing file...`);
-          await adapter.deleteVectorsForFile({
-            repoId,
-            filePath
-          });
+          // CRITICAL: Delete vectors for deleted files to prevent "ghost" results
+          try {
+            await adapter.deleteVectorsForFile({
+              repoId,
+              filePath
+            });
+            console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Deleted vectors for missing file: ${filePath}`);
+          } catch (deleteErr) {
+            console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to delete vectors for missing file ${filePath}:`, deleteErr);
+            // Continue anyway to mark as deleted in DB
+          }
 
           await this.databaseService.markRepoFileDeleted(repoId, filePath);
           successfulFiles++; // Count as "processed successfully" (cleaned up)
