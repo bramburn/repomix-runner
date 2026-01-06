@@ -67,6 +67,42 @@ export class IndexingController extends BaseController {
         return;
       }
 
+      // Feature Flag: Use LangGraph for Search
+      const useLangGraph = vscode.workspace.getConfiguration('repomix.search').get<boolean>('useLangGraph', false);
+      if (useLangGraph) {
+        console.log('[INDEXING_CONTROLLER] Using LangGraph for search');
+        const { runSearchGraph } = await import('../../search/graph.js');
+
+        const finalState = await runSearchGraph({
+          repoId,
+          repoRoot: cwd,
+          userQuery: q,
+          smartFilterEnabled: !!useSmartFilter,
+          maxResults: typeof topK === 'number' ? topK : 50,
+          googleApiKey: googleKey || undefined,
+          confidenceThreshold: confidenceThreshold,
+        }, adapter, this.context);
+
+        if (finalState.errors.length > 0) {
+          const firstError = finalState.errors[0];
+          this.context.postMessage({
+            command: 'repoSearchError',
+            error: `Graph Error (${firstError.node}): ${firstError.error}`
+          });
+          return;
+        }
+
+        // Post results to webview
+        this.context.postMessage({ command: 'repoSearchResults', results: finalState.finalHits });
+
+        // Log timings for debugging
+        console.log('[INDEXING_CONTROLLER] LangGraph Search Timings:', JSON.stringify(finalState.timings, null, 2));
+
+        // Opportunistically refresh vector count
+        void this.handleGetRepoVectorCount(repoId);
+        return;
+      }
+
       // 1. Expand query (Smart Filter)
       let queriesToSearch: string[] = [q];
 
