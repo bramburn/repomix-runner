@@ -3,6 +3,7 @@ import { AgentState } from "./state";
 import * as nodes from "./nodes";
 import { DatabaseService } from '../core/storage/databaseService';
 import { getVectorDbAdapterForRepo } from '../core/indexing/vectorDb/factory';
+import { logger } from '../shared/logger';
 
 export function createSmartRepomixGraph(databaseService: DatabaseService, bundleId?: string) {
   const workflow = new StateGraph(AgentState)
@@ -10,11 +11,24 @@ export function createSmartRepomixGraph(databaseService: DatabaseService, bundle
     .addNode("analyzeObjective", nodes.analyzeObjective)
     .addNode("retrieval", async (state) => {
       const repoId = state.workspaceRoot; // Use root path as repo ID for now
-      const { adapter } = await getVectorDbAdapterForRepo(
-        (global as any).extensionContext, // This will need to be provided globally or passed in
-        repoId
-      );
-      return nodes.retrieval(state, adapter, repoId);
+
+      try {
+        // Safely retrieve the extension context from global scope
+        const extensionContext = (global as any).extensionContext;
+
+        if (!extensionContext) {
+          logger.both.warn("Agent: Extension context not available in global scope, RAG will use fallback");
+          // Return empty adapter to trigger fallback in retrieval node
+          return nodes.retrieval(state, undefined as any, repoId);
+        }
+
+        const { adapter } = await getVectorDbAdapterForRepo(extensionContext, repoId);
+        return nodes.retrieval(state, adapter, repoId);
+      } catch (error) {
+        logger.both.error("Agent: Failed to get vector DB adapter, using fallback", error);
+        // Return empty adapter to trigger fallback in retrieval node
+        return nodes.retrieval(state, undefined as any, repoId);
+      }
     })
     .addNode("relevanceCheck", nodes.relevanceConfirmation)
     .addNode("commandGeneration", nodes.commandGeneration)

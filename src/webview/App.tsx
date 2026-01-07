@@ -193,12 +193,12 @@ export const App = () => {
               pineconeIndexes={pineconeIndexes}
               selectedPineconeIndex={selectedPineconeIndex}
               indexError={pineconeIndexError}
-              // We can pass setter logic via vscode messages in SettingsTab,
-              // but we need to update local state too? No, messages will loop back.
+            // We can pass setter logic via vscode messages in SettingsTab,
+            // but we need to update local state too? No, messages will loop back.
             />
           )}
           {selectedTab === 'apply' && <ApplyTab />}
-          
+
           {selectedTab === 'debug' && <DebugTab />}
         </div>
 

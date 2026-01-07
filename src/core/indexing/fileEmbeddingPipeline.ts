@@ -187,6 +187,14 @@ export async function embedAndUpsertFile(
   const context = `embedAndUpsertFile[${relativeFilePath}]`;
   console.log(`[EMBEDDING_PIPELINE] Starting processing: ${relativeFilePath}`);
 
+  // FIX: Explicitly skip .git internals to prevent "ghost" file errors
+  // This is a defensive check to catch any .git files that slip through the watcher filter
+  if (relativeFilePath.includes('.git/') || relativeFilePath.includes(path.sep + '.git' + path.sep)) {
+    console.log(`[EMBEDDING_PIPELINE] Skipping git internal file: ${relativeFilePath}`);
+    logger.both.info(`${context}: Skipping git internal file`);
+    return 0;
+  }
+
   // 0. Check if file is binary and skip if so
   if (isBinaryFile(relativeFilePath)) {
     console.log(`[EMBEDDING_PIPELINE] Skipping binary file: ${relativeFilePath}`);

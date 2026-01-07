@@ -28,6 +28,15 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     private readonly _databaseService: DatabaseService
   ) { }
 
+  /**
+   * Posts a message to the webview
+   */
+  public postMessage(message: any): void {
+    if (this._view) {
+      this._view.webview.postMessage(message);
+    }
+  }
+
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
@@ -119,6 +128,25 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
           vscode.window.showWarningMessage(message.message);
         } else {
           vscode.window.showInformationMessage(message.message);
+        }
+        return;
+      }
+
+      // Handle remote clipboard processing result
+      if (message.command === 'remoteClipboardProcessingComplete') {
+        console.log('[RepomixWebviewProvider] Handling remoteClipboardProcessingComplete:', message);
+        const resolverKey = (message as any).resolverKey;
+        if (resolverKey) {
+          const resolver = this._context.workspaceState.get(resolverKey) as any;
+          if (resolver) {
+            if ((message as any).success) {
+              resolver.resolve(message);
+            } else {
+              resolver.reject(new Error((message as any).error || 'Unknown error'));
+            }
+            // Clean up resolver
+            this._context.workspaceState.update(resolverKey, undefined);
+          }
         }
         return;
       }

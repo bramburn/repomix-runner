@@ -33,6 +33,10 @@ import { RepoEmbeddingOrchestrator } from './core/indexing/repoEmbeddingOrchestr
 import { getVectorDbAdapterForRepo } from './core/indexing/vectorDb/factory.js';
 import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
+import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/files/remoteDetection.js';
+import { readFilesAsBase64, validateFileList } from './core/files/remoteFileReader.js';
+import { remoteClipboardHandler } from './core/files/remoteClipboardHandler.js';
+import type { ProcessRemoteFilesMessage } from './webview/types/remoteClipboardMessages.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import ignore from 'ignore';
@@ -161,6 +165,9 @@ export async function activate(context: vscode.ExtensionContext) {
       'repomix-output.*',
       'repomix-output-*.*',
       '*.repomix-output.*',
+      // Git internals (prevent indexing of binary git objects)
+      '.git',
+      '**/.git/**',
       // Build artifacts
       '**/dist/**',
       '**/build/**',
@@ -683,18 +690,128 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown`);
+        // Validate file list
+        const validation = validateFileList(relativeFiles);
+        if (!validation.valid) {
+          vscode.window.showErrorMessage(`Invalid file list: ${validation.error}`);
+          return;
+        }
 
+        const remoteEnv = getRemoteEnvironment();
+        console.log(`[Repomix] Remote environment: isRemote=${remoteEnv.isRemote}, remoteName=${remoteEnv.remoteName}, localOs=${remoteEnv.localOs}`);
+
+        // LOCAL MODE: Use existing npx approach
+        if (!remoteEnv.isRemote) {
+          console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (local mode)`);
+
+          let result: { tokenCount: number };
+          await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: 'Generating markdown...' },
+            async () => {
+              result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+            }
+          );
+
+          const fileWord = relativeFiles.length === 1 ? "file" : "files";
+          const formattedTokenCount = result!.tokenCount.toLocaleString();
+          vscode.window.showInformationMessage(
+            `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`
+          );
+          return;
+        }
+
+        // REMOTE MODE with local binary available: Use local binary execution
+        if (shouldUseLocalBinaryExecution(remoteEnv)) {
+          console.log(`[Repomix] Using local binary execution for ${relativeFiles.length} files (${remoteEnv.localOs})`);
+
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'Preparing files for clipboard...',
+              cancellable: false,
+            },
+            async (progress) => {
+              progress.report({ increment: 10, message: 'Reading files...' });
+
+              // Read files on remote and encode as base64
+              const fileContents = await readFilesAsBase64(cwd, relativeFiles, logger.both);
+
+              if (fileContents.length === 0) {
+                throw new Error('Could not read any files');
+              }
+
+              progress.report({ increment: 20, message: 'Transferring to local...' });
+
+              // Send to webview for local processing
+              const resolverKey = `clipboard-resolver-${Date.now()}`;
+
+              const result = await new Promise<any>((resolve, reject) => {
+                // Create a timeout
+                const timeout = setTimeout(
+                  () => reject(new Error('Processing timeout (30s)')),
+                  30000
+                );
+
+                // Store resolver for webview callback
+                (context.workspaceState as any).update(resolverKey, {
+                  resolve: (r: any) => {
+                    clearTimeout(timeout);
+                    resolve(r);
+                  },
+                  reject: (e: Error) => {
+                    clearTimeout(timeout);
+                    reject(e);
+                  },
+                });
+
+                // Send to webview
+                const message: ProcessRemoteFilesMessage = {
+                  command: 'processRemoteFilesForClipboard',
+                  files: fileContents.map(f => ({
+                    path: f.path,
+                    contentBase64: f.contentBase64,
+                    size: f.size,
+                  })),
+                  workspaceName: vscode.workspace.name || 'repomix',
+                  resolverKey,
+                };
+
+                provider.postMessage(message);
+              });
+
+              if (!result.success) {
+                throw new Error(result.error || 'Unknown error');
+              }
+
+              progress.report({ increment: 70, message: 'Completing...' });
+
+              vscode.window.showInformationMessage(
+                `✓ Processed ${result.filesProcessed} files via local clipboard`
+              );
+            }
+          );
+
+          return;
+        }
+
+        // OTHER REMOTE MODES: Use npx approach
+        console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (remote npx mode)`);
+
+        let result: { tokenCount: number };
         await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification },
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: 'Generating markdown from remote...',
+          },
           async () => {
-            await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+            result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
           }
         );
 
         const fileWord = relativeFiles.length === 1 ? "file" : "files";
+        const formattedTokenCount = result!.tokenCount.toLocaleString();
         vscode.window.showInformationMessage(
-          `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown to clipboard`
+          `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

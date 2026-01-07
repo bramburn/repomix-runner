@@ -202,6 +202,7 @@ export const SearchTab = () => {
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
 
   const [copyDecisionsLabel, setCopyDecisionsLabel] = useState('Copy Smart Filter Decisions');
+  const [copyMarkdownLabel, setCopyMarkdownLabel] = useState('Copy as Markdown');
 
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>(
     loadedState?.fileTypeFilter || DEFAULT_FILTERS
@@ -530,6 +531,19 @@ export const SearchTab = () => {
 
         case 'searchOutputReady':
           setLastSearchOutputPath(message.outputPath ?? null);
+          break;
+
+        case 'copySuccess':
+          // Show temporary success feedback on the copy button
+          setCopyMarkdownLabel('Copied!');
+          setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 2000);
+          break;
+
+        case 'copyError':
+          // Show temporary error feedback on the copy button
+          console.error('Copy failed:', message.error);
+          setCopyMarkdownLabel('Copy Failed');
+          setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 3000);
           break;
       }
     };
@@ -893,7 +907,7 @@ export const SearchTab = () => {
           style={{ width: '100%' }}
         />
 
-       
+
 
         <Button
           appearance="primary"
@@ -945,7 +959,7 @@ export const SearchTab = () => {
         </Button>
 
         <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResults.length === 0} onClick={handleCopySearchResultsMarkdown}>
-          Copy as Markdown
+          {copyMarkdownLabel}
         </Button>
 
         {dedupedResults.length > 0 && (

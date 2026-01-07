@@ -316,6 +316,10 @@ export class IndexingController extends BaseController {
 
     if (cleaned.length === 0) {
       vscode.window.showWarningMessage('No search result files to copy.');
+      this.context.postMessage({
+        command: 'copyError',
+        error: 'No files selected',
+      });
       return;
     }
 
@@ -325,16 +329,49 @@ export class IndexingController extends BaseController {
     console.log(`[INDEXING_CONTROLLER] Files:`, cleaned);
 
     try {
-      // Ask Rust binary to generate temp .md + put it on binary clipboard
-      await runRepomixClipboardGenerateMarkdown(this.extensionContext, cwd, cleaned);
+      // Show progress notification for large file sets
+      const showProgress = cleaned.length > 50;
+      let result: { tokenCount: number };
 
-      vscode.window.showInformationMessage(
-        `Copied ${cleaned.length} file${cleaned.length === 1 ? '' : 's'} as Markdown to clipboard.`
-      );
+      if (showProgress) {
+        result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating markdown for ${cleaned.length} files...`,
+            cancellable: false,
+          },
+          async () => {
+            return await runRepomixClipboardGenerateMarkdown(this.extensionContext, cwd, cleaned);
+          }
+        );
+      } else {
+        result = await runRepomixClipboardGenerateMarkdown(this.extensionContext, cwd, cleaned);
+      }
+
+      // Format token count with thousands separator
+      const formattedTokenCount = result.tokenCount.toLocaleString();
+      const fileWord = cleaned.length === 1 ? 'file' : 'files';
+
+      const successMessage = `✓ Copied ${cleaned.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`;
+
+      vscode.window.showInformationMessage(successMessage);
+
+      // Send success message to webview for UI feedback
+      this.context.postMessage({
+        command: 'copySuccess',
+        message: successMessage,
+        tokenCount: result.tokenCount,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[INDEXING_CONTROLLER] Failed to copy as markdown:', err);
       vscode.window.showErrorMessage(`Failed to copy as markdown: ${msg}`);
+
+      // Send error message to webview
+      this.context.postMessage({
+        command: 'copyError',
+        error: msg,
+      });
     }
   }
 

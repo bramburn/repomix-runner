@@ -1,0 +1,95 @@
+name: Build Multi-Platform Binaries
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+
+jobs:
+  build-binaries:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: repomix-clipboard-win32-x64.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary: repomix-clipboard-darwin-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: repomix-clipboard-darwin-arm64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: repomix-clipboard-linux-x64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary: repomix-clipboard-linux-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+      
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+      
+      - name: Copy binary to assets
+        shell: bash
+        run: |
+          mkdir -p assets/bin
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.target }}/release/repomix-clipboard.exe assets/bin/${{ matrix.binary }}
+          else
+            cp target/${{ matrix.target }}/release/repomix-clipboard assets/bin/${{ matrix.binary }}
+          fi
+      
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.binary }}
+          path: assets/bin/${{ matrix.binary }}
+
+  package-extension:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Download all binaries
+        uses: actions/download-artifact@v3
+        with:
+          path: assets/bin
+      
+      - name: Flatten binary artifacts
+        run: |
+          find assets/bin -type f -exec mv {} assets/bin/ \;
+          find assets/bin -type d -empty -delete
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Package extension
+        run: npx vsce package
+      
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v3
+        with:
+          name: vscode-extension
+          path: '*.vsix'

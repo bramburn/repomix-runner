@@ -128,8 +128,14 @@ function getModel(apiKey: string) {
     throw new Error("Google API Key not provided to agent.");
   }
 
+  // Use gemini-2.5-flash-lite (the correct model name)
+  // always use gemini-2.5-flash-lite
+  const modelName = "gemini-2.5-flash-lite";
+
+  logger.both.debug(`Agent: Initializing model: ${modelName}`);
+
   return new ChatGoogleGenerativeAI({
-    model: "gemini-2.5-flash-lite", // Updated model name
+    model: modelName,
     temperature: 0,
     apiKey: apiKey
   });
@@ -199,15 +205,24 @@ export async function retrieval(
 
   if (!state.apiKey || !adapter) {
     logger.both.warn("Agent: Missing API key or adapter, falling back to basic indexing.");
-    const files = await tools.getWorkspaceFiles(state.workspaceRoot);
-    return { candidateFiles: files.slice(0, 50) };
+    try {
+      const files = await tools.getWorkspaceFiles(state.workspaceRoot);
+      return { candidateFiles: files.slice(0, 50) };
+    } catch (fallbackError) {
+      logger.both.error("Agent: Fallback file listing also failed", fallbackError);
+      return { candidateFiles: [] };
+    }
   }
 
   try {
+    logger.both.info("Agent: Attempting RAG retrieval with embedding service...");
+
     // 1. Core query embedding
     const queryVector = await embeddingService.embedText(state.apiKey, state.userQuery);
+    logger.both.info("Agent: Query embedding successful");
 
     // 2. Query Vector DB
+    logger.both.info("Agent: Querying vector database...");
     const results = await adapter.queryVectors({
       repoId: repoId,
       vector: queryVector,
@@ -215,6 +230,7 @@ export async function retrieval(
     });
 
     const matches = results?.matches ?? [];
+    logger.both.info(`Agent: Vector DB returned ${matches.length} matches`);
 
     // 3. Extract unique file paths
     const filePaths = new Set<string>();
@@ -230,10 +246,18 @@ export async function retrieval(
 
     return { candidateFiles: candidates };
   } catch (error) {
-    logger.both.error("Agent: RAG retrieval failed", error);
-    // Fallback: list files and take first 50
-    const files = await tools.getWorkspaceFiles(state.workspaceRoot);
-    return { candidateFiles: files.slice(0, 50) };
+    logger.both.error("Agent: RAG retrieval failed, falling back to basic file listing", error);
+
+    // CRITICAL: Fallback to local FS call only - no network calls
+    try {
+      const files = await tools.getWorkspaceFiles(state.workspaceRoot);
+      logger.both.info(`Agent: Fallback retrieved ${files.length} files from workspace`);
+      return { candidateFiles: files.slice(0, 50) };
+    } catch (fallbackError) {
+      logger.both.error("Agent: Fallback file listing also failed", fallbackError);
+      // Last resort: return empty array to allow workflow to continue
+      return { candidateFiles: [] };
+    }
   }
 }
 
