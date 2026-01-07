@@ -11,6 +11,7 @@ import {
   AccordionHeader,
   AccordionPanel,
   AccordionToggleEventHandler,
+  Textarea,
 } from '@fluentui/react-components';
 import {
   DeleteRegular,
@@ -827,12 +828,19 @@ export const SearchTab = () => {
       </Accordion>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
-        <Input
+        <Textarea
           value={query}
           onChange={(e, data) => setQuery(data.value)}
           placeholder="Enter search query..."
-          style={{ width: '100%' }}
-          onKeyDown={(e) => e.key === 'Enter' && canSearch && handleSearch()}
+          style={{ width: '100%', minHeight: '80px' }}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault();
+              if (canSearch) {
+                handleSearch();
+              }
+            }
+          }}
         />
 
         {/* Smart Filter checkbox */}
@@ -899,6 +907,37 @@ export const SearchTab = () => {
           {isSearching ? 'Searching…' : 'Search'}
         </Button>
 
+        {smartFilterEnabled && (results.some(r => r.reason) || expandedQueries.length > 0) && (
+          <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
+            <AccordionItem value="smart-filter-insights">
+              <AccordionHeader>Smart Filter Insights</AccordionHeader>
+              <AccordionPanel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 0' }}>
+                  {expandedQueries.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <Label size="small">Expanded Queries</Label>
+                      <Text size={200} style={{ opacity: 0.8 }}>
+                        {expandedQueries.join(' • ')}
+                      </Text>
+                    </div>
+                  )}
+
+                  {results.some(r => r.reason) && (
+                    <Button
+                      appearance="secondary"
+                      icon={<CopyRegular />}
+                      style={{ width: '100%' }}
+                      onClick={handleCopySmartDecisions}
+                    >
+                      {copyDecisionsLabel}
+                    </Button>
+                  )}
+                </div>
+              </AccordionPanel>
+            </AccordionItem>
+          </Accordion>
+        )}
+
         <Button appearance="secondary" icon={<DatabaseSearchRegular />} style={{ width: '100%' }} disabled={!canGenerate} onClick={handleGenerate}>
           Generate
         </Button>
@@ -910,17 +949,6 @@ export const SearchTab = () => {
         <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResults.length === 0} onClick={handleCopySearchResultsMarkdown}>
           Copy as Markdown
         </Button>
-
-        {smartFilterEnabled && results.some(r => r.reason) && (
-          <Button
-            appearance="secondary"
-            icon={<CopyRegular />}
-            style={{ width: '100%' }}
-            onClick={handleCopySmartDecisions}
-          >
-            {copyDecisionsLabel}
-          </Button>
-        )}
 
         {dedupedResults.length > 0 && (
           <Text size={200} style={{ opacity: 0.8 }}>Unique files found: {dedupedResults.length}</Text>
