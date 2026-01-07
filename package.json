@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/massdo/repomix-runner.git"
   },
-  "version": "0.6.54",
+  "version": "0.6.55",
   "engines": {
     "vscode": "^1.93.0"
   },
