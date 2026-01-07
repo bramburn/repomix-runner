@@ -893,9 +893,7 @@ export const SearchTab = () => {
           style={{ width: '100%' }}
         />
 
-        {smartFilterEnabled && expandedQueries.length > 0 && (
-          <Text size={200} style={{ opacity: 0.7 }}>Expanded: {expandedQueries.join(' • ')}</Text>
-        )}
+       
 
         <Button
           appearance="primary"

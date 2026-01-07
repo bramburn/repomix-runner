@@ -42,6 +42,9 @@ export async function activate(context: vscode.ExtensionContext) {
   const databaseService = new DatabaseService(context);
   await databaseService.initialize();
 
+  // Expose context for agent graph
+  (global as any).extensionContext = context;
+
   const cwd = getCwd();
   const bundleManager = new BundleManager(cwd);
 
@@ -550,6 +553,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Prepare Initial State
         const inputs = {
+          apiKey: apiKey || "",
           userQuery: userQuery,
           workspaceRoot: workspaceRoot,
           allFilePaths: [],

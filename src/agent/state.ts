@@ -25,6 +25,12 @@ export const AgentState = Annotation.Root({
   // The final repomix CLI command to execute
   finalCommand: Annotation<string>,
 
+  // The type of objective analyzed from the query
+  objectiveType: Annotation<'ACTION' | 'SEARCH' | undefined>,
+
+  // Detailed criteria for filtering relevant files
+  relevanceCriteria: Annotation<string | undefined>,
+
   // Output path for the generated file
   outputPath: Annotation<string | undefined>,
 

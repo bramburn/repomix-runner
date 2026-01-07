@@ -2,34 +2,38 @@ import { StateGraph } from "@langchain/langgraph";
 import { AgentState } from "./state";
 import * as nodes from "./nodes";
 import { DatabaseService } from '../core/storage/databaseService';
+import { getVectorDbAdapterForRepo } from '../core/indexing/vectorDb/factory';
 
 export function createSmartRepomixGraph(databaseService: DatabaseService, bundleId?: string) {
   const workflow = new StateGraph(AgentState)
     // Add all the nodes we defined
-    .addNode("indexing", nodes.initialIndexing)
-    .addNode("structureExtraction", nodes.structureExtraction)
-    .addNode("filtering", nodes.initialFiltering)
+    .addNode("analyzeObjective", nodes.analyzeObjective)
+    .addNode("retrieval", async (state) => {
+      const repoId = state.workspaceRoot; // Use root path as repo ID for now
+      const { adapter } = await getVectorDbAdapterForRepo(
+        (global as any).extensionContext, // This will need to be provided globally or passed in
+        repoId
+      );
+      return nodes.retrieval(state, adapter, repoId);
+    })
     .addNode("relevanceCheck", nodes.relevanceConfirmation)
     .addNode("commandGeneration", nodes.commandGeneration)
     .addNode("execution", (state) => nodes.finalExecution(state, databaseService, bundleId))
 
     // Define the flow (Edges)
-    // Start -> Indexing
-    .addEdge("__start__", "indexing")
+    // Start -> Analyze Objective
+    .addEdge("__start__", "analyzeObjective")
+
+    // Analyze -> Retrieval
+    .addEdge("analyzeObjective", "retrieval")
 
     // Conditional edge: Skip to command generation if we already have confirmed files (re-pack scenario)
-    .addConditionalEdges("indexing", (state) => {
+    .addConditionalEdges("retrieval", (state) => {
       if (state.confirmedFiles.length > 0) {
         return "commandGeneration"; // Skip directly to command generation
       }
-      return "structureExtraction"; // Continue with normal flow
+      return "relevanceCheck"; // Continue with normal flow
     })
-
-    // Structure -> Filter Files (Phase 1)
-    .addEdge("structureExtraction", "filtering")
-
-    // Filter -> Deep Check (Phase 2)
-    .addEdge("filtering", "relevanceCheck")
 
     // Check -> Generate Command
     .addEdge("relevanceCheck", "commandGeneration")

@@ -7,6 +7,8 @@ import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
 import { DatabaseService, AgentRunHistory } from '../core/storage/databaseService';
 import * as crypto from 'crypto';
+import { embeddingService } from "../core/indexing/embeddingService";
+import { VectorDbAdapter } from "../core/indexing/vectorDb/types";
 
 // ============================================================================
 // Caching Layer for LLM Responses
@@ -127,18 +129,112 @@ function getModel(apiKey: string) {
   }
 
   return new ChatGoogleGenerativeAI({
-    model: "gemini-2.5-flash-lite",
+    model: "gemini-2.5-flash-lite", // Updated model name
     temperature: 0,
     apiKey: apiKey
   });
 }
 
-// Node 1: Indexing
-export async function initialIndexing(state: typeof AgentState.State) {
-  logger.both.info("Agent: Step 1 - Indexing repository...");
-  // Get all files in the workspace using native VS Code API
-  const files = await tools.getWorkspaceFiles(state.workspaceRoot);
-  return { allFilePaths: files };
+// Node 0: Analyze Objective
+export async function analyzeObjective(state: typeof AgentState.State) {
+  logger.both.info("Agent: Step 0 - Analyzing user objective...");
+
+  const model = getModel(state.apiKey);
+
+  const schema = z.object({
+    objectiveType: z.enum(['ACTION', 'SEARCH']).describe("Whether the user wants to perform a task/modify code (ACTION) or find info/understand (SEARCH)"),
+    relevanceCriteria: z.string().describe("A strict checklist of what constitutes a 'relevant file' for this specific task")
+  });
+
+  const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
+
+  const prompt = `
+    Analyze this user query for a code repository assistant.
+    User Query: "${state.userQuery}"
+
+    Determine:
+    1. Objective Type: 
+       - 'ACTION': If the user wants to modify code, refactor, implement a feature, or perform a specific task.
+       - 'SEARCH': If the user wants to understand how something works, find where a feature is implemented, or explore the codebase.
+
+    2. Relevance Criteria:
+       - Provide a concise instruction for a filter. 
+       - Use "Exclude..." and "Focus on..." style.
+       - Example: "Focus on the Authentication provider implementation and its related hooks. Exclude test files and unrelated UI components."
+
+    Provide these in a structured JSON format.
+  `;
+
+  try {
+    const response = await structuredLlm.invoke(prompt);
+    const result = response.parsed as { objectiveType: 'ACTION' | 'SEARCH', relevanceCriteria: string };
+    const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+
+    logger.both.info(`Agent: Objective classified as ${result.objectiveType}.`);
+    logger.both.info(`Agent: Relevance Criteria: ${result.relevanceCriteria}`);
+
+    return {
+      objectiveType: result.objectiveType,
+      relevanceCriteria: result.relevanceCriteria,
+      totalTokens: tokens
+    };
+  } catch (error) {
+    logger.both.error("Agent: Objective analysis failed", error);
+    // Fallback values
+    return {
+      objectiveType: 'ACTION' as const,
+      relevanceCriteria: "Select files relevant to the user's query.",
+      totalTokens: 0
+    };
+  }
+}
+
+// Node 1: Retrieval (RAG-based)
+export async function retrieval(
+  state: typeof AgentState.State,
+  adapter: VectorDbAdapter,
+  repoId: string
+) {
+  logger.both.info("Agent: Step 1 - Retrieving candidate files via RAG...");
+
+  if (!state.apiKey || !adapter) {
+    logger.both.warn("Agent: Missing API key or adapter, falling back to basic indexing.");
+    const files = await tools.getWorkspaceFiles(state.workspaceRoot);
+    return { candidateFiles: files.slice(0, 50) };
+  }
+
+  try {
+    // 1. Core query embedding
+    const queryVector = await embeddingService.embedText(state.apiKey, state.userQuery);
+
+    // 2. Query Vector DB
+    const results = await adapter.queryVectors({
+      repoId: repoId,
+      vector: queryVector,
+      topK: 50, // Retrieve top 50 chunks
+    });
+
+    const matches = results?.matches ?? [];
+
+    // 3. Extract unique file paths
+    const filePaths = new Set<string>();
+    for (const m of matches) {
+      const filePath = m.metadata?.filePath as string;
+      if (filePath) {
+        filePaths.add(filePath);
+      }
+    }
+
+    const candidates = Array.from(filePaths);
+    logger.both.info(`Agent: RAG retrieved ${candidates.length} unique candidate files.`);
+
+    return { candidateFiles: candidates };
+  } catch (error) {
+    logger.both.error("Agent: RAG retrieval failed", error);
+    // Fallback: list files and take first 50
+    const files = await tools.getWorkspaceFiles(state.workspaceRoot);
+    return { candidateFiles: files.slice(0, 50) };
+  }
 }
 
 // Node 2: Structure Extraction (combined with Node 1)
@@ -244,7 +340,9 @@ export async function initialFiltering(state: typeof AgentState.State) {
 function buildBatchPrompt(
   files: string[],
   contentMap: Map<string, string>,
-  query: string
+  query: string,
+  objectiveType: 'ACTION' | 'SEARCH' | undefined,
+  relevanceCriteria: string | undefined
 ): string {
   const fileEntries = files.map((filePath, index) => {
     const content = contentMap.get(filePath) || '';
@@ -259,10 +357,16 @@ ${snippet}
   return `
 You are analyzing files for a user request.
 User Query: "${query}"
+Objective: ${objectiveType || 'UNKNOWN'}
+Criteria: ${relevanceCriteria || 'Evaluate relevance based on query.'}
 
-Analyze the following files and determine which are strictly necessary to fulfill the user's request.
+Analyze the following files and determine which are strictly necessary to fulfill the user's request based on the Objective and Criteria.
 
 ${fileEntries}
+
+Task:
+- If Objective is ACTION, discard any file not strictly needed for the build/modification (e.g., unrelated utils, huge datasets).
+- If SEARCH, keep files that provide necessary context or answer the query.
 
 For each file, determine:
 1. Is it strictly necessary to fulfill the user's request? (true/false)
@@ -295,7 +399,9 @@ async function processBatch(
   batch: string[],
   contentMap: Map<string, string>,
   query: string,
-  apiKey: string
+  apiKey: string,
+  objectiveType: 'ACTION' | 'SEARCH' | undefined,
+  relevanceCriteria: string | undefined
 ): Promise<BatchProcessResult> {
   const model = getModel(apiKey);
   const batchSchema = z.object({
@@ -315,7 +421,7 @@ async function processBatch(
       query,
       batchContent,
       async () => {
-        const prompt = buildBatchPrompt(batch, contentMap, query);
+        const prompt = buildBatchPrompt(batch, contentMap, query, objectiveType, relevanceCriteria);
         const response = await batchLlm.invoke(prompt);
         return response;
       }
@@ -349,6 +455,8 @@ async function processBatchesWithConcurrency(
   contentMap: Map<string, string>,
   query: string,
   apiKey: string,
+  objectiveType: 'ACTION' | 'SEARCH' | undefined,
+  relevanceCriteria: string | undefined,
   maxConcurrent: number = CONFIG.MAX_CONCURRENT_BATCHES
 ): Promise<BatchProcessResult[]> {
   const results: BatchProcessResult[] = [];
@@ -366,7 +474,7 @@ async function processBatchesWithConcurrency(
           );
         }
 
-        const result = await processBatch(batch, contentMap, query, apiKey);
+        const result = await processBatch(batch, contentMap, query, apiKey, objectiveType, relevanceCriteria);
         results[batchIndex] = result;
       } catch (error) {
         results[batchIndex] = {
@@ -426,6 +534,8 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
       contentMap,
       state.userQuery,
       state.apiKey,
+      state.objectiveType,
+      state.relevanceCriteria,
       CONFIG.MAX_CONCURRENT_BATCHES
     );
 
