@@ -79,6 +79,10 @@ export class ConfigController extends BaseController {
       case 'getVectorDbCollectionInfo':
         await this.handleGetVectorDbCollectionInfo();
         return true;
+
+      case 'fetchQdrantCollections':
+        await this.handleFetchQdrantCollections();
+        return true;
     }
     return false;
   }
@@ -445,6 +449,41 @@ export class ConfigController extends BaseController {
     } catch (error) {
       console.error('Failed to get collection info:', error);
       this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'pinecone', info: null });
+    }
+  }
+
+  private async handleFetchQdrantCollections() {
+    try {
+      const url = this.extensionContext.globalState.get('repomix.qdrant.url') as string;
+      const apiKey = await this.extensionContext.secrets.get(SECRET_QDRANT);
+
+      if (!url) {
+        this.context.postMessage({
+          command: 'updateQdrantCollections',
+          collections: [],
+          error: 'Qdrant URL not configured'
+        });
+        return;
+      }
+
+      const { QdrantClient } = await import('@qdrant/js-client-rest');
+      const clientConfig: any = { url, timeout: 30000 };
+      if (apiKey) clientConfig.apiKey = apiKey;
+
+      const client = new QdrantClient(clientConfig);
+      const response = await client.getCollections();
+
+      this.context.postMessage({
+        command: 'updateQdrantCollections',
+        collections: response.collections?.map((c: any) => ({ name: c.name })) || []
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.context.postMessage({
+        command: 'updateQdrantCollections',
+        collections: [],
+        error: errorMessage
+      });
     }
   }
 }

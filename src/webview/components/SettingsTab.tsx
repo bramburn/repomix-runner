@@ -135,6 +135,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [qdrantCollection, setQdrantCollection] = useState('');
   const [qdrantTestLoading, setQdrantTestLoading] = useState(false);
 
+  const [qdrantCollections, setQdrantCollections] = useState<Array<{ name: string }>>([]);
+  const [qdrantCollectionsError, setQdrantCollectionsError] = useState<string | null>(null);
+  const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
+
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
 
@@ -165,6 +169,25 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       setIsFetchingIndexes(false);
     }
   }, [pineconeIndexes, indexError]);
+
+  // Fetch Qdrant collections when URL changes
+  useEffect(() => {
+    if (!qdrantUrl.trim() || vectorDbProvider !== 'qdrant') {
+      return;
+    }
+    setIsFetchingQdrantCollections(true);
+    const timer = setTimeout(() => {
+      vscode.postMessage({ command: 'fetchQdrantCollections' });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [qdrantUrl, vectorDbProvider]);
+
+  // Sync fetching state with collections response
+  useEffect(() => {
+    if (qdrantCollections.length > 0 || qdrantCollectionsError) {
+      setIsFetchingQdrantCollections(false);
+    }
+  }, [qdrantCollections, qdrantCollectionsError]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -207,6 +230,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               message: `Connection failed: ${message.error}`,
             });
           }
+          break;
+
+        case 'updateQdrantCollections':
+          setQdrantCollections(message.collections || []);
+          setQdrantCollectionsError(message.error || null);
+          setIsFetchingQdrantCollections(false);
           break;
       }
     };
@@ -401,11 +430,36 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             onChange={(_e, data) => setQdrantUrl(data.value)}
           />
           <Label size="small">Collection</Label>
-          <Input
-            placeholder="e.g. repomix_vectors"
-            value={qdrantCollection}
-            onChange={(_e, data) => setQdrantCollection(data.value)}
-          />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Dropdown
+              placeholder="Select or enter collection name"
+              value={qdrantCollection}
+              onOptionSelect={(_e, data) => setQdrantCollection(data.optionValue)}
+              style={{ flexGrow: 1 }}
+            >
+              {qdrantCollections.map((collection) => (
+                <Option key={collection.name} value={collection.name}>{collection.name}</Option>
+              ))}
+            </Dropdown>
+            <Button
+              icon={isFetchingQdrantCollections ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
+              onClick={() => {
+                setIsFetchingQdrantCollections(true);
+                vscode.postMessage({ command: 'fetchQdrantCollections' });
+              }}
+              disabled={!qdrantUrl.trim() || isFetchingQdrantCollections}
+              appearance="secondary"
+            />
+          </div>
+          {qdrantCollectionsError && <Text size={100} style={{ color: 'var(--vscode-errorForeground)' }}>{qdrantCollectionsError}</Text>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <Label size="small">Or enter new collection name</Label>
+            <Input
+              placeholder="e.g. repomix_vectors"
+              value={qdrantCollection}
+              onChange={(_e, data) => setQdrantCollection(data.value)}
+            />
+          </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button
               onClick={handleTestQdrantConnection}

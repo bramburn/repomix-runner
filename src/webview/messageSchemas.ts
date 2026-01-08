@@ -266,6 +266,18 @@ export const VectorDbCollectionInfoSchema = z.object({
   info: z.object({ name: z.string() }).optional(),
 });
 
+export const FetchQdrantCollectionsSchema = z.object({
+  command: z.literal('fetchQdrantCollections'),
+});
+
+export const UpdateQdrantCollectionsSchema = z.object({
+  command: z.literal('updateQdrantCollections'),
+  collections: z.array(z.object({
+    name: z.string(),
+  })),
+  error: z.string().optional(),
+});
+
 export const GetQdrantConfigSchema = z.object({
   command: z.literal('getQdrantConfig'),
 });
@@ -342,6 +354,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetVectorDbProviderSchema,
   SetVectorDbProviderSchema,
   GetVectorDbCollectionInfoSchema,
+  FetchQdrantCollectionsSchema,
   GetQdrantConfigSchema,
   SetQdrantConfigSchema,
   TestQdrantConnectionSchema,
