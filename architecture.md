@@ -1,4 +1,4 @@
-# Repomix Runner - Architecture
+# Repomix Runner Plus - Architecture
 
 ## Overview
 

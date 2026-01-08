@@ -12,7 +12,7 @@ const STATE_QDRANT_COLLECTION = 'repomix.qdrant.collection';
 
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 // [FIX] Use the correct secret key to match ConfigController
-const SECRET_QDRANT = 'repomix.agent.qdrantApiKey'; 
+const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
 
 export async function getVectorDbAdapterForRepo(
   extensionContext: ExtensionContext,
@@ -45,6 +45,15 @@ export async function getVectorDbAdapterForRepo(
 
     if (!baseUrl) throw new Error('Missing Qdrant URL');
     if (!collection) throw new Error('No Qdrant collection configured');
+
+    // Validate API key for hosted instances
+    const isHostedInstance = !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1');
+    if (isHostedInstance && !apiKey) {
+      throw new Error(
+        'Qdrant API key is required for hosted instances. ' +
+        'Please save your API key in the Settings tab before indexing or searching.'
+      );
+    }
 
     return { provider, adapter: new QdrantAdapter(baseUrl, apiKey, collection) };
   }

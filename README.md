@@ -1,10 +1,10 @@
-# Repomix Runner <img valign="middle" alt="Repomix logo" width="40" src="assets/repomix-logo.png" />
+# Repomix Runner Plus <img valign="middle" alt="Repomix logo" width="40" src="assets/repomix-logo.png" />
 
 You can support this project by giving a star on GitHub ! ⭐️ 🔭 🙏
 
-[![GitHub](https://img.shields.io/github/stars/massdo/repomix-runner?style=social)](https://github.com/massdo/repomix-runner)
-[![Version](https://img.shields.io/visual-studio-marketplace/v/DorianMassoulier.repomix-runner)](https://marketplace.visualstudio.com/items?itemName=DorianMassoulier.repomix-runner)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/DorianMassoulier.repomix-runner)](https://marketplace.visualstudio.com/items?itemName=DorianMassoulier.repomix-runner)
+[![GitHub](https://img.shields.io/github/stars/bramburn/repomix-runner?style=social)](https://github.com/bramburn/repomix-runner)
+[![Version](https://img.shields.io/visual-studio-marketplace/v/bramburn.repomix-runner-plus)](https://marketplace.visualstudio.com/items?itemName=bramburn.repomix-runner-plus)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/bramburn.repomix-runner-plus)](https://marketplace.visualstudio.com/items?itemName=bramburn.repomix-runner-plus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 <!-- [![Twitter](https://img.shields.io/twitter/follow/DorianMass49637
@@ -70,7 +70,7 @@ Open the palette with `Cmd+Shift+P` or `Ctrl+Shift+P` then:
 
 1. Open VS Code
 2. Press `Cmd+P` (macOS) or `Ctrl+P` (Windows/Linux)
-3. Type `ext install DorianMassoulier.repomix-runner`
+3. Type `ext install bramburn.repomix-runner-plus`
 4. Press Enter
 
 ## 🛠️ Configuration

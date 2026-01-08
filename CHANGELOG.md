@@ -1,9 +1,19 @@
 # Change Log
 
-All notable changes to the "Repomix Runner" extension will be documented in this file.
+All notable changes to the "Repomix Runner Plus" extension will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2025-01-08
+
+### Changed
+
+- **Rebranding**: Extension renamed from "Repomix Runner" to "Repomix Runner Plus"
+- **Publisher**: Changed publisher from `DorianMassoulier` to `bramburn`
+- **Repository**: Migrated to `https://github.com/bramburn/repomix-runner`
+- **License**: Updated to include derivative work copyright (© 2025 Bhavesh Ramburn)
+- **Extension ID**: New extension ID is `bramburn.repomix-runner-plus`
 
 ## [0.5.0] - 2025-09-25
 

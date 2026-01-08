@@ -169,6 +169,11 @@ export const SearchTab = () => {
 
   const [fileCount, setFileCount] = useState<number | null>(null);
   const [vectorCount, setVectorCount] = useState<number | null>(null);
+  const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
+  const [collectionInfo, setCollectionInfo] = useState<{
+    name: string;
+    provider: 'pinecone' | 'qdrant';
+  } | null>(null);
 
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexingState, setIndexingState] = useState<'idle' | 'running' | 'paused' | 'stopping'>('idle');
@@ -511,6 +516,14 @@ export const SearchTab = () => {
           setVectorCount(message.count);
           break;
 
+        case 'vectorDbProvider':
+          setVectorDbProvider(message.provider ?? 'pinecone');
+          break;
+
+        case 'vectorDbCollectionInfo':
+          setCollectionInfo(message.info ? { ...message.info, provider: message.provider } : null);
+          break;
+
         case 'searchQueryExpanded':
           setExpandedQueries(Array.isArray(message.queries) ? message.queries : []);
           break;
@@ -552,9 +565,16 @@ export const SearchTab = () => {
 
     vscode.postMessage({ command: 'getRepoIndexCount' });
     vscode.postMessage({ command: 'getRepoVectorCount' });
+    vscode.postMessage({ command: 'getVectorDbProvider' });
+    vscode.postMessage({ command: 'getVectorDbCollectionInfo' });
 
     return () => window.removeEventListener('message', handleMessage);
   }, [fileTypeFilter]);
+
+  // Fetch collection info when provider changes
+  useEffect(() => {
+    vscode.postMessage({ command: 'getVectorDbCollectionInfo' });
+  }, [vectorDbProvider]);
 
   const handleIndex = () => {
     setIsIndexing(true);
@@ -685,12 +705,20 @@ export const SearchTab = () => {
                 <div style={{ marginTop: '8px' }}>
                   {vectorCount !== null ? (
                     <Text size={200} style={{ opacity: 0.7 }}>
-                      Pinecone vectors (repo): <b>{vectorCount}</b>
+                      {vectorDbProvider === 'qdrant' ? 'Qdrant' : 'Pinecone'} vectors (repo): <b>{vectorCount}</b>
                     </Text>
                   ) : (
-                    <Text size={200} style={{ opacity: 0.5 }}>Loading Pinecone count…</Text>
+                    <Text size={200} style={{ opacity: 0.5 }}>Loading {vectorDbProvider === 'qdrant' ? 'Qdrant' : 'Pinecone'} count…</Text>
                   )}
                 </div>
+
+                {collectionInfo && (
+                  <div style={{ marginTop: '6px' }}>
+                    <Text size={200} style={{ opacity: 0.6 }}>
+                      {collectionInfo.provider === 'qdrant' ? 'Collection' : 'Index'}: <b>{collectionInfo.name}</b>
+                    </Text>
+                  </div>
+                )}
 
                 {isIndexing && indexProgress && (
                   <div style={{ marginTop: '10px', width: '100%', textAlign: 'center' }}>

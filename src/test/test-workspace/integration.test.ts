@@ -27,7 +27,7 @@ type TestScenario = {
 suite('Extension Test Suite', () => {
   let workspacePath: string;
   let extension: vscode.Extension<any>;
-  const extensionId = 'DorianMassoulier.repomix-runner';
+  const extensionId = 'bramburn.repomix-runner-plus';
 
   suiteSetup(async function () {
     // Initialize extension

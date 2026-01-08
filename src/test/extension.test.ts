@@ -4,7 +4,7 @@ import * as path from 'path';
 
 suite('Extension Test Suite', () => {
   test('Extension should be activated', async () => {
-    const extensionId = 'DorianMassoulier.repomix-runner';
+    const extensionId = 'bramburn.repomix-runner-plus';
     const extension = vscode.extensions.getExtension(extensionId);
     assert.ok(extension, 'Extension is not found');
     assert.ok(!extension.isActive, 'Extension should be inactive');

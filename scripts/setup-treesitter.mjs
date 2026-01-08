@@ -48,7 +48,7 @@ const PARSER_VERSIONS = {
 async function getLatestVersion(repo) {
   return new Promise((resolve, reject) => {
     const url = `https://api.github.com/repos/tree-sitter/${repo}/releases/latest`;
-    const request = https.get(url, { headers: { 'User-Agent': 'repomix-runner' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'repomix-runner-plus' } }, (response) => {
       let data = '';
 
       response.on('data', (chunk) => {

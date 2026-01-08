@@ -136,7 +136,7 @@ export const App = () => {
         }}
       >
         <Text size={500} weight="semibold" style={{ marginBottom: '10px' }}>
-          Repomix Runner
+          Repomix Runner Plus
         </Text>
 
         <TabList

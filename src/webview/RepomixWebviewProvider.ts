@@ -242,7 +242,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         <meta charset="UTF-8">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Repomix Runner Control Panel</title>
+        <title>Repomix Runner Plus Control Panel</title>
       </head>
       <body>
         <div id="root"></div>

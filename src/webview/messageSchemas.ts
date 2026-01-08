@@ -251,6 +251,21 @@ export const SetVectorDbProviderSchema = z.object({
   provider: z.enum(['pinecone', 'qdrant']),
 });
 
+export const VectorDbProviderSchema = z.object({
+  command: z.literal('vectorDbProvider'),
+  provider: z.enum(['pinecone', 'qdrant']).optional(),
+});
+
+export const GetVectorDbCollectionInfoSchema = z.object({
+  command: z.literal('getVectorDbCollectionInfo'),
+});
+
+export const VectorDbCollectionInfoSchema = z.object({
+  command: z.literal('vectorDbCollectionInfo'),
+  provider: z.enum(['pinecone', 'qdrant']),
+  info: z.object({ name: z.string() }).optional(),
+});
+
 export const GetQdrantConfigSchema = z.object({
   command: z.literal('getQdrantConfig'),
 });
@@ -326,6 +341,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   SetCopyModeSchema,
   GetVectorDbProviderSchema,
   SetVectorDbProviderSchema,
+  GetVectorDbCollectionInfoSchema,
   GetQdrantConfigSchema,
   SetQdrantConfigSchema,
   TestQdrantConnectionSchema,

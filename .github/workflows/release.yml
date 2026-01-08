@@ -58,11 +58,11 @@ jobs:
         run: ls -l assets/bin/repomix-clipboard.exe
 
       - name: Package Extension
-        run: npx vsce package --out ./repomix-runner.vsix
+        run: npx vsce package --out ./repomix-runner-plus.vsix
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          files: repomix-runner.vsix
+          files: repomix-runner-plus.vsix
           generate_release_notes: true

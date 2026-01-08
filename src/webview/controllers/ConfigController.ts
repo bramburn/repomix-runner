@@ -75,6 +75,10 @@ export class ConfigController extends BaseController {
       case 'testQdrantConnection':
         await this.handleTestQdrantConnection(message.url, message.collection, message.apiKey);
         return true;
+
+      case 'getVectorDbCollectionInfo':
+        await this.handleGetVectorDbCollectionInfo();
+        return true;
     }
     return false;
   }
@@ -321,33 +325,17 @@ export class ConfigController extends BaseController {
       console.log('[ConfigController] Step 3: Building client config...');
       const clientConfig: any = {
         url,
-        timeout: 30000,
-        // Custom fetch for VSCode extension host compatibility
-        // Fix: Use standard AbortController logic compatible with older Node versions
-        fetch: (input: any, init: any) => {
-          console.log('[ConfigController] Custom fetch called with input:', input);
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-          // Merge signals if one is already provided
-          const signal = init?.signal
-            ? (anySignal(init.signal, controller.signal)) // Simplified logic below
-            : controller.signal;
-
-          console.log('[ConfigController] Fetch request about to be sent...');
-          return fetch(input, {
-            ...init,
-            cache: 'no-store',
-            signal: signal
-          }).finally(() => clearTimeout(timeoutId));
-        }
+        timeout: 30000
       };
-      console.log('[ConfigController] Client config built:', JSON.stringify({ url: clientConfig.url, timeout: clientConfig.timeout, hasApiKey: !!clientConfig.apiKey }));
 
       if (apiKey) {
         clientConfig.apiKey = apiKey;
         console.log('[ConfigController] API key added to config (first 8 chars):', apiKey.substring(0, 8) + '...');
+      } else {
+        console.warn('[ConfigController] No API key provided - connection may fail for hosted instances');
       }
+
+      console.log('[ConfigController] Client config built:', JSON.stringify({ url: clientConfig.url, timeout: clientConfig.timeout, hasApiKey: !!clientConfig.apiKey }));
 
       // Step 4: Create client
       console.log('[ConfigController] Step 4: Creating QdrantClient instance...');
@@ -399,9 +387,15 @@ export class ConfigController extends BaseController {
     } catch (error: unknown) {
       let errorMessage = error instanceof Error ? error.message : String(error);
 
-      // More descriptive error for fetch failures
-      if (errorMessage.includes('fetch failed')) {
-        errorMessage = `Could not connect to ${url}. Please check if the Qdrant server is running and accessible.`;
+      // Provide more specific error messages based on error type
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+        errorMessage = `Authentication failed. Please verify your Qdrant API key is correct.`;
+      } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+        errorMessage = `Access forbidden. Please check your Qdrant API key permissions.`;
+      } else if (errorMessage.includes('fetch failed') || errorMessage.includes('ECONNREFUSED')) {
+        errorMessage = `Could not connect to ${url}. Please verify:\n1. The URL is correct\n2. The Qdrant server is running\n3. The server is accessible from your network`;
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        errorMessage = `Connection timed out. The Qdrant server at ${url} is not responding.`;
       }
 
       console.error('[ConfigController] === Qdrant Test Connection Failed ===');
@@ -419,12 +413,38 @@ export class ConfigController extends BaseController {
       vscode.window.showErrorMessage(`Qdrant connection failed: ${errorMessage}`);
     }
   }
-}
 
-// Helper to support signal composition if needed (though usually not strict for this case)
-function anySignal(s1: AbortSignal, s2: AbortSignal): AbortSignal {
-  if (s1.aborted) return s1;
-  if (s2.aborted) return s2;
-  // Fallback: just return the controller signal as it's the timeout one which is most critical
-  return s2;
+  private async handleGetVectorDbCollectionInfo() {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'pinecone', info: null });
+        return;
+      }
+
+      const rootPath = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(rootPath);
+      const provider = (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'pinecone';
+
+      let collectionName: string | null = null;
+
+      if (provider === 'pinecone') {
+        const repoConfigs: Record<string, any> =
+          this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
+        const selected = repoConfigs[repoId];
+        collectionName = typeof selected === 'string' ? selected : selected?.name;
+      } else {
+        collectionName = this.extensionContext.globalState.get('repomix.qdrant.collection') as string || null;
+      }
+
+      this.context.postMessage({
+        command: 'vectorDbCollectionInfo',
+        provider,
+        info: collectionName ? { name: collectionName } : null
+      });
+    } catch (error) {
+      console.error('Failed to get collection info:', error);
+      this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'pinecone', info: null });
+    }
+  }
 }

@@ -25,7 +25,7 @@ suite('Open Settings Command', () => {
       assert.strictEqual(
         executeCommandSpy.calledWith(
           'workbench.action.openSettings',
-          '@ext:DorianMassoulier.repomix-runner'
+          '@ext:bramburn.repomix-runner-plus'
         ),
         true,
         'Settings were not opened with the correct extension filter'

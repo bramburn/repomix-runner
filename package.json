@@ -1,15 +1,15 @@
 {
-  "publisher": "DorianMassoulier",
-  "name": "repomix-runner",
+  "publisher": "bramburn",
+  "name": "repomix-runner-plus",
   "main": "./dist/extension.js",
-  "displayName": "Repomix Runner",
+  "displayName": "Repomix Runner Plus",
   "icon": "assets/repomix-logo.png",
   "description": "Easily bundle files into a single output for AI processing.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/massdo/repomix-runner.git"
+    "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "0.6.55",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.93.0"
   },

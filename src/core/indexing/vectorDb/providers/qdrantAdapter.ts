@@ -23,6 +23,16 @@ export class QdrantAdapter implements VectorDbAdapter {
             throw new Error('QdrantAdapter requires baseUrl and collection');
         }
 
+        // Check if this is a hosted instance (not localhost/127.0.0.1)
+        const isHostedInstance = !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1');
+
+        if (isHostedInstance && !apiKey) {
+            throw new Error(
+                'Qdrant API key is required for hosted instances. ' +
+                'Please configure your API key in the extension settings.'
+            );
+        }
+
         this.client = new QdrantClient({
             url: baseUrl,
             apiKey: apiKey

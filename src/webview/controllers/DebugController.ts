@@ -144,7 +144,7 @@ export class DebugController extends BaseController {
           return path.resolve(cwd, filePath);
         }
       } catch (e) {
-        console.warn('Repomix Runner: Failed to parse repomix.config.json, falling back to detector.', e);
+        console.warn('Repomix Runner Plus: Failed to parse repomix.config.json, falling back to detector.', e);
       }
     }
 
