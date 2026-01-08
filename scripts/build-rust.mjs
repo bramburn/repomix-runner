@@ -1,45 +1,43 @@
 import { execSync } from 'child_process';
 import { copyFileSync, mkdirSync, existsSync } from 'fs';
-import { platform } from 'os';
+import { platform, arch } from 'os';
 import { join } from 'path';
 
-const isWindows = platform() === 'win32';
+const currentPlatform = platform();
+const currentArch = arch();
+const isWindows = currentPlatform === 'win32';
 const targetDir = join('assets', 'bin');
 const rustDir = join('rust');
-const target = 'x86_64-pc-windows-gnu';
 
-console.log('Building Rust clipboard tool...');
+// Target naming convention: repomix-clipboard-${platform}-${arch}${ext}
+const binaryExtension = isWindows ? '.exe' : '';
+const targetBinaryName = `repomix-clipboard-${currentPlatform}-${currentArch}${binaryExtension}`;
+
+console.log(`Building Rust clipboard tool for ${currentPlatform}-${currentArch}...`);
 
 if (!existsSync(targetDir)) {
   mkdirSync(targetDir, { recursive: true });
 }
 
 try {
-  // If we are on Windows, we can build directly.
-  // If we are on Linux/Mac, we attempt to cross-compile if target is installed.
-  // We assume the user has set up the environment if they are running this script.
-
-  // Actually, we can check if we are on windows
+  // Build for the host platform
   let buildCommand = 'cargo build --release';
 
-  if (!isWindows) {
-    console.log(`Not on Windows, attempting cross-compilation for ${target}...`);
-    buildCommand += ` --target ${target}`;
-  }
+  // Note: For pure host builds, we don't need --target usually.
+  // If we wanted cross-compilation, we'd add it here.
 
   execSync(buildCommand, { cwd: rustDir, stdio: 'inherit' });
 
-  const releaseDir = isWindows
-    ? join(rustDir, 'target', 'release')
-    : join(rustDir, 'target', target, 'release');
+  const releaseDir = join(rustDir, 'target', 'release');
 
-  const binaryName = 'repomix-clipboard.exe';
-  const sourcePath = join(releaseDir, binaryName);
-  const destPath = join(targetDir, binaryName);
+  // The source binary name produced by cargo (matches package name in Cargo.toml)
+  const sourceBinaryName = isWindows ? 'repomix-clipboard.exe' : 'repomix-clipboard';
+  const sourcePath = join(releaseDir, sourceBinaryName);
+  const destPath = join(targetDir, targetBinaryName);
 
   if (existsSync(sourcePath)) {
     copyFileSync(sourcePath, destPath);
-    console.log(`Successfully built and copied ${binaryName} to ${destPath}`);
+    console.log(`Successfully built and copied ${sourceBinaryName} to ${destPath}`);
   } else {
     console.error(`Error: Could not find built binary at ${sourcePath}`);
     process.exit(1);
