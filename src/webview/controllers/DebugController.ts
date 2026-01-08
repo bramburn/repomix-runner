@@ -11,6 +11,7 @@ import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFi
 import { addFileExtension } from '../../utils/fileExtensions.js';
 import { normalizeOutputStyle } from '../../utils/normalizeOutputStyle.js';
 import { readRepomixRunnerVscodeConfig } from '../../config/configLoader.js';
+import { getRemoteEnvironment, shouldUseLocalBinaryExecution, getBinaryName } from '../../core/files/remoteDetection.js';
 
 export class DebugController extends BaseController {
   constructor(
@@ -33,6 +34,9 @@ export class DebugController extends BaseController {
         return true;
       case 'copyDebugOutput':
         await this.handleCopyDebugOutput();
+        return true;
+      case 'getEnvironmentInfo':
+        await this.handleGetEnvironmentInfo();
         return true;
     }
     return false;
@@ -151,5 +155,60 @@ export class DebugController extends BaseController {
     // Strategy B: Fallback to the standard detector (defaults)
     const { getRepomixOutputPath } = await import('../../utils/repomix_output_detector.js');
     return getRepomixOutputPath(cwd);
+  }
+
+  private async handleGetEnvironmentInfo(): Promise<void> {
+    try {
+      // Get remote environment info
+      const env = getRemoteEnvironment();
+
+      // Determine if we should use local binary
+      const shouldUseLocalBinary = shouldUseLocalBinaryExecution(env);
+
+      // Find binary path if applicable
+      let binaryPath: string | undefined;
+      let binaryExists = false;
+
+      if (shouldUseLocalBinary) {
+        const binaryName = getBinaryName(env.localOs, env.localArch);
+
+        // Search for binary in expected locations
+        const possiblePaths = [
+          path.join(__dirname, '..', '..', '..', 'assets', 'bin', binaryName),
+          path.join(__dirname, '..', '..', 'assets', 'bin', binaryName),
+          path.join(process.env.REPOMIX_EXTENSION_DIR || '', 'assets', 'bin', binaryName),
+          path.resolve(process.cwd(), 'assets', 'bin', binaryName),
+        ];
+
+        for (const p of possiblePaths) {
+          if (fs.existsSync(p)) {
+            binaryPath = p;
+            binaryExists = true;
+            break;
+          }
+        }
+
+        if (!binaryExists) {
+          binaryPath = possiblePaths[0]; // Show expected path even if not found
+        }
+      }
+
+      // Send environment info to webview
+      this.context.postMessage({
+        command: 'updateEnvironmentInfo',
+        environmentInfo: {
+          localOs: env.localOs,
+          localArch: env.localArch,
+          isRemote: env.isRemote,
+          remoteName: env.remoteName,
+          isSshRemote: env.remoteName === 'ssh',
+          shouldUseLocalBinary,
+          binaryPath,
+          binaryExists,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to get environment info:', error);
+    }
   }
 }

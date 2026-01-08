@@ -2,22 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { Button, Text, Accordion, AccordionItem, AccordionHeader, AccordionPanel } from '@fluentui/react-components';
 import { CopyRegular, DeleteRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
-import { DebugRun } from '../types.js';
+import { DebugRun, EnvironmentInfo } from '../types.js';
 
 export const DebugTab = () => {
   const [runs, setRuns] = useState<DebugRun[]>([]);
   const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
+  const [environmentInfo, setEnvironmentInfo] = useState<EnvironmentInfo | null>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message.command === 'updateDebugRuns') {
         setRuns(message.runs);
+      } else if (message.command === 'updateEnvironmentInfo') {
+        setEnvironmentInfo(message.environmentInfo);
       }
     };
 
     window.addEventListener('message', handleMessage);
     vscode.postMessage({ command: 'getDebugRuns' });
+    vscode.postMessage({ command: 'getEnvironmentInfo' });
 
     return () => {
       window.removeEventListener('message', handleMessage);
@@ -168,6 +172,81 @@ export const DebugTab = () => {
             )}
           </div>
         ))
+      )}
+
+      {/* Environment Info Section */}
+      {environmentInfo && (
+        <div style={{
+          marginTop: '20px',
+          padding: '12px',
+          backgroundColor: 'var(--vscode-editor-background)',
+          borderRadius: '4px',
+          border: '1px solid var(--vscode-widget-border)',
+        }}>
+          <Text size={200} weight="semibold" style={{ marginBottom: '8px', display: 'block' }}>
+            Environment Information
+          </Text>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', fontSize: '13px' }}>
+            {/* Local OS */}
+            <Text size={100} style={{ opacity: 0.7 }}>Local OS:</Text>
+            <Text size={100}>
+              {environmentInfo.localOs === 'win32' ? 'Windows' :
+               environmentInfo.localOs === 'darwin' ? 'macOS' :
+               environmentInfo.localOs === 'linux' ? 'Linux' : environmentInfo.localOs}
+              {' '}{environmentInfo.localArch}
+            </Text>
+
+            {/* Remote Status */}
+            <Text size={100} style={{ opacity: 0.7 }}>Remote:</Text>
+            <Text size={100}>
+              {environmentInfo.isRemote ? (
+                <span style={{ color: 'var(--vscode-charts-blue)' }}>
+                  ✓ {environmentInfo.remoteName || 'Unknown'}
+                </span>
+              ) : (
+                <span style={{ opacity: 0.6 }}>None</span>
+              )}
+            </Text>
+
+            {/* SSH Remote */}
+            <Text size={100} style={{ opacity: 0.7 }}>SSH Remote:</Text>
+            <Text size={100}>
+              {environmentInfo.isSshRemote ? (
+                <span style={{ color: 'var(--vscode-charts-green)' }}>✓ Yes</span>
+              ) : (
+                <span style={{ opacity: 0.6 }}>No</span>
+              )}
+            </Text>
+
+            {/* Local Binary Execution */}
+            <Text size={100} style={{ opacity: 0.7 }}>Use Local Binary:</Text>
+            <Text size={100}>
+              {environmentInfo.shouldUseLocalBinary ? (
+                <span style={{ color: 'var(--vscode-charts-green)' }}>✓ Yes</span>
+              ) : (
+                <span style={{ opacity: 0.6 }}>No</span>
+              )}
+            </Text>
+
+            {/* Binary Path - show if applicable */}
+            {environmentInfo.shouldUseLocalBinary && (
+              <>
+                <Text size={100} style={{ opacity: 0.7 }}>Binary Path:</Text>
+                <Text size={100} style={{
+                  fontFamily: 'monospace',
+                  color: environmentInfo.binaryExists
+                    ? 'var(--vscode-charts-green)'
+                    : 'var(--vscode-errorForeground)',
+                  wordBreak: 'break-all',
+                }}>
+                  {environmentInfo.binaryExists ? '✓ ' : '✗ '}
+                  {environmentInfo.binaryPath || 'Not found'}
+                </Text>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

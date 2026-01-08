@@ -4,7 +4,7 @@ import { copyFile, access } from 'fs/promises';
 import { tempDirManager } from './tempDirManager.js';
 import * as path from 'path';
 import * as fs from 'fs';
-
+import { readRepomixRunnerVscodeConfig } from '../../config/configLoader.js';
 type OperatingSystem = 'darwin' | 'win32' | 'linux';
 
 async function checkXclipInstalled(dep: { execPromisify: typeof execPromisify }): Promise<boolean> {
@@ -30,21 +30,23 @@ const CLIPBOARD_COMMANDS = {
 } as const;
 
 function getWin32BinaryPath(): string {
-    const possiblePaths = [
-        path.join(__dirname, '..', 'assets', 'bin', 'repomix-clipboard.exe'), // dist/../assets = assets
-        path.join(__dirname, 'assets', 'bin', 'repomix-clipboard.exe'),       // dist/assets?
-        path.join(__dirname, '..', '..', '..', 'assets', 'bin', 'repomix-clipboard.exe'), // src/core/files/../../../assets (dev)
-        path.join(process.cwd(), 'assets', 'bin', 'repomix-clipboard.exe') // Fallback to CWD
-    ];
+  const possiblePaths = [
+    path.join(__dirname, '..', 'assets', 'bin', 'repomix-clipboard.exe'), // dist/../assets = assets
+    path.join(__dirname, 'assets', 'bin', 'repomix-clipboard.exe'),       // dist/assets?
+    path.join(__dirname, '..', '..', '..', 'assets', 'bin', 'repomix-clipboard.exe'), // src/core/files/../../../assets (dev)
+    path.join(process.cwd(), 'assets', 'bin', 'repomix-clipboard.exe') // Fallback to CWD
+  ];
 
-    for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-            return p;
-        }
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
     }
+  }
 
-    return 'repomix-clipboard.exe';
+  return 'repomix-clipboard.exe';
 }
+
+
 
 export async function copyToClipboard(
   outputFileAbs: string,
@@ -56,12 +58,37 @@ export async function copyToClipboard(
     access: typeof access;
     createTempDir: typeof tempDirManager.createTempDir;
   } = {
-    copyFile,
-    execPromisify,
-    access,
-    createTempDir: tempDirManager.createTempDir,
-  }
+      copyFile,
+      execPromisify,
+      access,
+      createTempDir: tempDirManager.createTempDir,
+    }
 ) {
+  const config = readRepomixRunnerVscodeConfig();
+  if (config.runner.copyMode === 'content') {
+    try {
+      const content = await fs.promises.readFile(outputFileAbs, 'utf-8');
+      await vscode.env.clipboard.writeText(content);
+      // Optional: Showing a message here might be redundant if the caller also shows one, 
+      // but usually the caller shows "Copied..." messages. 
+      // However, the caller usually expects this function to JUST do the copy.
+      // The controllers often show their own success message. 
+      // check if we should show message here? 
+      // The existing code threw errors but didn't show success info inside this function (execution did).
+      // But for 'content' mode via VSCode API, it's instant.
+
+      // Actually, existing controllers show success message AFTER this function returns.
+      // So we should NOT show message here to avoid double messaging, UNLESS the caller message is specific to "File".
+      // Most callers say "Copied X to clipboard". 
+      // BundleController: `vscode.window.showInformationMessage(\`Copied "${originalFilename}" to clipboard.\`);`
+      // So we are good. just return.
+      return;
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Failed to copy content to clipboard: ${error.message}`);
+      throw error;
+    }
+  }
+
   if (os === 'linux') {
     const isXclipInstalled = await checkXclipInstalled(dep);
     if (!isXclipInstalled) {
@@ -96,9 +123,9 @@ export async function copyToClipboard(
     await dep.execPromisify(command);
   } catch (err: any) {
     if (os === 'win32') {
-         vscode.window.showErrorMessage(`Error setting file to clipboard using helper tool: ${err.message}. Ensure repomix-clipboard.exe is correctly installed.`);
+      vscode.window.showErrorMessage(`Error setting file to clipboard using helper tool: ${err.message}. Ensure repomix-clipboard.exe is correctly installed.`);
     } else {
-        vscode.window.showErrorMessage(`Error setting file to clipboard: ${err.message}`);
+      vscode.window.showErrorMessage(`Error setting file to clipboard: ${err.message}`);
     }
     throw err;
   }

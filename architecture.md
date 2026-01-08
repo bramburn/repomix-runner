@@ -63,6 +63,60 @@ Binary at `rust/src/main.rs` providing cross-platform clipboard operations:
 - **Features:** Directory expansion, .gitignore respect, deduplication
 - **Build:** `npm run build:rust` → outputs to `bin/repomix-clip.exe`
 
+### Remote Clipboard Architecture
+
+When working with a remote repository via SSH, the extension uses a hybrid approach:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Remote Detection | `src/core/files/remoteDetection.ts` | Detects SSH remote and determines local OS/arch |
+| Clipboard Handler | `src/core/files/remoteClipboardHandler.ts` | Handles base64 decoding and local binary execution |
+| Message Types | `src/webview/types/remoteClipboardMessages.ts` | IPC message schemas for remote clipboard |
+
+**Remote Workflow:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Remote Detection                                          │
+│    - Checks vscode.env.remoteName                          │
+│    - Determines local OS/arch                              │
+│    - Searches for platform-specific binary                 │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. File Transfer (Remote → Local)                           │
+│    - Files read from remote server                         │
+│    - Contents encoded as base64                             │
+│    - Sent via VSCode IPC to webview                         │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Local Processing (Windows Client)                        │
+│    - Webview decodes base64                                │
+│    - Writes to temp directory (%TEMP%\repomix-clipboard\)   │
+│    - Executes repomix-clipboard-win32-x64.exe               │
+│    - Returns success/failure to extension                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Detection Logic:**
+
+```typescript
+// Returns true if SSH remote + binary available
+shouldUseLocalBinaryExecution(env: RemoteEnvironment): boolean
+  = env.isRemote && env.remoteName === 'ssh' && hasBinaryForPlatform(env.localOs, env.localArch)
+```
+
+**Platform-Specific Binaries:**
+
+| Platform | Binary Name | Location |
+|----------|-------------|----------|
+| Windows | `repomix-clipboard-win32-x64.exe` | `assets/bin/` |
+| macOS ARM | `repomix-clipboard-darwin-arm64` | `assets/bin/` |
+| Linux x64 | `repomix-clipboard-linux-x64` | `assets/bin/` |
+
 ## Webview Architecture
 
 React-based UI (`src/webview/`) with bidirectional VSCode message passing:

@@ -9,6 +9,18 @@ export interface RemoteEnvironment {
     localArch: string; // 'x64', 'arm64'
 }
 
+// Module-level cache for client OS info
+let cachedClientOs: NodeJS.Platform | null = null;
+let cachedClientArch: string | null = null;
+
+/**
+ * Sets the client OS information (called from webview IPC handler)
+ */
+export function setClientInfo(os: NodeJS.Platform, arch: string): void {
+    cachedClientOs = os;
+    cachedClientArch = arch;
+}
+
 /**
  * Detects whether VS Code is running in remote mode
  * and what the client OS is
@@ -16,11 +28,15 @@ export interface RemoteEnvironment {
 export function getRemoteEnvironment(): RemoteEnvironment {
     const isRemote = vscode.env.remoteName !== undefined;
 
+    // Use cached client info if available (from webview), otherwise fall back to process (local only)
+    const clientOs = cachedClientOs || process.platform;
+    const clientArch = cachedClientArch || process.arch;
+
     return {
         isRemote,
         remoteName: vscode.env.remoteName,
-        localOs: process.platform,
-        localArch: process.arch,
+        localOs: clientOs,
+        localArch: clientArch,
     };
 }
 

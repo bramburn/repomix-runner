@@ -77,6 +77,46 @@ Open the palette with `Cmd+Shift+P` or `Ctrl+Shift+P` then:
 
 - The extension support the repomix.config.json file in your project root folder, it will **_override_** the settings in the extension. Except for the runner settings.
 
+## 📋 Clipboard Workflows
+
+The extension supports clipboard operations in both **local** and **remote** development environments.
+
+### Local Development
+
+When working locally, the extension uses two clipboard modes (configurable in Settings):
+
+| Mode         | Description                                                  |
+|--------------|-------------------------------------------------------------|
+| **File Object** | Copies the actual file to clipboard for drag-drop paste    |
+| **Text Content** | Copies raw text content to clipboard                        |
+
+- **File mode**: Uses OS-specific clipboard APIs (Windows binary, macOS AppleScript, Linux xclip)
+- **Content mode**: Uses VS Code's clipboard API for text
+
+### Remote Development (SSH)
+
+When connected to a remote repository via SSH from a Windows client, the extension uses a **hybrid workflow**:
+
+1. **Automatic Detection**: Extension detects SSH connection and Windows client
+2. **File Transfer**:
+   - Files are read from the remote server
+   - Content is transferred to your Windows machine as base64-encoded data
+   - Local `repomix-clipboard` binary copies files to clipboard
+3. **Result**: File objects available for drag-drop paste on Windows
+
+**Requirements for Remote Clipboard:**
+- SSH connection to remote server
+- Windows client (macOS/Linux support in development)
+- `repomix-clipboard-win32-x64.exe` binary (included with extension)
+
+#### Debugging Remote Clipboard
+
+The **Debug tab** in the Control Panel displays environment information to verify remote detection:
+- Local OS and architecture
+- Remote connection type (ssh, wsl, dev-container)
+- Whether local binary execution is active
+- Binary path and availability status
+
 ## 📋 Requirements
 
 - VS Code 1.93.0 or higher

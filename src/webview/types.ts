@@ -50,6 +50,17 @@ export interface DebugRun {
   error?: string;
 }
 
+export interface EnvironmentInfo {
+  localOs: NodeJS.Platform;        // 'win32', 'darwin', 'linux'
+  localArch: string;               // 'x64', 'arm64'
+  isRemote: boolean;               // true if connected to remote
+  remoteName?: string;             // 'ssh', 'wsl', 'dev-container', etc.
+  isSshRemote: boolean;            // true if remoteName === 'ssh'
+  shouldUseLocalBinary: boolean;   // true if SSH remote with binary
+  binaryPath?: string;             // path to binary if found
+  binaryExists: boolean;           // true if binary file exists
+}
+
 export interface PineconeIndex {
   name: string;
   host: string;

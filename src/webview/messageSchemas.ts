@@ -106,6 +106,24 @@ export const DeleteDebugRunSchema = z.object({
   id: z.number(),
 });
 
+export const GetEnvironmentInfoSchema = z.object({
+  command: z.literal('getEnvironmentInfo'),
+});
+
+export const UpdateEnvironmentInfoSchema = z.object({
+  command: z.literal('updateEnvironmentInfo'),
+  environmentInfo: z.object({
+    localOs: z.enum(['win32', 'darwin', 'linux', 'freebsd', 'openbsd', 'sunos', 'aix']),
+    localArch: z.string(),
+    isRemote: z.boolean(),
+    remoteName: z.string().optional(),
+    isSshRemote: z.boolean(),
+    shouldUseLocalBinary: z.boolean(),
+    binaryPath: z.string().optional(),
+    binaryExists: z.boolean(),
+  }),
+});
+
 export const FetchPineconeIndexesSchema = z.object({
   command: z.literal('fetchPineconeIndexes'),
   apiKey: z.string().optional(),
@@ -301,6 +319,12 @@ export const ShowNotificationSchema = z.object({
   message: z.string().min(1, "Message is required"),
 });
 
+export const ReportClientInfoSchema = z.object({
+  command: z.literal('reportClientInfo'),
+  clientOs: z.enum(['win32', 'darwin', 'linux', 'unknown']),
+  clientArch: z.enum(['x64', 'arm64', 'unknown']),
+});
+
 export const ApplyPatchesSchema = z.object({
   command: z.literal('applyPatches'),
   text: z.string(),
@@ -329,6 +353,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ReRunDebugSchema,
   CopyDebugOutputSchema,
   DeleteDebugRunSchema,
+  GetEnvironmentInfoSchema,
   FetchPineconeIndexesSchema,
   SavePineconeIndexSchema,
   GetPineconeIndexSchema,
