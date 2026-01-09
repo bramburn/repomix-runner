@@ -51,8 +51,10 @@ export interface DebugRun {
 }
 
 export interface EnvironmentInfo {
-  localOs: NodeJS.Platform;        // 'win32', 'darwin', 'linux'
-  localArch: string;               // 'x64', 'arm64'
+  localOs: NodeJS.Platform;        // 'win32', 'darwin', 'linux' - client OS
+  localArch: string;               // 'x64', 'arm64' - client arch
+  remoteOs?: NodeJS.Platform;      // 'win32', 'darwin', 'linux' - remote server OS (if in remote mode)
+  remoteArch?: string;             // 'x64', 'arm64' - remote server arch (if in remote mode)
   isRemote: boolean;               // true if connected to remote
   remoteName?: string;             // 'ssh', 'wsl', 'dev-container', etc.
   isSshRemote: boolean;            // true if remoteName === 'ssh'

@@ -2,21 +2,23 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+export type OperatingSystem = NodeJS.Platform | 'unknown';
+
 export interface RemoteEnvironment {
     isRemote: boolean;
     remoteName?: string; // 'ssh', 'wsl', 'dev-container', 'codespaces'
-    localOs: NodeJS.Platform; // 'win32', 'darwin', 'linux'
+    localOs: OperatingSystem; // 'win32', 'darwin', 'linux'
     localArch: string; // 'x64', 'arm64'
 }
 
 // Module-level cache for client OS info
-let cachedClientOs: NodeJS.Platform | null = null;
+let cachedClientOs: OperatingSystem | null = null;
 let cachedClientArch: string | null = null;
 
 /**
  * Sets the client OS information (called from webview IPC handler)
  */
-export function setClientInfo(os: NodeJS.Platform, arch: string): void {
+export function setClientInfo(os: OperatingSystem, arch: string): void {
     cachedClientOs = os;
     cachedClientArch = arch;
 }
@@ -47,12 +49,21 @@ export function getRemoteEnvironment(): RemoteEnvironment {
 export function shouldUseLocalBinaryExecution(env: RemoteEnvironment): boolean {
     // Use local binary if:
     // 1. We're in remote mode (SSH, not WSL or Dev Container)
-    // 2. We have a binary for the local platform
-    return (
-        env.isRemote &&
-        env.remoteName === 'ssh' &&
-        hasBinaryForPlatform(env.localOs, env.localArch)
-    );
+    // 2. The local client platform is supported (Windows, macOS, Linux)
+
+    // Note: For SSH remotes, the binary exists on the CLIENT's machine (where the webview runs),
+    // not on the remote server. The hasBinaryForPlatform check runs on the remote server,
+    // so we skip it for SSH remotes and assume the client has the binary (it's bundled with the extension).
+    const isSshRemote = env.isRemote && env.remoteName?.startsWith('ssh') === true;
+
+    if (isSshRemote) {
+        // For SSH remotes, use local binary if the client OS is supported
+        // The actual binary check happens on the client side in the webview
+        return env.localOs === 'win32' || env.localOs === 'darwin' || env.localOs === 'linux';
+    }
+
+    // For non-SSH (local development), check if binary exists
+    return hasBinaryForPlatform(env.localOs, env.localArch);
 }
 
 /**
@@ -66,7 +77,7 @@ export function shouldUseRemoteNpx(env: RemoteEnvironment): boolean {
 /**
  * Gets platform-specific binary name
  */
-export function getBinaryName(platform: NodeJS.Platform, arch: string): string {
+export function getBinaryName(platform: OperatingSystem, arch: string): string {
     const ext = platform === 'win32' ? '.exe' : '';
     return `repomix-clipboard-${platform}-${arch}${ext}`;
 }
@@ -74,7 +85,7 @@ export function getBinaryName(platform: NodeJS.Platform, arch: string): string {
 /**
  * Checks if binary exists for the given platform and architecture
  */
-export function hasBinaryForPlatform(platform: NodeJS.Platform, arch: string): boolean {
+export function hasBinaryForPlatform(platform: OperatingSystem, arch: string): boolean {
     const binaryName = getBinaryName(platform, arch);
 
     // Check multiple possible locations

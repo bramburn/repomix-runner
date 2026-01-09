@@ -23,6 +23,25 @@ import { ApplyTab } from './components/ApplyTab.js';
 import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
 
+// --- CLIENT OS DETECTION ---
+
+function detectClientOs(): { os: 'win32' | 'darwin' | 'linux' | 'unknown'; arch: 'x64' | 'arm64' | 'unknown' } {
+  // Try to get from process if available (some webview contexts have it)
+  if (typeof process !== 'undefined' && process.platform) {
+    const os = process.platform as 'win32' | 'darwin' | 'linux';
+    const arch = (process.arch === 'arm64' ? 'arm64' : 'x64') as 'x64' | 'arm64';
+    return { os, arch };
+  }
+
+  // Fallback to navigator.userAgent
+  const ua = navigator.userAgent;
+  if (ua.includes('Windows')) return { os: 'win32', arch: 'x64' };
+  if (ua.includes('Mac')) return { os: 'darwin', arch: 'arm64' };
+  if (ua.includes('Linux')) return { os: 'linux', arch: 'x64' };
+
+  return { os: 'unknown', arch: 'unknown' };
+}
+
 // --- MAIN APP ---
 
 export const App = () => {
@@ -94,6 +113,14 @@ export const App = () => {
 
     window.addEventListener('message', handleMessage);
     vscode.postMessage({ command: 'webviewLoaded' });
+
+    // Report client OS info to extension host for remote clipboard support
+    const clientInfo = detectClientOs();
+    vscode.postMessage({
+      command: 'reportClientInfo',
+      clientOs: clientInfo.os,
+      clientArch: clientInfo.arch,
+    });
 
     return () => {
       window.removeEventListener('message', handleMessage);

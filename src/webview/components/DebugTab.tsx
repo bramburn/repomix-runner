@@ -60,7 +60,7 @@ export const DebugTab = () => {
       <Text weight="semibold">Recent Runs (Run on Selection)</Text>
 
       <Text size={100} style={{ opacity: 0.7, fontStyle: 'italic', marginBottom: '5px' }}>
-          Debug output may contain sensitive data.
+        Debug output may contain sensitive data.
       </Text>
 
       {runs.length === 0 ? (
@@ -83,58 +83,58 @@ export const DebugTab = () => {
               <Text size={200} weight="semibold">
                 {new Date(run.timestamp).toLocaleString()}
               </Text>
-<div style={{ display: 'flex', gap: '5px' }}>
-  <Button
-    appearance="subtle"
-    icon={<CopyRegular />}
-    onClick={() => handleCopy(run.id)}
-    title="Copy output from this run"
-  >
-    Copy Output
-  </Button>
-  <Button
-    appearance="subtle"
-    icon={<ArrowCounterclockwiseRegular />}
-    onClick={() => handleReRun(run.files)}
-    title="Re-run this selection"
-  >
-    Re-run
-  </Button>
-  <Button
-    appearance="subtle"
-    icon={<DeleteRegular />}
-    onClick={() => handleDelete(run.id)}
-    title="Delete this run"
-  >
-    Delete
-  </Button>
-</div>
+              <div style={{ display: 'flex', gap: '5px' }}>
+                <Button
+                  appearance="subtle"
+                  icon={<CopyRegular />}
+                  onClick={() => handleCopy(run.id)}
+                  title="Copy output from this run"
+                >
+                  Copy Output
+                </Button>
+                <Button
+                  appearance="subtle"
+                  icon={<ArrowCounterclockwiseRegular />}
+                  onClick={() => handleReRun(run.files)}
+                  title="Re-run this selection"
+                >
+                  Re-run
+                </Button>
+                <Button
+                  appearance="subtle"
+                  icon={<DeleteRegular />}
+                  onClick={() => handleDelete(run.id)}
+                  title="Delete this run"
+                >
+                  Delete
+                </Button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                {run.files.slice(0, 3).map((file, idx) => (
-                    <Text key={idx} size={100} style={{
-                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
-                        padding: '2px 4px',
-                        borderRadius: '2px',
-                        opacity: 0.9
-                    }}>
-                        {file}
-                    </Text>
-                ))}
-                {run.files.length > 3 && (
-                    <Text size={100} style={{
-                        backgroundColor: 'var(--vscode-textBlockQuote-background)',
-                        padding: '2px 4px',
-                        borderRadius: '2px',
-                        opacity: 0.9,
-                        fontStyle: 'italic'
-                    }}>
-                        +{run.files.length - 3} selection
-                    </Text>
-                )}
+              {run.files.slice(0, 3).map((file, idx) => (
+                <Text key={idx} size={100} style={{
+                  backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                  opacity: 0.9
+                }}>
+                  {file}
+                </Text>
+              ))}
+              {run.files.length > 3 && (
+                <Text size={100} style={{
+                  backgroundColor: 'var(--vscode-textBlockQuote-background)',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                  opacity: 0.9,
+                  fontStyle: 'italic'
+                }}>
+                  +{run.files.length - 3} selection
+                </Text>
+              )}
             </div>
             <Text size={100} style={{ opacity: 0.7 }}>
-                {run.files.length} items
+              {run.files.length} items
             </Text>
 
             {/* Show output/error if available */}
@@ -188,12 +188,12 @@ export const DebugTab = () => {
           </Text>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', fontSize: '13px' }}>
-            {/* Local OS */}
-            <Text size={100} style={{ opacity: 0.7 }}>Local OS:</Text>
+            {/* Client OS */}
+            <Text size={100} style={{ opacity: 0.7 }}>Client OS:</Text>
             <Text size={100}>
               {environmentInfo.localOs === 'win32' ? 'Windows' :
-               environmentInfo.localOs === 'darwin' ? 'macOS' :
-               environmentInfo.localOs === 'linux' ? 'Linux' : environmentInfo.localOs}
+                environmentInfo.localOs === 'darwin' ? 'macOS' :
+                  environmentInfo.localOs === 'linux' ? 'Linux' : environmentInfo.localOs}
               {' '}{environmentInfo.localArch}
             </Text>
 
@@ -208,6 +208,19 @@ export const DebugTab = () => {
                 <span style={{ opacity: 0.6 }}>None</span>
               )}
             </Text>
+
+            {/* Remote OS (if in remote mode) */}
+            {environmentInfo.isRemote && environmentInfo.remoteOs && (
+              <>
+                <Text size={100} style={{ opacity: 0.7 }}>Remote OS:</Text>
+                <Text size={100}>
+                  {environmentInfo.remoteOs === 'win32' ? 'Windows' :
+                    environmentInfo.remoteOs === 'darwin' ? 'macOS' :
+                      environmentInfo.remoteOs === 'linux' ? 'Linux' : environmentInfo.remoteOs}
+                  {environmentInfo.remoteArch && ` ${environmentInfo.remoteArch}`}
+                </Text>
+              </>
+            )}
 
             {/* SSH Remote */}
             <Text size={100} style={{ opacity: 0.7 }}>SSH Remote:</Text>

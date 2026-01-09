@@ -193,15 +193,21 @@ export class DebugController extends BaseController {
         }
       }
 
+      // Get remote OS info (when in remote mode, process.platform is the remote OS)
+      const remoteOs = env.isRemote ? (process.platform as NodeJS.Platform) : undefined;
+      const remoteArch = env.isRemote ? process.arch : undefined;
+
       // Send environment info to webview
       this.context.postMessage({
         command: 'updateEnvironmentInfo',
         environmentInfo: {
           localOs: env.localOs,
           localArch: env.localArch,
+          remoteOs,
+          remoteArch,
           isRemote: env.isRemote,
           remoteName: env.remoteName,
-          isSshRemote: env.remoteName === 'ssh',
+          isSshRemote: env.remoteName?.startsWith('ssh') || false,
           shouldUseLocalBinary,
           binaryPath,
           binaryExists,

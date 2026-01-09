@@ -5,6 +5,7 @@ import { tempDirManager } from './tempDirManager.js';
 import * as path from 'path';
 import * as fs from 'fs';
 import { readRepomixRunnerVscodeConfig } from '../../config/configLoader.js';
+import { getRemoteEnvironment } from './remoteDetection.js';
 type OperatingSystem = 'darwin' | 'win32' | 'linux';
 
 async function checkXclipInstalled(dep: { execPromisify: typeof execPromisify }): Promise<boolean> {
@@ -51,7 +52,7 @@ function getWin32BinaryPath(): string {
 export async function copyToClipboard(
   outputFileAbs: string,
   tmpFilePath: string,
-  os: OperatingSystem = process.platform as OperatingSystem,
+  os?: OperatingSystem,
   dep: {
     copyFile: typeof copyFile;
     execPromisify: typeof execPromisify;
@@ -64,6 +65,9 @@ export async function copyToClipboard(
       createTempDir: tempDirManager.createTempDir,
     }
 ) {
+  // Determine correct OS: use client OS from remote detection if available, otherwise use provided os or process.platform
+  const targetOs = os || getRemoteEnvironment().localOs as OperatingSystem;
+
   const config = readRepomixRunnerVscodeConfig();
   if (config.runner.copyMode === 'content') {
     try {
@@ -89,7 +93,7 @@ export async function copyToClipboard(
     }
   }
 
-  if (os === 'linux') {
+  if (targetOs === 'linux') {
     const isXclipInstalled = await checkXclipInstalled(dep);
     if (!isXclipInstalled) {
       vscode.window.showErrorMessage(
@@ -114,15 +118,15 @@ export async function copyToClipboard(
     throw copyError;
   }
 
-  if (!(os in CLIPBOARD_COMMANDS)) {
-    throw new Error(`Unsupported operating system: ${os}`);
+  if (!(targetOs in CLIPBOARD_COMMANDS)) {
+    throw new Error(`Unsupported operating system: ${targetOs}`);
   }
 
   try {
-    const command = CLIPBOARD_COMMANDS[os](tmpFilePath);
+    const command = CLIPBOARD_COMMANDS[targetOs](tmpFilePath);
     await dep.execPromisify(command);
   } catch (err: any) {
-    if (os === 'win32') {
+    if (targetOs === 'win32') {
       vscode.window.showErrorMessage(`Error setting file to clipboard using helper tool: ${err.message}. Ensure repomix-clipboard.exe is correctly installed.`);
     } else {
       vscode.window.showErrorMessage(`Error setting file to clipboard: ${err.message}`);

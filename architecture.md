@@ -126,6 +126,17 @@ React-based UI (`src/webview/`) with bidirectional VSCode message passing:
 - **Styling:** Fluent UI components
 - **State Management:** Controller pattern per tab
 
+### Adding New Webview Messages
+
+To add a new message from the webview to the extension host:
+
+1.  **Define Schema:** Add a Zod schema in `src/webview/messageSchemas.ts` (e.g., `export const MyNewCommandSchema = z.object({ command: z.literal('myNewCommand'), ... });`).
+2.  **Update Union:** Add the new schema to the `WebviewMessageSchema` discriminated union at the bottom of the file.
+3.  **Handle Message:** Update `RepomixWebviewProvider.ts` (or the relevant controller) to handle the new command.
+
+> [!IMPORTANT]
+> Failure to update `messageSchemas.ts` will result in TypeScript errors when comparing `message.command` in `RepomixWebviewProvider.ts`, as the type is inferred from the union.
+
 ## Core Commands
 
 | Command | Description |

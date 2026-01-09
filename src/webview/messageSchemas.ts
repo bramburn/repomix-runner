@@ -115,6 +115,8 @@ export const UpdateEnvironmentInfoSchema = z.object({
   environmentInfo: z.object({
     localOs: z.enum(['win32', 'darwin', 'linux', 'freebsd', 'openbsd', 'sunos', 'aix']),
     localArch: z.string(),
+    remoteOs: z.enum(['win32', 'darwin', 'linux', 'freebsd', 'openbsd', 'sunos', 'aix']).optional(),
+    remoteArch: z.string().optional(),
     isRemote: z.boolean(),
     remoteName: z.string().optional(),
     isSshRemote: z.boolean(),
@@ -330,6 +332,13 @@ export const ApplyPatchesSchema = z.object({
   text: z.string(),
 });
 
+export const RemoteClipboardProcessingCompleteSchema = z.object({
+  command: z.literal('remoteClipboardProcessingComplete'),
+  resolverKey: z.string(),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -384,7 +393,9 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   SetQdrantConfigSchema,
   TestQdrantConnectionSchema,
   ShowNotificationSchema,
+  ReportClientInfoSchema,
   ApplyPatchesSchema,
+  RemoteClipboardProcessingCompleteSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

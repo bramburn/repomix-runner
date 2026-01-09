@@ -3,6 +3,7 @@ import * as path from 'path';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
+import { setClientInfo } from '../core/files/remoteDetection.js';
 
 // Controllers
 import { BaseController } from './controllers/BaseController.js';
@@ -129,6 +130,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         } else {
           vscode.window.showInformationMessage(message.message);
         }
+        return;
+      }
+
+      // Handle reportClientInfo command for client OS detection
+      if (message.command === 'reportClientInfo') {
+        console.log('[RepomixWebviewProvider] Received client info:', message);
+        setClientInfo(message.clientOs, message.clientArch);
         return;
       }
 
