@@ -7,6 +7,18 @@ import type { VectorDbAdapter } from './vectorDb/types.js';
 import { embedAndUpsertFile, EmbeddingPipelineConfig, DEFAULT_MAX_CONCURRENT_FILES } from './fileEmbeddingPipeline.js';
 
 /**
+ * Check if a path exists and is a regular file (not a directory)
+ */
+function isRegularFile(absPath: string): boolean {
+  try {
+    const stats = fs.statSync(absPath);
+    return stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Compute SHA256 hash of a file for content change detection
  */
 function sha256File(absPath: string): string {
@@ -380,6 +392,13 @@ export class RepoEmbeddingOrchestrator {
 
         // 2d. Mark as indexed with content hash (SHA256)
         // The hash allows future optimizations (skip re-embedding if unchanged)
+        // Verify it's still a regular file before computing hash
+        if (!isRegularFile(absolutePath)) {
+          console.warn(`[REPO_EMBEDDING_ORCHESTRATOR] Path is not a regular file, skipping hash: ${filePath}`);
+          // Mark as processed with empty hash to avoid reprocessing
+          await this.databaseService.markRepoFileIndexed(repoId, filePath, '');
+          continue;
+        }
         const contentHash = sha256File(absolutePath);
         const hashPreview = contentHash.substring(0, 8) + '...';
         await this.databaseService.markRepoFileIndexed(repoId, filePath, contentHash);
@@ -595,6 +614,12 @@ export class RepoEmbeddingOrchestrator {
         // Check for modifications using hash
         const absPath = path.join(repoRoot, filePath);
         try {
+          // Verify the path is still a regular file before computing hash
+          // (defensive check against stale directory entries in database)
+          if (!isRegularFile(absPath)) {
+            console.warn(`[REPO_EMBEDDING_ORCHESTRATOR] Path is not a regular file, skipping: ${filePath}`);
+            continue;
+          }
           const currentHash = sha256File(absPath);
           if (currentHash !== state.lastIndexedHash) {
             modified.push(filePath);

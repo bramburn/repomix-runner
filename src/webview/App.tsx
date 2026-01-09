@@ -45,6 +45,8 @@ function detectClientOs(): { os: 'win32' | 'darwin' | 'linux' | 'unknown'; arch:
 // --- MAIN APP ---
 
 export const App = () => {
+  console.log('[quick-repomix] ===== APP COMPONENT RENDER START =====');
+
   const [selectedTab, setSelectedTab] = useState<string>(() => {
     const savedTab = vscode.getState()?.selectedTab;
     // If the saved tab was 'agent' and agent tab is disabled, default to 'search'
@@ -71,8 +73,11 @@ export const App = () => {
   const [pineconeIndexError, setPineconeIndexError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('[quick-repomix] ===== APP USE EFFECT START =====');
+
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
+      console.log('[quick-repomix] Message received from extension:', message.command);
       switch (message.command) {
         case 'updateBundles':
           setBundles(message.bundles);
@@ -104,15 +109,27 @@ export const App = () => {
             updateVsState({ pineconeIndexes: message.indexes });
           }
           break;
-        case 'updateSelectedIndex':
           setSelectedPineconeIndex(message.index);
           updateVsState({ selectedPineconeIndex: message.index });
+          break;
+        case 'processRemoteFilesForClipboard':
+          console.warn('[App] Received processRemoteFilesForClipboard - DEPRECATED/DISABLED due to webview sandbox limitations');
+          // Immediately reject to prevent hanging
+          vscode.postMessage({
+            command: 'remoteClipboardProcessingComplete',
+            success: false,
+            error: 'Remote clipboard processing via webview is disabled.',
+            resolverKey: (message as any).resolverKey
+          });
           break;
       }
     };
 
     window.addEventListener('message', handleMessage);
+    console.log('[quick-repomix] Message handler registered, posting webviewLoaded...');
+
     vscode.postMessage({ command: 'webviewLoaded' });
+    console.log('[quick-repomix] webviewLoaded message posted to extension');
 
     // Report client OS info to extension host for remote clipboard support
     const clientInfo = detectClientOs();

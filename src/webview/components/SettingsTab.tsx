@@ -44,15 +44,15 @@ interface SettingsTabProps {
 // --- Reusable Components ---
 
 const ConfigSection: React.FC<ConfigSectionProps> = ({
-                                                       title,
-                                                       isConfigured,
-                                                       value,
-                                                       onChange,
-                                                       onSave,
-                                                       placeholder,
-                                                       description,
-                                                       children,
-                                                     }) => {
+  title,
+  isConfigured,
+  value,
+  onChange,
+  onSave,
+  placeholder,
+  description,
+  children,
+}) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
@@ -117,10 +117,10 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
 // --- Main Component ---
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
-                                                          pineconeIndexes,
-                                                          selectedPineconeIndex,
-                                                          indexError,
-                                                        }) => {
+  pineconeIndexes,
+  selectedPineconeIndex,
+  indexError,
+}) => {
   const [googleKey, setGoogleKey] = useState('');
   const [pineconeKey, setPineconeKey] = useState('');
   const [qdrantKey, setQdrantKey] = useState('');
@@ -272,7 +272,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     // Explicit check to ensure we never send empty values causing Zod errors
     const url = qdrantUrl.trim();
     const collection = qdrantCollection.trim();
-    
+
     if (!url || !collection) return;
 
     vscode.postMessage({
@@ -313,7 +313,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
 
   const handleIndexSelect = (_e: any, data: any) => {
-    const index = pineconeIndexes.find(i => i.name === data.optionValue);
+    const optionValue = data.optionValue as string | undefined;
+    const index = pineconeIndexes.find(i => i.name === optionValue);
     if (index) {
       vscode.postMessage({ command: 'savePineconeIndex', index });
     }
@@ -434,7 +435,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             <Dropdown
               placeholder="Select or enter collection name"
               value={qdrantCollection}
-              onOptionSelect={(_e, data) => setQdrantCollection(data.optionValue)}
+              onOptionSelect={(_e, data) => setQdrantCollection(data.optionValue || '')}
               style={{ flexGrow: 1 }}
             >
               {qdrantCollections.map((collection) => (

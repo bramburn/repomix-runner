@@ -52,7 +52,9 @@ export class IndexingController extends BaseController {
   private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean, confidenceThreshold?: number) {
     try {
       const q = (query ?? '').trim();
-      if (!q) return;
+      if (!q) {
+        return;
+      }
 
       const cwd = getCwd();
       const repoId = await getRepoId(cwd);
@@ -63,7 +65,12 @@ export class IndexingController extends BaseController {
       try {
         ({ adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId));
       } catch (e) {
-        this.context.postMessage({ command: 'repoSearchError', error: e instanceof Error ? e.message : String(e) });
+        const errorDetail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        console.error('[INDEXING_CONTROLLER] Vector DB adapter error:', e);
+        this.context.postMessage({
+          command: 'repoSearchError',
+          error: `Failed to initialize search adapter. Please check your Vector DB settings.\nDetails: ${errorDetail}`
+        });
         return;
       }
 
@@ -85,9 +92,10 @@ export class IndexingController extends BaseController {
 
         if (finalState.errors.length > 0) {
           const firstError = finalState.errors[0];
+          console.error('[INDEXING_CONTROLLER] LangGraph Search Error:', firstError);
           this.context.postMessage({
             command: 'repoSearchError',
-            error: `Graph Error (${firstError.node}): ${firstError.error}`
+            error: `AI Search failed at step "${firstError.node}".\nError: ${firstError.error}`
           });
           return;
         }
@@ -150,7 +158,9 @@ export class IndexingController extends BaseController {
         const matches = res?.matches ?? [];
         for (const m of matches) {
           const filePath = m.metadata?.filePath;
-          if (!filePath || typeof filePath !== 'string') continue;
+          if (!filePath || typeof filePath !== 'string') {
+            continue;
+          }
 
 
           const score = m.score ?? 0;
@@ -206,7 +216,9 @@ export class IndexingController extends BaseController {
 
         const originalCount = results.length;
         results = results.filter((r: any) => {
-          if (!r.path) return false;
+          if (!r.path) {
+            return false;
+          }
           // r.path should be a relative path from repo root
           return !ig.ignores(r.path);
         });

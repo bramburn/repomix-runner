@@ -19,6 +19,7 @@ let cachedClientArch: string | null = null;
  * Sets the client OS information (called from webview IPC handler)
  */
 export function setClientInfo(os: OperatingSystem, arch: string): void {
+    console.log('[copy2clipboard] Client info received:', { os, arch });
     cachedClientOs = os;
     cachedClientArch = arch;
 }
@@ -34,12 +35,23 @@ export function getRemoteEnvironment(): RemoteEnvironment {
     const clientOs = cachedClientOs || process.platform;
     const clientArch = cachedClientArch || process.arch;
 
-    return {
+    const env = {
         isRemote,
         remoteName: vscode.env.remoteName,
         localOs: clientOs,
         localArch: clientArch,
     };
+
+    console.log('[copy2clipboard] Environment detected:', {
+        isRemote: env.isRemote,
+        remoteName: env.remoteName,
+        localOs: env.localOs,
+        localArch: env.localArch,
+        cachedClientOs,
+        cachedClientArch,
+    });
+
+    return env;
 }
 
 /**
@@ -56,14 +68,35 @@ export function shouldUseLocalBinaryExecution(env: RemoteEnvironment): boolean {
     // so we skip it for SSH remotes and assume the client has the binary (it's bundled with the extension).
     const isSshRemote = env.isRemote && env.remoteName?.startsWith('ssh') === true;
 
+    console.log('[copy2clipboard] Binary execution decision:', {
+        isRemote: env.isRemote,
+        remoteName: env.remoteName,
+        isSshRemote,
+        localOs: env.localOs,
+        localArch: env.localArch,
+    });
+
     if (isSshRemote) {
         // For SSH remotes, use local binary if the client OS is supported
         // The actual binary check happens on the client side in the webview
-        return env.localOs === 'win32' || env.localOs === 'darwin' || env.localOs === 'linux';
+
+        // [FIX] Disabled for now due to webview sandbox limitations (cannot execute binary)
+        // See: https://github.com/microsoft/vscode/issues/112619
+        // Falling back to "remote npx" approach which works reliably
+        console.log('[copy2clipboard] SSH remote detected, but local binary execution is currently disabled in webview.');
+        return false;
+
+        /* Original logic:
+        const result = env.localOs === 'win32' || env.localOs === 'darwin' || env.localOs === 'linux';
+        console.log('[copy2clipboard] SSH remote detected, will use client binary:', result, 'for platform:', env.localOs);
+        return result;
+        */
     }
 
     // For non-SSH (local development), check if binary exists
-    return hasBinaryForPlatform(env.localOs, env.localArch);
+    const result = hasBinaryForPlatform(env.localOs, env.localArch);
+    console.log('[copy2clipboard] Local development, binary exists:', result);
+    return result;
 }
 
 /**

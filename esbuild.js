@@ -75,7 +75,7 @@ const copyWasmPlugin = {
 
             // Copy if dest doesn't exist or source is newer
             if (!fs.existsSync(destPath) ||
-                fs.statSync(sourcePath).mtimeMs > fs.statSync(destPath).mtimeMs) {
+              fs.statSync(sourcePath).mtimeMs > fs.statSync(destPath).mtimeMs) {
               fs.copyFileSync(sourcePath, destPath);
               copiedCount++;
             }
@@ -115,6 +115,22 @@ async function main() {
     sourcesContent: false,
     platform: 'browser',
     outfile: 'dist/webview.js',
+    // REP-005: Instead of marking 'fs' as external (which fails at runtime in the browser),
+    // we should ideally use empty shims or aliases. 
+    // Since we are using esbuild context, we can add a simple define or inject a shim if needed.
+    // For now, let's try to alias them to empty modules if possible, 
+    // or ensure they are never imported in the first place.
+    // Given the error "Failed to resolve module specifier 'fs'", it means something IS importing it.
+    alias: {
+      'fs': path.resolve(__dirname, 'src/shared/shims/fs-shim.js'),
+      'path': path.resolve(__dirname, 'src/shared/shims/path-shim.js'),
+      'os': path.resolve(__dirname, 'src/shared/shims/empty-shim.js'),
+      'child_process': path.resolve(__dirname, 'src/shared/shims/child_process-shim.js'),
+      'util': path.resolve(__dirname, 'src/shared/shims/util-shim.js'),
+    },
+    define: {
+      'process.env.NODE_ENV': production ? '"production"' : '"development"',
+    },
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
   });

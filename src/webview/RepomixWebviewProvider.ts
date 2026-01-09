@@ -14,7 +14,7 @@ import { DebugController } from './controllers/DebugController.js';
 import { IndexingController } from './controllers/IndexingController.js';
 import { ApplyController } from './controllers/ApplyController.js';
 import { ExecutionQueueManager } from './services/ExecutionQueueManager.js';
-import * as fs from 'fs';
+
 
 export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.controlPanel';
@@ -27,7 +27,9 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     private readonly _bundleManager: BundleManager,
     private readonly _context: vscode.ExtensionContext,
     private readonly _databaseService: DatabaseService
-  ) { }
+  ) {
+    console.log('[quick-repomix] RepomixWebviewProvider constructor called');
+  }
 
   /**
    * Posts a message to the webview
@@ -43,16 +45,23 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
+    console.log('[quick-repomix] ===== resolveWebviewView START =====');
     this._view = webviewView;
+    console.log('[quick-repomix] Webview view reference stored');
 
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist')],
-    };
+    } as vscode.WebviewOptions & { enableNodeIntegration?: boolean };
+    (webviewView.webview.options as any).enableNodeIntegration = true;
+    console.log('[quick-repomix] Webview options configured');
 
+    console.log('[quick-repomix] Generating HTML for webview...');
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    console.log('[quick-repomix] HTML generated and set for webview');
 
     // Initialize Services & Controllers
+    console.log('[quick-repomix] Initializing controllers...');
     const webviewContext = {
       webview: webviewView.webview,
       postMessage: (msg: any) => webviewView.webview.postMessage(msg)
@@ -76,8 +85,10 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new DebugController(webviewContext, this._databaseService),
       new ApplyController(webviewContext, this._context)
     ];
+    console.log('[quick-repomix] Controllers initialized:', this._controllers.length, 'controllers');
 
     // Main Message Dispatcher
+    console.log('[quick-repomix] Setting up message handler...');
     webviewView.webview.onDidReceiveMessage(async (data) => {
       // Debug: Log incoming message before parsing
       console.log('[RepomixWebviewProvider] Received message from webview, command:', data.command);
@@ -106,12 +117,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
       // Handle global events
       if (message.command === 'webviewLoaded') {
-        console.log('[RepomixWebviewProvider] Handling webviewLoaded');
+        console.log('[quick-repomix] ===== WEBVIEW LOADED MESSAGE RECEIVED =====');
         await this._sendVersion();
+        console.log('[quick-repomix] Version sent to webview');
+
+        console.log('[quick-repomix] Calling onWebviewLoaded for all controllers...');
         await Promise.all(this._controllers.map(c => c.onWebviewLoaded()));
+        console.log('[quick-repomix] All controllers initialized');
+
         // Also get initial Pinecone index status
         const configCtrl = this._controllers.find(c => c instanceof ConfigController) as ConfigController;
         await configCtrl.handleMessage({ command: 'getPineconeIndex' });
+        console.log('[quick-repomix] Pinecone index status fetched');
         return;
       }
 
@@ -225,12 +242,13 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       // Convert to absolute path using the current workspace/repo root.
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(vscode.workspace.rootPath ?? '', filePath);
 
-      if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-        vscode.window.showErrorMessage(`File not found: ${filePath}`);
+      const uri = vscode.Uri.file(resolvedPath); // Convert resolvedPath to Uri
+      try {
+        await vscode.workspace.fs.stat(uri); // Check existence using VS Code's fs API
+      } catch (error) {
+        vscode.window.showErrorMessage(`File not found or inaccessible: ${filePath}`);
         return;
       }
-
-      const uri = vscode.Uri.file(resolvedPath);
       await vscode.commands.executeCommand('vscode.open', uri);
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);

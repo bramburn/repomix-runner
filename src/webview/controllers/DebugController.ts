@@ -170,26 +170,36 @@ export class DebugController extends BaseController {
       let binaryExists = false;
 
       if (shouldUseLocalBinary) {
-        const binaryName = getBinaryName(env.localOs, env.localArch);
+        // For SSH remotes, the binary is on the CLIENT machine, not the remote server
+        // We can't check for it from here (extension host runs on remote server)
+        // The actual binary execution happens in the webview via remoteClipboardHandler.ts
+        if (env.remoteName?.startsWith('ssh')) {
+          const ext = env.localOs === 'win32' ? '.exe' : '';
+          binaryPath = `N/A (Client-side: repomix-clipboard-${env.localOs}-${env.localArch}${ext})`;
+          binaryExists = true; // Assume exists (bundled with extension)
+        } else {
+          // For local development, search for binary
+          const binaryName = getBinaryName(env.localOs, env.localArch);
 
-        // Search for binary in expected locations
-        const possiblePaths = [
-          path.join(__dirname, '..', '..', '..', 'assets', 'bin', binaryName),
-          path.join(__dirname, '..', '..', 'assets', 'bin', binaryName),
-          path.join(process.env.REPOMIX_EXTENSION_DIR || '', 'assets', 'bin', binaryName),
-          path.resolve(process.cwd(), 'assets', 'bin', binaryName),
-        ];
+          // Search for binary in expected locations
+          const possiblePaths = [
+            path.join(__dirname, '..', '..', '..', 'assets', 'bin', binaryName),
+            path.join(__dirname, '..', '..', 'assets', 'bin', binaryName),
+            path.join(process.env.REPOMIX_EXTENSION_DIR || '', 'assets', 'bin', binaryName),
+            path.resolve(process.cwd(), 'assets', 'bin', binaryName),
+          ];
 
-        for (const p of possiblePaths) {
-          if (fs.existsSync(p)) {
-            binaryPath = p;
-            binaryExists = true;
-            break;
+          for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+              binaryPath = p;
+              binaryExists = true;
+              break;
+            }
           }
-        }
 
-        if (!binaryExists) {
-          binaryPath = possiblePaths[0]; // Show expected path even if not found
+          if (!binaryExists) {
+            binaryPath = possiblePaths[0]; // Show expected path even if not found
+          }
         }
       }
 

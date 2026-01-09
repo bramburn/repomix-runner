@@ -34,17 +34,20 @@ import { getVectorDbAdapterForRepo } from './core/indexing/vectorDb/factory.js';
 import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/files/remoteDetection.js';
-import { readFilesAsBase64, validateFileList } from './core/files/remoteFileReader.js';
-import { remoteClipboardHandler } from './core/files/remoteClipboardHandler.js';
-import type { ProcessRemoteFilesMessage } from './webview/types/remoteClipboardMessages.js';
+import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import ignore from 'ignore';
 
 export async function activate(context: vscode.ExtensionContext) {
+  console.log('[quick-repomix] ===== EXTENSION ACTIVATION START =====');
+  console.log('[quick-repomix] Extension context obtained');
+
   // Initialize database service
+  console.log('[quick-repomix] Initializing database service...');
   const databaseService = new DatabaseService(context);
   await databaseService.initialize();
+  console.log('[quick-repomix] Database service initialized');
 
   // Expose context for agent graph
   (global as any).extensionContext = context;
@@ -257,6 +260,7 @@ export async function activate(context: vscode.ExtensionContext) {
           monitor.queue(rel);
         } else {
           ignoredCount++;
+          logger.output.info(`[INDEX_MONITOR] Ignoring change: ${rel}`);
         }
       });
 
@@ -270,6 +274,7 @@ export async function activate(context: vscode.ExtensionContext) {
           monitor.queue(rel);
         } else {
           ignoredCount++;
+          logger.output.info(`[INDEX_MONITOR] Ignoring creation: ${rel}`);
         }
       });
 
@@ -284,8 +289,10 @@ export async function activate(context: vscode.ExtensionContext) {
           monitor.queue(rel);
         } else {
           ignoredCount++;
+          logger.output.info(`[INDEX_MONITOR] Ignoring deletion: ${rel}`);
         }
       });
+
 
       // Register watcher and monitor for cleanup on deactivation
       context.subscriptions.push(watcher, { dispose: () => monitor.dispose() });
@@ -368,12 +375,16 @@ export async function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
+  console.log('[quick-repomix] Creating RepomixWebviewProvider...');
   const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context, databaseService);
+  console.log('[quick-repomix] RepomixWebviewProvider created');
 
+  console.log('[quick-repomix] Registering webview view provider...');
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
     provider
   );
+  console.log('[quick-repomix] Webview view provider registered successfully');
 
   const addSelectedFilesToNewBundleCommand = vscode.commands.registerCommand(
     'repomixRunner.addSelectedFilesToNewBundle',
@@ -690,10 +701,9 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // Validate file list
-        const validation = validateFileList(relativeFiles);
-        if (!validation.valid) {
-          vscode.window.showErrorMessage(`Invalid file list: ${validation.error}`);
+        // Basic validation
+        if (relativeFiles.some(f => f.includes('..') || path.isAbsolute(f))) {
+          vscode.window.showErrorMessage('Invalid file list: relative paths contain .. or are absolute');
           return;
         }
 
@@ -720,81 +730,9 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // REMOTE MODE with local binary available: Use local binary execution
-        if (shouldUseLocalBinaryExecution(remoteEnv)) {
-          console.log(`[Repomix] Using local binary execution for ${relativeFiles.length} files (${remoteEnv.localOs})`);
-
-          await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: 'Preparing files for clipboard...',
-              cancellable: false,
-            },
-            async (progress) => {
-              progress.report({ increment: 10, message: 'Reading files...' });
-
-              // Read files on remote and encode as base64
-              const fileContents = await readFilesAsBase64(cwd, relativeFiles, logger.both);
-
-              if (fileContents.length === 0) {
-                throw new Error('Could not read any files');
-              }
-
-              progress.report({ increment: 20, message: 'Transferring to local...' });
-
-              // Send to webview for local processing
-              const resolverKey = `clipboard-resolver-${Date.now()}`;
-
-              const result = await new Promise<any>((resolve, reject) => {
-                // Create a timeout
-                const timeout = setTimeout(
-                  () => reject(new Error('Processing timeout (30s)')),
-                  30000
-                );
-
-                // Store resolver for webview callback
-                (context.workspaceState as any).update(resolverKey, {
-                  resolve: (r: any) => {
-                    clearTimeout(timeout);
-                    resolve(r);
-                  },
-                  reject: (e: Error) => {
-                    clearTimeout(timeout);
-                    reject(e);
-                  },
-                });
-
-                // Send to webview
-                const message: ProcessRemoteFilesMessage = {
-                  command: 'processRemoteFilesForClipboard',
-                  files: fileContents.map(f => ({
-                    path: f.path,
-                    contentBase64: f.contentBase64,
-                    size: f.size,
-                  })),
-                  workspaceName: vscode.workspace.name || 'repomix',
-                  resolverKey,
-                };
-
-                provider.postMessage(message);
-              });
-
-              if (!result.success) {
-                throw new Error(result.error || 'Unknown error');
-              }
-
-              progress.report({ increment: 70, message: 'Completing...' });
-
-              vscode.window.showInformationMessage(
-                `✓ Processed ${result.filesProcessed} files via local clipboard`
-              );
-            }
-          );
-
-          return;
-        }
-
-        // OTHER REMOTE MODES: Use npx approach
+        // REMOTE MODE: Use npx approach (works consistently for SSH/WSL/Containers)
+        // Note: We previously attempted to use a local binary via webview, but webview
+        // sandbox limitations prevent executing the binary.
         console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (remote npx mode)`);
 
         let result: { tokenCount: number };
@@ -804,6 +742,7 @@ export async function activate(context: vscode.ExtensionContext) {
             title: 'Generating markdown from remote...',
           },
           async () => {
+            // This function handles the remote execution via npx
             result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
           }
         );

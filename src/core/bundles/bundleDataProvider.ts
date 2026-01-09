@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs/promises';
+
 import { BundleManager } from './bundleManager';
 import { Bundle } from './types';
 import { BundleFileDecorationProvider } from './bundleFileDecorationProvider';
@@ -108,8 +108,8 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
       const uri = vscode.Uri.joinPath(workspaceUri, currentPath);
       if (i === parts.length - 1) {
         try {
-          const stat = await fs.stat(uri.fsPath);
-          const isDirectory = stat.isDirectory();
+          const stat = await vscode.workspace.fs.stat(uri);
+          const isDirectory = stat.type === vscode.FileType.Directory;
           const item: TreeNode = {
             bundleId: root.bundleId,
             label: part,
@@ -167,18 +167,18 @@ export class BundleDataProvider implements vscode.TreeDataProvider<TreeNode> {
   private async _scanDirectory(dirItem: TreeNode) {
     if (!dirItem.resourceUri) { return; }
     try {
-      const entries = await fs.readdir(dirItem.resourceUri.fsPath, { withFileTypes: true });
-      for (const entry of entries) {
+      const entries = await vscode.workspace.fs.readDirectory(dirItem.resourceUri);
+      for (const [name, type] of entries) {
         // Skip if already exists
-        if (dirItem.children?.some(c => c.label === entry.name)) {
+        if (dirItem.children?.some(c => c.label === name)) {
             continue;
         }
 
-        const entryUri = vscode.Uri.joinPath(dirItem.resourceUri, entry.name);
-        const isDirectory = entry.isDirectory();
+        const entryUri = vscode.Uri.joinPath(dirItem.resourceUri, name);
+        const isDirectory = type === vscode.FileType.Directory;
         const child: TreeNode = {
           bundleId: dirItem.bundleId,
-          label: entry.name,
+          label: name,
           resourceUri: entryUri,
           isDirectory,
           children: isDirectory ? [] : undefined,

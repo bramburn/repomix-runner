@@ -65,14 +65,24 @@ export async function copyToClipboard(
       createTempDir: tempDirManager.createTempDir,
     }
 ) {
+  console.log('[copy2clipboard] Starting copy operation:', {
+    outputFileAbs,
+    tmpFilePath,
+    providedOs: os,
+  });
+
   // Determine correct OS: use client OS from remote detection if available, otherwise use provided os or process.platform
   const targetOs = os || getRemoteEnvironment().localOs as OperatingSystem;
+  console.log('[copy2clipboard] Target OS determined:', targetOs);
 
   const config = readRepomixRunnerVscodeConfig();
+  console.log('[copy2clipboard] Copy mode:', config.runner.copyMode);
   if (config.runner.copyMode === 'content') {
+    console.log('[copy2clipboard] Using content mode (clipboard API)');
     try {
       const content = await fs.promises.readFile(outputFileAbs, 'utf-8');
       await vscode.env.clipboard.writeText(content);
+      console.log('[copy2clipboard] Content copied successfully via clipboard API');
       // Optional: Showing a message here might be redundant if the caller also shows one, 
       // but usually the caller shows "Copied..." messages. 
       // However, the caller usually expects this function to JUST do the copy.
@@ -88,12 +98,16 @@ export async function copyToClipboard(
       // So we are good. just return.
       return;
     } catch (error: any) {
+      console.error('[copy2clipboard] Failed to copy content:', error);
       vscode.window.showErrorMessage(`Failed to copy content to clipboard: ${error.message}`);
       throw error;
     }
   }
 
+  console.log('[copy2clipboard] Using file mode (binary clipboard)');
+
   if (targetOs === 'linux') {
+    console.log('[copy2clipboard] Linux detected, checking for xclip');
     const isXclipInstalled = await checkXclipInstalled(dep);
     if (!isXclipInstalled) {
       vscode.window.showErrorMessage(
@@ -101,31 +115,40 @@ export async function copyToClipboard(
       );
       return;
     }
+    console.log('[copy2clipboard] xclip is installed');
   }
 
   // Check if the temporary file exists before proceeding
   try {
     await dep.access(tmpFilePath);
+    console.log('[copy2clipboard] Temp file exists:', tmpFilePath);
   } catch {
+    console.log('[copy2clipboard] Temp file does not exist, creating directory');
     dep.createTempDir('repomix_runner');
   }
 
   // First copy the file to the tmp folder to keep the file if config.runner.keepOutputFile is false
   try {
     await dep.copyFile(outputFileAbs, tmpFilePath);
+    console.log('[copy2clipboard] File copied to temp location');
   } catch (copyError) {
+    console.error('[copy2clipboard] Failed to copy file to temp folder:', copyError);
     vscode.window.showErrorMessage(`Could not copy output file to temp folder: ${copyError}`);
     throw copyError;
   }
 
   if (!(targetOs in CLIPBOARD_COMMANDS)) {
+    console.error('[copy2clipboard] Unsupported OS:', targetOs);
     throw new Error(`Unsupported operating system: ${targetOs}`);
   }
 
   try {
     const command = CLIPBOARD_COMMANDS[targetOs](tmpFilePath);
+    console.log('[copy2clipboard] Executing clipboard command for platform:', targetOs);
     await dep.execPromisify(command);
+    console.log('[copy2clipboard] Clipboard command executed successfully');
   } catch (err: any) {
+    console.error('[copy2clipboard] Clipboard command failed:', err);
     if (targetOs === 'win32') {
       vscode.window.showErrorMessage(`Error setting file to clipboard using helper tool: ${err.message}. Ensure repomix-clipboard.exe is correctly installed.`);
     } else {

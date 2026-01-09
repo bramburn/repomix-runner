@@ -14,7 +14,8 @@ export interface TextChunk {
   }; // Optional semantic information from tree-sitter
 }
 
-import { encode } from 'gpt-tokenizer';
+import { getEncoding } from 'js-tiktoken';
+const encoding = getEncoding('cl100k_base');
 import { TreeSitterService, treeSitterService } from './treeSitterService';
 
 /**
@@ -37,9 +38,8 @@ const DEFAULT_OVERLAP_LINES = 10;
  */
 export function estimateTokenCount(text: string): number {
   try {
-    // Use gpt-tokenizer for accurate counting
-    const tokens = encode(text);
-    return tokens.length;
+    // Use js-tiktoken for fast counting
+    return encoding.encode(text).length;
   } catch (error) {
     // Fallback to character-based estimation (1 token ≈ 4 characters for code)
     return Math.ceil(text.length / 4);
@@ -208,7 +208,9 @@ function chunkTextByLines(
 
     chunks.push(chunk);
 
-    if (endLine >= lines.length) break;
+    if (endLine >= lines.length) {
+      break;
+    }
   }
 
   return chunks;

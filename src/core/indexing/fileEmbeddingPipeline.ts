@@ -1,6 +1,4 @@
-// -----------------------------------------------------------------------------
-// 2) src/core/indexing/fileEmbeddingPipeline.ts
-// -----------------------------------------------------------------------------
+import { IndexingError } from '../../shared/indexingError.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../../shared/logger.js';
@@ -10,6 +8,7 @@ import { embeddingService } from './embeddingService.js';
 import type { VectorDbAdapter } from './vectorDb/types.js';
 import { retryWithBackoff, batchArray } from './retryService.js';
 import { TreeSitterService } from './treeSitterService.js';
+
 
 /**
  * List of binary file extensions to skip during embedding
@@ -104,18 +103,18 @@ function isBinaryFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   const basename = path.basename(filePath).toLowerCase();
 
-  if (BINARY_EXTENSIONS.has(ext)) return true;
+  if (BINARY_EXTENSIONS.has(ext)) { return true; }
 
-  if (TEXT_EXTENSIONS.has(ext)) return false;
+  if (TEXT_EXTENSIONS.has(ext)) { return false; }
 
   // Basename whitelist (covers extensionless + dotfiles)
-  if (TEXT_BASENAMES.has(basename)) return false;
+  if (TEXT_BASENAMES.has(basename)) { return false; }
 
   // Common text files without extensions
-  if (basename === 'readme' || basename === 'license' || basename === 'changelog') return false;
+  if (basename === 'readme' || basename === 'license' || basename === 'changelog') { return false; }
 
   // If no extension, default to binary unless whitelisted above
-  if (!ext) return true;
+  if (!ext) { return true; }
 
   // Unknown extensions - assume binary for safety
   return true;
@@ -161,8 +160,19 @@ async function processConcurrently<T, R>(
         const result = await handler(items[index], index);
         results[index] = { success: true, result, index };
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        results[index] = { success: false, error: errorMsg, index };
+        // Ensure errors from concurrent processing are also IndexingErrors or wrapped as such
+        if (error instanceof IndexingError) {
+          results[index] = { success: false, error: error.message, index };
+        } else {
+          results[index] = {
+            success: false,
+            error: new IndexingError(
+              `Concurrent process failed: ${error instanceof Error ? error.message : String(error)}`,
+              { originalError: error }
+            ).message,
+            index,
+          };
+        }
       }
     }
   }
@@ -205,8 +215,22 @@ export async function embedAndUpsertFile(
   try {
     // 1. Read file content
     console.log(`[EMBEDDING_PIPELINE] Reading file: ${relativeFilePath}`);
+
+    // Robustness check for REP-006: Ensure it's not a directory
+    try {
+      const stats = await fs.stat(filePath);
+      if (stats.isDirectory()) {
+        console.warn(`[EMBEDDING_PIPELINE] Skipping directory: ${relativeFilePath}`);
+        return 0;
+      }
+    } catch (statErr) {
+      console.error(`[EMBEDDING_PIPELINE] Failed to stat file: ${relativeFilePath}`, statErr);
+      throw statErr;
+    }
+
     const readStart = Date.now();
     const content = await retryWithBackoff(
+
       () => fs.readFile(filePath, 'utf-8'),
       `${context}:readFile`,
       { maxRetries: 2 }
@@ -220,7 +244,9 @@ export async function embedAndUpsertFile(
       return 0;
     }
 
-    if (signal?.aborted) throw new Error('Aborted');
+    if (signal?.aborted) {
+      throw new IndexingError('Embedding process aborted.', { filePath: relativeFilePath, stage: 'File Reading' });
+    }
 
     const language = TreeSitterService.detectLanguage(relativeFilePath);
     const isASTSupported = language && TreeSitterService.isLanguageSupported(language);
@@ -244,7 +270,9 @@ export async function embedAndUpsertFile(
 
     const validChunks = chunks.filter((c) => c.text.trim().length > 0);
     const emptyChunksCount = chunks.length - validChunks.length;
-    if (emptyChunksCount > 0) console.log(`[EMBEDDING_PIPELINE] Filtered out ${emptyChunksCount} empty chunks`);
+    if (emptyChunksCount > 0) {
+      console.log(`[EMBEDDING_PIPELINE] Filtered out ${emptyChunksCount} empty chunks`);
+    }
 
     if (validChunks.length === 0) {
       console.log(`[EMBEDDING_PIPELINE] No valid chunks (all empty/whitespace) for ${relativeFilePath}`);
@@ -254,7 +282,9 @@ export async function embedAndUpsertFile(
 
     logger.both.info(`${context}: Generated ${validChunks.length} valid chunks`);
 
-    if (signal?.aborted) throw new Error('Aborted');
+    if (signal?.aborted) {
+      throw new IndexingError('Embedding process aborted.', { filePath: relativeFilePath, stage: 'Chunking' });
+    }
 
     const embeddingBatchSize = config.embeddingBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
     const maxConcurrentBatches = config.maxConcurrentBatches ?? DEFAULT_MAX_CONCURRENT_BATCHES;
@@ -360,7 +390,9 @@ export async function embedAndUpsertFile(
 
     console.log(`[EMBEDDING_PIPELINE] Total embedding time: ${totalEmbeddingTime}ms for ${vectors.length} vectors`);
 
-    if (signal?.aborted) throw new Error('Aborted');
+    if (signal?.aborted) {
+      throw new IndexingError('Embedding process aborted.', { filePath: relativeFilePath, stage: 'Embedding' });
+    }
 
     const upsertBatchSize = config.vectorDbBatchSize ?? DEFAULT_VECTOR_DB_BATCH_SIZE;
     const maxConcurrentUpserts = config.maxConcurrentUpserts ?? DEFAULT_MAX_CONCURRENT_UPSERTS;
@@ -392,7 +424,9 @@ export async function embedAndUpsertFile(
       );
 
       for (const result of upsertResults) {
-        if (result.success && result.result) totalUpsertTime += result.result.duration;
+        if (result.success && result.result) {
+          totalUpsertTime += result.result.duration;
+        }
       }
     } else {
       for (let batchIdx = 0; batchIdx < vectorBatches.length; batchIdx++) {
@@ -412,7 +446,9 @@ export async function embedAndUpsertFile(
       }
     }
 
-    if (signal?.aborted) throw new Error('Aborted');
+    if (signal?.aborted) {
+      throw new IndexingError('Embedding process aborted.', { filePath: relativeFilePath, stage: 'Upserting' });
+    }
 
     const totalDuration = Date.now() - startTime;
     console.log(
@@ -424,6 +460,9 @@ export async function embedAndUpsertFile(
     const totalDuration = Date.now() - startTime;
     console.error(`[EMBEDDING_PIPELINE] Failed ${relativeFilePath} after ${totalDuration}ms:`, error);
     logger.both.error(`${context}: Failed`, error instanceof Error ? error.message : String(error));
-    throw error;
+    throw new IndexingError(
+      `Failed to embed and upsert file: ${error instanceof Error ? error.message : String(error)}`,
+      { filePath: relativeFilePath, stage: 'File Embedding and Upsert', originalError: error }
+    );
   }
 }

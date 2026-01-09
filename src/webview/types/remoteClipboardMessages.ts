@@ -14,6 +14,7 @@ export interface ProcessRemoteFilesMessage {
     workspaceName?: string;   // For uniqueness in temp dirs
     timeout?: number;         // Timeout in ms (default 30000)
     resolverKey?: string;     // Key to resolve promise in extension
+    copyMode?: 'content' | 'file'; // What to copy: text or file itself
 }
 
 /**
@@ -32,7 +33,7 @@ export interface RemoteClipboardProcessingResult {
 
     // On error
     error?: string;
-    failedAt?: 'decode' | 'tempWrite' | 'binaryExecution' | 'cleanup';
+    failedAt?: 'decode' | 'tempWrite' | 'binaryExecution' | 'cleanup' | 'unknown';
 
     // Resolver key to match with promise
     resolverKey?: string;

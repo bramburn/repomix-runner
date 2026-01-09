@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import type { ProcessRemoteFilesMessage, RemoteClipboardProcessingResult } from '../webview/types/remoteClipboardMessages.js';
+import type { ProcessRemoteFilesMessage, RemoteClipboardProcessingResult } from '../types/remoteClipboardMessages.js';
 
 const execPromise = promisify(exec);
 
@@ -13,17 +13,18 @@ export class RemoteClipboardHandler {
     constructor() {
         // Use OS temp directory
         this.tempBaseDir = path.join(os.tmpdir(), 'repomix-clipboard');
+        console.log('[RemoteClipboard] Initialized with temp dir:', this.tempBaseDir);
     }
 
     /**
      * Main entry point: processes files sent from remote extension
      */
     async handleProcessRemoteFiles(message: ProcessRemoteFilesMessage): Promise<RemoteClipboardProcessingResult> {
-        const sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const sessionId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         const sessionTempDir = path.join(this.tempBaseDir, sessionId);
 
         console.log(`[RemoteClipboard] Starting session ${sessionId}`);
-        console.log(`[RemoteClipboard] Processing ${message.files.length} files`);
+        console.log(`[RemoteClipboard] Processing ${message.files.length} files with copyMode: ${message.copyMode}`);
 
         try {
             // Step 1: Ensure temp directory exists
@@ -38,7 +39,7 @@ export class RemoteClipboardHandler {
             const binaryPath = this.findRepomixBinary();
             console.log(`[RemoteClipboard] Found binary: ${binaryPath}`);
 
-            const output = await this.runBinary(binaryPath, sessionTempDir);
+            await this.runBinary(binaryPath, sessionTempDir, message.copyMode);
             console.log(`[RemoteClipboard] Binary executed successfully`);
 
             return {
@@ -46,8 +47,7 @@ export class RemoteClipboardHandler {
                 success: true,
                 filesProcessed: message.files.length,
                 tempDirectory: sessionTempDir,
-                binaryOutput: output,
-                resolverKey: message.resolverKey,
+                resolverKey: message.resolverKey
             };
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
@@ -57,8 +57,8 @@ export class RemoteClipboardHandler {
                 command: 'remoteClipboardProcessingComplete',
                 success: false,
                 error: errorMsg,
-                failedAt: this.categorizeError(error),
-                resolverKey: message.resolverKey,
+                failedAt: 'unknown',
+                resolverKey: message.resolverKey
             };
         } finally {
             // Step 4: Cleanup temp files (async)
@@ -91,7 +91,7 @@ export class RemoteClipboardHandler {
                 fs.writeFileSync(fullPath, content);
                 count++;
 
-                console.log(`[RemoteClipboard] Wrote ${file.path} (${content.length} bytes)`);
+                // console.log(`[RemoteClipboard] Wrote ${file.path} (${content.length} bytes)`);
             } catch (error) {
                 console.error(`[RemoteClipboard] Failed to write ${file.path}: ${error}`);
                 throw error;
@@ -102,48 +102,44 @@ export class RemoteClipboardHandler {
     }
 
     /**
-     * Finds the repomix-clipboard binary for the current platform
+     * Finds the repomix-clipboard.exe binary
      */
     private findRepomixBinary(): string {
-        const platform = process.platform;
-        const arch = process.arch;
-        const ext = platform === 'win32' ? '.exe' : '';
-        const binaryName = `repomix-clipboard-${platform}-${arch}${ext}`;
-
         // Possible locations depending on how extension is loaded
+        // In webview, __dirname is the location of webview.js in dist/
         const possiblePaths = [
-            // Development
-            path.join(__dirname, '..', '..', '..', 'assets', 'bin', binaryName),
-            path.join(__dirname, '..', '..', 'assets', 'bin', binaryName),
+            // Relative to bundled webview in dist/
+            path.join(__dirname, '..', 'assets', 'bin', 'repomix-clipboard.exe'),
+            path.join(__dirname, 'assets', 'bin', 'repomix-clipboard.exe'),
 
-            // Production (bundled)
-            path.join(process.env.REPOMIX_EXTENSION_DIR || '', 'assets', 'bin', binaryName),
-
-            // Relative to process cwd
-            path.resolve(process.cwd(), 'assets', 'bin', binaryName),
-
-            // Global installation (if added to PATH)
-            binaryName,
+            // Fallback relative to current working directory
+            path.join(process.cwd(), 'assets', 'bin', 'repomix-clipboard.exe'),
         ];
 
         for (const p of possiblePaths) {
-            console.log(`[RemoteClipboard] Checking: ${p}`);
             if (fs.existsSync(p)) {
-                console.log(`[RemoteClipboard] Found binary at: ${p}`);
                 return p;
             }
         }
 
-        throw new Error(`repomix-clipboard binary not found for ${platform}-${arch}. Searched paths: ${possiblePaths.join(', ')}`);
+        // Try finding via extension path if available in env
+        if (process.env.REPOMIX_EXTENSION_DIR) {
+            const p = path.join(process.env.REPOMIX_EXTENSION_DIR, 'assets', 'bin', 'repomix-clipboard.exe');
+            if (fs.existsSync(p)) return p;
+        }
+
+        throw new Error('repomix-clipboard.exe not found in expected locations');
     }
 
     /**
      * Runs the binary on the temp files
      */
-    private async runBinary(binaryPath: string, tempDir: string): Promise<string> {
+    private async runBinary(binaryPath: string, tempDir: string, copyMode?: 'content' | 'file'): Promise<void> {
         // Build command
-        // Binary expects: repomix-clipboard --generate-md --cwd <dir>
-        const cmd = `"${binaryPath}" --generate-md --cwd "${tempDir}"`;
+        // If mode is 'content', binary expects: --generate-md --cwd <dir>
+        // If mode is 'file', binary expects: --cwd <dir>
+        const modeFlag = copyMode === 'file' ? '' : '--generate-md ';
+        const cmd = `"${binaryPath}" ${modeFlag}--cwd "${tempDir}"`;
 
         console.log(`[RemoteClipboard] Running: ${cmd}`);
 
@@ -153,14 +149,10 @@ export class RemoteClipboardHandler {
                 maxBuffer: 10 * 1024 * 1024, // 10MB buffer
             });
 
-            console.log(`[RemoteClipboard] Binary output: ${stdout}`);
+            if (stdout) console.log(`[RemoteClipboard] Binary output: ${stdout}`);
+            if (stderr) console.warn(`[RemoteClipboard] Binary stderr: ${stderr}`);
 
-            if (stderr) {
-                console.warn(`[RemoteClipboard] Binary stderr: ${stderr}`);
-            }
-
-            // Binary should have updated clipboard at this point
-            return stdout;
+            // Binary should have updated Windows clipboard at this point
         } catch (error) {
             throw new Error(`Binary execution failed: ${error}`);
         }
@@ -182,51 +174,14 @@ export class RemoteClipboardHandler {
         // Don't wait for cleanup, but log errors
         setTimeout(() => {
             try {
-                this.rmRf(dir);
-                console.log(`[RemoteClipboard] Cleaned up: ${dir}`);
+                if (fs.existsSync(dir)) {
+                    fs.rmSync(dir, { recursive: true, force: true });
+                    // console.log(`[RemoteClipboard] Cleaned up: ${dir}`);
+                }
             } catch (error) {
                 console.error(`[RemoteClipboard] Cleanup failed: ${error}`);
             }
-        }, 1000);
-    }
-
-    /**
-     * Recursively removes a directory
-     */
-    private rmRf(dir: string): void {
-        if (!fs.existsSync(dir)) return;
-
-        fs.readdirSync(dir).forEach(file => {
-            const filePath = path.join(dir, file);
-            const stat = fs.statSync(filePath);
-
-            if (stat.isDirectory()) {
-                this.rmRf(filePath);
-            } else {
-                fs.unlinkSync(filePath);
-            }
-        });
-
-        fs.rmdirSync(dir);
-    }
-
-    /**
-     * Categorizes error for better debugging
-     */
-    private categorizeError(error: unknown): 'decode' | 'tempWrite' | 'binaryExecution' | 'cleanup' {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-
-        if (errorMsg.includes('base64') || errorMsg.includes('decode')) {
-            return 'decode';
-        }
-        if (errorMsg.includes('write') || errorMsg.includes('EACCES') || errorMsg.includes('ENOENT')) {
-            return 'tempWrite';
-        }
-        if (errorMsg.includes('binary') || errorMsg.includes('execution') || errorMsg.includes('not found')) {
-            return 'binaryExecution';
-        }
-
-        return 'cleanup';
+        }, 5000); // 5 second delay to ensure binary is fully done
     }
 }
 

@@ -5,6 +5,7 @@ import { DatabaseService } from '../storage/databaseService.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
 import { logger } from '../../shared/logger.js';
 import ignore from 'ignore';
+import { IndexingError } from '../../shared/indexingError.js';
 
 const DEFAULT_BINARY_PATTERNS = [
   '**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.webp', '**/*.ico', '**/*.svg',
@@ -112,6 +113,9 @@ export async function indexRepository(cwd: string, databaseService: DatabaseServ
     const totalDuration = Date.now() - startTime;
     console.error(`[REPO_INDEXER] Failed to index repository after ${totalDuration}ms:`, error);
     logger.both.error('Failed to index repository:', error);
-    throw error;
+    throw new IndexingError(
+      `Failed to index repository: ${error instanceof Error ? error.message : String(error)}`,
+      { filePath: cwd, stage: 'Repository Indexing', originalError: error }
+    );
   }
 }
