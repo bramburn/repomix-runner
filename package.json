@@ -371,6 +371,11 @@
         "title": "Repomix: Smart Agent Run",
         "description": "Use AI to intelligently select and package files based on a natural language query",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "repomixRunner.copyFromScm",
+        "title": "Copy as Markdown to Clipboard",
+        "category": "Repomix"
       }
     ],
     "menus": {
@@ -457,6 +462,13 @@
           "command": "repomixRunner.removeSelectedFilesFromActiveBundle",
           "when": "(explorerResourceIsFolder || resourceLangId ) && activeBundleId",
           "group": "repomix@3"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "repomixRunner.copyFromScm",
+          "group": "navigation@99",
+          "when": "scmProvider == git"
         }
       ],
       "commandPalette": [

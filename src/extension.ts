@@ -39,6 +39,65 @@ import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import ignore from 'ignore';
 
+/**
+ * Expands a list of URIs (files or folders) into a flat list of file URIs.
+ * Recursively walks folders. Stops when maxFiles is reached.
+ */
+async function expandUrisToFiles(
+  uris: vscode.Uri[],
+  maxFiles: number
+): Promise<vscode.Uri[]> {
+  const result: vscode.Uri[] = [];
+  const visited = new Set<string>();
+
+  async function walk(uri: vscode.Uri) {
+    if (result.length >= maxFiles) {
+      return;
+    }
+
+    const key = uri.toString();
+    if (visited.has(key)) {
+      return;
+    }
+    visited.add(key);
+
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+
+      if (stat.type & vscode.FileType.File) {
+        result.push(uri);
+        return;
+      }
+
+      if (stat.type & vscode.FileType.Directory) {
+        const entries = await vscode.workspace.fs.readDirectory(uri);
+        for (const [name, fileType] of entries) {
+          if (result.length >= maxFiles) {
+            break;
+          }
+          const child = vscode.Uri.joinPath(uri, name);
+          if (fileType & vscode.FileType.File) {
+            result.push(child);
+          } else if (fileType & vscode.FileType.Directory) {
+            await walk(child);
+          }
+        }
+      }
+    } catch {
+      // File might not exist or be inaccessible, skip it
+    }
+  }
+
+  for (const uri of uris) {
+    await walk(uri);
+    if (result.length >= maxFiles) {
+      break;
+    }
+  }
+
+  return result;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] ===== EXTENSION ACTIVATION START =====');
   console.log('[quick-repomix] Extension context obtained');
@@ -686,11 +745,29 @@ export async function activate(context: vscode.ExtensionContext) {
   const copySelectedFilesToClipboardCommand = vscode.commands.registerCommand(
     "repomixRunner.copySelectedFilesToClipboard",
     async (clickedFile: vscode.Uri, selectedFiles?: vscode.Uri[]) => {
+      const MAX_FILES = 50;
+
       try {
         const cwd = getCwd();
         const filesToCopy = selectedFiles?.length ? selectedFiles : [clickedFile];
 
-        const relativeFiles = filesToCopy
+        // Expand folders into files (up to MAX_FILES)
+        const expandedFiles = await expandUrisToFiles(filesToCopy, MAX_FILES);
+
+        if (expandedFiles.length === 0) {
+          vscode.window.showWarningMessage(
+            "Selected items contain no files inside the workspace"
+          );
+          return;
+        }
+
+        if (expandedFiles.length === MAX_FILES) {
+          vscode.window.showWarningMessage(
+            `Only the first ${MAX_FILES} files were included.`
+          );
+        }
+
+        const relativeFiles = expandedFiles
           .map((uri) => path.relative(cwd, uri.fsPath))
           .filter((f) => !f.startsWith(".."));
 
@@ -710,42 +787,30 @@ export async function activate(context: vscode.ExtensionContext) {
         const remoteEnv = getRemoteEnvironment();
         console.log(`[Repomix] Remote environment: isRemote=${remoteEnv.isRemote}, remoteName=${remoteEnv.remoteName}, localOs=${remoteEnv.localOs}`);
 
-        // LOCAL MODE: Use existing npx approach
+        let result: { tokenCount: number };
+
         if (!remoteEnv.isRemote) {
           console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (local mode)`);
 
-          let result: { tokenCount: number };
           await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Notification, title: 'Generating markdown...' },
             async () => {
               result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
             }
           );
+        } else {
+          console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (remote npx mode)`);
 
-          const fileWord = relativeFiles.length === 1 ? "file" : "files";
-          const formattedTokenCount = result!.tokenCount.toLocaleString();
-          vscode.window.showInformationMessage(
-            `✓ Copied ${relativeFiles.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'Generating markdown from remote...',
+            },
+            async () => {
+              result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
+            }
           );
-          return;
         }
-
-        // REMOTE MODE: Use npx approach (works consistently for SSH/WSL/Containers)
-        // Note: We previously attempted to use a local binary via webview, but webview
-        // sandbox limitations prevent executing the binary.
-        console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (remote npx mode)`);
-
-        let result: { tokenCount: number };
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Generating markdown from remote...',
-          },
-          async () => {
-            // This function handles the remote execution via npx
-            result = await runRepomixClipboardGenerateMarkdown(context, cwd, relativeFiles);
-          }
-        );
 
         const fileWord = relativeFiles.length === 1 ? "file" : "files";
         const formattedTokenCount = result!.tokenCount.toLocaleString();
@@ -757,6 +822,21 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("[Repomix] Failed to copy selected files:", err);
         vscode.window.showErrorMessage(`Failed to copy files: ${msg}`);
       }
+    }
+  );
+
+  // SCM context menu adapter - converts SourceControlResourceState to Uri and delegates
+  const copyFromScmCommand = vscode.commands.registerCommand(
+    'repomixRunner.copyFromScm',
+    async (resource: vscode.SourceControlResourceState, resources?: vscode.SourceControlResourceState[]) => {
+      const selected = resources && resources.length ? resources : [resource];
+      const uris = selected.map(r => r.resourceUri);
+      // Delegate to existing command
+      return vscode.commands.executeCommand(
+        'repomixRunner.copySelectedFilesToClipboard',
+        uris[0],
+        uris
+      );
     }
   );
 
@@ -788,6 +868,7 @@ export async function activate(context: vscode.ExtensionContext) {
     smartRunCommand,
     regenerateAgentRunCommand,
     copySelectedFilesToClipboardCommand,
+    copyFromScmCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
 }
