@@ -51,9 +51,6 @@ repomix.config.json
 vsc-extension-quickstart.md
 CHANGELOG.md
 .repomix-clipboard-*.md
-REMOTE_BINARY_SUMMARY.md
-remote-binary-execution-plan.md
-remote-binary-implementation.md
 repomix_search_*.md
 .claude/
 .idea/
