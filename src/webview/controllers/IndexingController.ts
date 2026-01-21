@@ -74,165 +74,37 @@ export class IndexingController extends BaseController {
         return;
       }
 
-      // Feature Flag: Use LangGraph for Search
-      const useLangGraph = vscode.workspace.getConfiguration('repomix.search').get<boolean>('useLangGraph', false);
-      if (useLangGraph) {
-        console.log('[INDEXING_CONTROLLER] Using LangGraph for search');
-        const { runSearchGraph } = await import('../../search/graph.js');
+      console.log('[INDEXING_CONTROLLER] Using LangGraph for search');
+      const { runSearchGraph } = await import('../../search/graph.js');
 
-        const finalState = await runSearchGraph({
-          repoId,
-          repoRoot: cwd,
-          userQuery: q,
-          smartFilterEnabled: !!useSmartFilter,
-          maxResults: typeof topK === 'number' ? topK : 50,
-          googleApiKey: googleKey || undefined,
-          confidenceThreshold: confidenceThreshold,
-        }, adapter, this.context);
+      const finalState = await runSearchGraph({
+        repoId,
+        repoRoot: cwd,
+        userQuery: q,
+        smartFilterEnabled: !!useSmartFilter,
+        maxResults: typeof topK === 'number' ? topK : 50,
+        googleApiKey: googleKey || undefined,
+        confidenceThreshold: confidenceThreshold,
+      }, adapter, this.context);
 
-        if (finalState.errors.length > 0) {
-          const firstError = finalState.errors[0];
-          console.error('[INDEXING_CONTROLLER] LangGraph Search Error:', firstError);
-          this.context.postMessage({
-            command: 'repoSearchError',
-            error: `AI Search failed at step "${firstError.node}".\nError: ${firstError.error}`
-          });
-          return;
-        }
-
-        // Post results to webview
-        this.context.postMessage({ command: 'repoSearchResults', results: finalState.finalHits });
-
-        // Log timings for debugging
-        console.log('[INDEXING_CONTROLLER] LangGraph Search Timings:', JSON.stringify(finalState.timings, null, 2));
-
-        // Opportunistically refresh vector count
-        void this.handleGetRepoVectorCount(repoId);
-        return;
-      }
-
-      // 1. Expand query (Smart Filter)
-      let queriesToSearch: string[] = [q];
-
-      if (useSmartFilter) {
-        if (!googleKey) {
-          this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for smart filter' });
-          return;
-        }
-        const { getAllQueriesToSearch } = await import('../../core/indexing/queryExpansion.js');
-        const queries = await getAllQueriesToSearch(q, googleKey);
-        queriesToSearch = queries.filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0);
-
+      if (finalState.errors.length > 0) {
+        const firstError = finalState.errors[0];
+        console.error('[INDEXING_CONTROLLER] LangGraph Search Error:', firstError);
         this.context.postMessage({
-          command: 'searchQueryExpanded',
-          queries: queriesToSearch,
+          command: 'repoSearchError',
+          error: `AI Search failed at step "${firstError.node}".\nError: ${firstError.error}`
         });
-      }
-
-      // 2. Embed queries to vectors
-      if (!googleKey) {
-        this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for search' });
         return;
       }
-      const vectors = await Promise.all(
-        queriesToSearch.map((queryText) => embeddingService.embedText(googleKey, queryText))
-      );
 
-      // 3. Query the Vector DB (adapter abstraction)
-      const resList = await Promise.all(
-        vectors.map((vector) =>
-          adapter.queryVectors({
-            repoId,
-            vector,
-            topK: typeof topK === 'number' ? topK : 50,
-          })
-        )
-      );
+      const results = finalState.finalHits;
 
+      // Post results to webview
+      this.context.postMessage({ command: 'repoSearchResults', results: results });
 
-      // Merge by file path (keep best score per file)
-      const bestByPath = new Map<string, { id: string; score: number; path: string; snippet?: string }>();
+      // Log timings for debugging
+      console.log('[INDEXING_CONTROLLER] LangGraph Search Timings:', JSON.stringify(finalState.timings, null, 2));
 
-
-      for (const res of resList) {
-        const matches = res?.matches ?? [];
-        for (const m of matches) {
-          const filePath = m.metadata?.filePath;
-          if (!filePath || typeof filePath !== 'string') {
-            continue;
-          }
-
-
-          const score = m.score ?? 0;
-          const existing = bestByPath.get(filePath);
-
-          if (!existing || score > existing.score) {
-            bestByPath.set(filePath, {
-              id: m.id,
-              score,
-              path: filePath,
-              // Fixed: Type assertion for metadata snippet
-              snippet: (m.metadata?.snippet ?? m.metadata?.text) as string | undefined,
-            });
-
-          }
-        }
-      }
-
-      let results: RepoSearchResult[] = Array.from(bestByPath.values()).sort((a, b) => b.score - a.score);
-
-
-      // Optional: LLM rerank/filter (only when Smart Filter is enabled)
-      if (useSmartFilter && results.length > 0) {
-        if (!googleKey) {
-          this.context.postMessage({ command: 'repoSearchError', error: 'Google API key is required for smart filter' });
-          return;
-        }
-        const { rerankResultsWithLLM } = await import('../../core/indexing/llmReranking.js');
-        results = await rerankResultsWithLLM(q, results, googleKey, cwd, {
-          maxFiles: 10,
-          confidenceThreshold: typeof confidenceThreshold === 'number' ? confidenceThreshold : 0.5,
-          useFileContent: false,
-        });
-
-      }
-
-
-      // --- FILTERING START ---
-      // Robustly filter out files that are currently ignored by .gitignore,
-      // even if they exist in the vector index (handling stale index cases).
-      try {
-        const ig = ignore();
-        const gitignorePath = path.join(cwd, '.gitignore');
-
-        // Add .gitignore rules if file exists
-        if (fs.existsSync(gitignorePath)) {
-          const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
-          ig.add(gitignoreContent);
-        }
-
-        // Always add standard exclusions to be safe
-        ig.add(['.git', 'node_modules', '.DS_Store', 'dist', 'out', 'build']);
-
-        const originalCount = results.length;
-        results = results.filter((r: any) => {
-          if (!r.path) {
-            return false;
-          }
-          // r.path should be a relative path from repo root
-          return !ig.ignores(r.path);
-        });
-
-        if (originalCount !== results.length) {
-          console.log(`[INDEXING_CONTROLLER] Filtered ${originalCount - results.length} ignored files from search results.`);
-        }
-      } catch (filterErr) {
-        console.warn('[INDEXING_CONTROLLER] Error filtering search results with .gitignore:', filterErr);
-        // If filtering fails, proceed with original results to avoid breaking search
-      }
-      // --- FILTERING END ---
-
-      this.context.postMessage({ command: 'repoSearchResults', results });
 
       // Log results (for now we don't need to render them in UI)
       const dedupedPaths = Array.from(
@@ -244,6 +116,26 @@ export class IndexingController extends BaseController {
       );
       console.log(`[INDEXING_CONTROLLER] Unique file paths:`, dedupedPaths);
 
+      // --- GENERATE SUMMARY START ---
+      // If Smart Filter passed, generate a markdown summary for the user
+      if (useSmartFilter && dedupedPaths.length > 0) {
+        console.log('[INDEXING_CONTROLLER] Generating markdown summary for search results...');
+        try {
+          const { generateMarkdownSummary } = await import('../../agent/summaryGenerator.js');
+          // Resolve absolute paths for the generator
+          const absolutePaths = dedupedPaths.map(p => path.join(cwd, p));
+
+          await generateMarkdownSummary(
+            googleKey || '',
+            q,
+            absolutePaths,
+            cwd
+          );
+        } catch (summaryErr) {
+          console.error('[INDEXING_CONTROLLER] Failed to generate summary:', summaryErr);
+        }
+      }
+      // --- GENERATE SUMMARY END ---
 
       // Opportunistically refresh vector count after a search (cheap + useful)
       // (If it fails, it won't break search UX.)
