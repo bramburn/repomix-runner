@@ -1,4 +1,3 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
 import { AgentState } from "./state";
 import * as tools from "./tools";
@@ -10,6 +9,7 @@ import { DatabaseService, AgentRunHistory } from '../core/storage/databaseServic
 import * as crypto from 'crypto';
 import { embeddingService } from "../core/indexing/embeddingService";
 import { VectorDbAdapter } from "../core/indexing/vectorDb/types";
+import * as llmClient from "./llmClient";
 
 // ============================================================================
 // Caching Layer for LLM Responses
@@ -92,14 +92,14 @@ const llmCache = new LLMResponseCache();
 const CONFIG = {
   // Batch processing settings
   BATCH_SIZE: 5,              // Files per LLM batch request
-  MAX_CONCURRENT_BATCHES: 3,  // Maximum parallel batch requests
+  MAX_CONCURRENT_BATCHES: 3,  // Maximum parallel batch requests (Kept for logical grouping, but queue handles actual rate limiting)
 
   // Content processing
   MAX_FILE_CONTENT_LENGTH: 15000,  // Reduced for batch processing (per file)
   MIN_CONFIDENCE_THRESHOLD: 0.6,   // Lowered from 0.7 for inclusiveness
 
   // Rate limiting
-  RATE_LIMIT_DELAY_MS: 500,  // Delay between batch requests
+  RATE_LIMIT_DELAY_MS: 500,  // Delay between batch requests (Now handled by p-queue, but kept for legacy structure if needed explicitly)
 
   // Fallback thresholds
   FALLBACK_MIN_FILES: 5,     // Minimum files to return on fallback
@@ -123,44 +123,24 @@ function chunkArray<T>(array: T[], size: number): T[][] {
   return chunks;
 }
 
-// Helper to initialize the model dynamically
-function getModel(apiKey: string) {
-  if (!apiKey) {
-    throw new Error("Google API Key not provided to agent.");
-  }
-
-  // Use gemini-2.5-flash-lite (the correct model name)
-  // always use gemini-2.5-flash-lite
-  const modelName = "gemini-2.5-flash-lite";
-
-  logger.both.debug(`Agent: Initializing model: ${modelName}`);
-
-  return new ChatGoogleGenerativeAI({
-    model: modelName,
-    temperature: 0,
-    apiKey: apiKey
-  });
-}
-
 // Node 0: Analyze Objective
 export async function analyzeObjective(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 0 - Analyzing user objective...");
-
-  const model = getModel(state.apiKey);
 
   const schema = z.object({
     objectiveType: z.enum(['ACTION', 'SEARCH']).describe("Whether the user wants to perform a task/modify code (ACTION) or find info/understand (SEARCH)"),
     relevanceCriteria: z.string().describe("A strict checklist of what constitutes a 'relevant file' for this specific task")
   });
 
-  const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
-
   const prompt = prompts.ANALYZE_OBJECTIVE_PROMPT(state.userQuery);
 
   try {
-    const response = await structuredLlm.invoke(prompt);
-    const result = response.parsed as { objectiveType: 'ACTION' | 'SEARCH', relevanceCriteria: string };
-    const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+    const { parsed: result, totalTokens } = await llmClient.generateStructured(
+      state.apiKey,
+      schema,
+      prompt,
+      "Analyze Objective"
+    );
 
     logger.both.info(`Agent: Objective classified as ${result.objectiveType}.`);
     logger.both.info(`Agent: Relevance Criteria: ${result.relevanceCriteria}`);
@@ -168,7 +148,7 @@ export async function analyzeObjective(state: typeof AgentState.State) {
     return {
       objectiveType: result.objectiveType,
       relevanceCriteria: result.relevanceCriteria,
-      totalTokens: tokens
+      totalTokens: totalTokens
     };
   } catch (error) {
     logger.both.error("Agent: Objective analysis failed", error);
@@ -258,14 +238,10 @@ export async function structureExtraction(state: typeof AgentState.State) {
 export async function initialFiltering(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 3 - Filtering candidate files...");
 
-  const model = getModel(state.apiKey);
-
   // Define the structured output schema
   const schema = z.object({
     candidates: z.array(z.string()).describe("List of relevant file paths found in the repository")
   });
-
-  const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
 
   // Chunk the files to avoid token limits (JSON truncation) with large repos
   const CHUNK_SIZE = 600;
@@ -276,6 +252,7 @@ export async function initialFiltering(state: typeof AgentState.State) {
 
   try {
     // Process chunks sequentially to be safe with rate limits
+    // Note: Implicit sequential execution here, but llmClient queue ensures it anyway.
     for (const chunk of fileChunks) {
       const structureContext = chunk.join('\n');
 
@@ -296,9 +273,12 @@ export async function initialFiltering(state: typeof AgentState.State) {
       `;
 
       try {
-        const response = await structuredLlm.invoke(prompt);
-        const result = response.parsed as { candidates: string[] };
-        const tokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+        const { parsed: result, totalTokens: tokens } = await llmClient.generateStructured(
+          state.apiKey,
+          schema,
+          prompt,
+          "Initial Filtering Chunk"
+        );
 
         if (result && result.candidates) {
           allCandidates.push(...result.candidates);
@@ -398,7 +378,6 @@ async function processBatch(
   objectiveType: 'ACTION' | 'SEARCH' | undefined,
   relevanceCriteria: string | undefined
 ): Promise<BatchProcessResult> {
-  const model = getModel(apiKey);
   const batchSchema = z.object({
     files: z.array(z.object({
       path: z.string(),
@@ -406,8 +385,6 @@ async function processBatch(
       confidence: z.number().min(0).max(1)
     }))
   });
-
-  const batchLlm = model.withStructuredOutput(batchSchema, { includeRaw: true });
 
   try {
     // Check cache first
@@ -417,13 +394,25 @@ async function processBatch(
       batchContent,
       async () => {
         const prompt = buildBatchPrompt(batch, contentMap, query, objectiveType, relevanceCriteria);
-        const response = await batchLlm.invoke(prompt);
-        return response;
+        // Note: We return the full LLM response object to cache it, just like before,
+        // but now we construct a mock object or change how we cache.
+        // Actually, let's cache the structural result to be cleaner, but the cache keys off raw content.
+        // The previous code cached the `invoke` response.
+
+        // Use the new client to get parsed result
+        const { parsed, totalTokens } = await llmClient.generateStructured(
+          apiKey,
+          batchSchema,
+          prompt,
+          "Process Batch"
+        );
+
+        return { parsed, totalTokens };
       }
     );
 
     const result = cacheResult.parsed as { files: BatchFileResult[] };
-    const tokens = (cacheResult.raw as any)?.usage_metadata?.total_tokens || 0;
+    const tokens = cacheResult.totalTokens || 0;
 
     // Filter based on confidence threshold
     const relevantFiles = result.files
@@ -451,50 +440,25 @@ async function processBatchesWithConcurrency(
   query: string,
   apiKey: string,
   objectiveType: 'ACTION' | 'SEARCH' | undefined,
-  relevanceCriteria: string | undefined,
-  maxConcurrent: number = CONFIG.MAX_CONCURRENT_BATCHES
+  relevanceCriteria: string | undefined
 ): Promise<BatchProcessResult[]> {
-  const results: BatchProcessResult[] = [];
-  const executing: Promise<void>[] = [];
+  // We can just map all batches to promises. The underlying p-queue in llmClient
+  // will handle the rate limiting (concurrency: 1, RPM cap).
+  // We don't need manual rate limiting logic here anymore.
 
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-
-    const batchPromise = (async (batchIndex: number) => {
-      try {
-        // Rate limiting delay for batches after the first few
-        if (batchIndex >= maxConcurrent) {
-          await new Promise(resolve =>
-            setTimeout(resolve, CONFIG.RATE_LIMIT_DELAY_MS * (batchIndex - maxConcurrent + 1))
-          );
-        }
-
-        const result = await processBatch(batch, contentMap, query, apiKey, objectiveType, relevanceCriteria);
-        results[batchIndex] = result;
-      } catch (error) {
-        results[batchIndex] = {
-          relevantFiles: [],
-          tokens: 0,
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    })(i);
-
-    executing.push(batchPromise);
-
-    // Limit concurrent executions
-    if (executing.length >= maxConcurrent) {
-      await Promise.race(executing);
-      // Remove completed promises
-      const settled = await Promise.allSettled(executing);
-      executing.length = 0;
+  const promises = batches.map(async (batch, index) => {
+    try {
+      return await processBatch(batch, contentMap, query, apiKey, objectiveType, relevanceCriteria);
+    } catch (error) {
+      return {
+        relevantFiles: [],
+        tokens: 0,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
-  }
+  });
 
-  // Wait for remaining promises
-  await Promise.allSettled(executing);
-
-  return results;
+  return Promise.all(promises);
 }
 
 // ============================================================================
@@ -523,15 +487,14 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
     const batches = chunkArray(state.candidateFiles, CONFIG.BATCH_SIZE);
     logger.both.info(`Agent: Processing ${batches.length} batches (${CONFIG.BATCH_SIZE} files per batch)...`);
 
-    // Process batches with controlled concurrency
+    // Process batches with controlled concurrency (handled by queue)
     const results = await processBatchesWithConcurrency(
       batches,
       contentMap,
       state.userQuery,
       state.apiKey,
       state.objectiveType,
-      state.relevanceCriteria,
-      CONFIG.MAX_CONCURRENT_BATCHES
+      state.relevanceCriteria
     );
 
     // Aggregate results
@@ -579,13 +542,11 @@ async function fallbackSequentialProcessing(
 ): Promise<{ confirmedFiles: string[]; totalTokens: number }> {
   logger.both.info("Agent: Using fallback sequential processing...");
 
-  const model = getModel(state.apiKey);
   const confirmed: string[] = [];
 
   const checkSchema = z.object({
     isRelevant: z.boolean().describe("True if the file is necessary to answer the user query")
   });
-  const checkLlm = model.withStructuredOutput(checkSchema, { includeRaw: true });
 
   let stepTokens = 0;
 
@@ -613,9 +574,14 @@ async function fallbackSequentialProcessing(
     `;
 
     try {
-      const response = await checkLlm.invoke(prompt);
-      const result = response.parsed as { isRelevant: boolean };
-      stepTokens += (response.raw as any)?.usage_metadata?.total_tokens || 0;
+      const { parsed: result, totalTokens: tokens } = await llmClient.generateStructured(
+        state.apiKey,
+        checkSchema,
+        prompt,
+        `CHECK ${filePath}`
+      );
+
+      stepTokens += tokens;
 
       if (result.isRelevant) {
         confirmed.push(filePath);
