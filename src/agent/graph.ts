@@ -44,13 +44,22 @@ export function createSmartRepomixGraph(databaseService: DatabaseService, bundle
     // Conditional edge: Skip to command generation if we already have confirmed files (re-pack scenario)
     .addConditionalEdges("retrieval", (state) => {
       if (state.confirmedFiles.length > 0) {
+        // If we have files but don't want to generate, go to execution
+        if (state.generateFile === false) {
+          return "execution";
+        }
         return "commandGeneration"; // Skip directly to command generation
       }
       return "relevanceCheck"; // Continue with normal flow
     })
 
     // Check -> Generate Command
-    .addEdge("relevanceCheck", "commandGeneration")
+    .addConditionalEdges("relevanceCheck", (state) => {
+      if (state.generateFile === false) {
+        return "execution";
+      }
+      return "commandGeneration";
+    })
 
     // Generate -> Execute & Cleanup
     .addEdge("commandGeneration", "execution")

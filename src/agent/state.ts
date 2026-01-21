@@ -34,6 +34,12 @@ export const AgentState = Annotation.Root({
   // Output path for the generated file
   outputPath: Annotation<string | undefined>,
 
+  // Whether to generate the repomix command and output file
+  generateFile: Annotation<boolean>({
+    reducer: (curr, next) => next,
+    default: () => false,
+  }),
+
   // Total tokens used across all LLM calls
   totalTokens: Annotation<number>({
     reducer: (x, y) => x + y, // Adds new usage to existing total

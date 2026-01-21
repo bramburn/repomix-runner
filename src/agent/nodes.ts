@@ -2,6 +2,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
 import { AgentState } from "./state";
 import * as tools from "./tools";
+import * as prompts from "./prompts";
 import * as vscode from 'vscode';
 import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
@@ -154,22 +155,7 @@ export async function analyzeObjective(state: typeof AgentState.State) {
 
   const structuredLlm = model.withStructuredOutput(schema, { includeRaw: true });
 
-  const prompt = `
-    Analyze this user query for a code repository assistant.
-    User Query: "${state.userQuery}"
-
-    Determine:
-    1. Objective Type: 
-       - 'ACTION': If the user wants to modify code, refactor, implement a feature, or perform a specific task.
-       - 'SEARCH': If the user wants to understand how something works, find where a feature is implemented, or explore the codebase.
-
-    2. Relevance Criteria:
-       - Provide a concise instruction for a filter. 
-       - Use "Exclude..." and "Focus on..." style.
-       - Example: "Focus on the Authentication provider implementation and its related hooks. Exclude test files and unrelated UI components."
-
-    Provide these in a structured JSON format.
-  `;
+  const prompt = prompts.ANALYZE_OBJECTIVE_PROMPT(state.userQuery);
 
   try {
     const response = await structuredLlm.invoke(prompt);
@@ -378,29 +364,14 @@ ${snippet}
 ---`;
   }).join('\n\n');
 
-  return `
-You are analyzing files for a user request.
-User Query: "${query}"
-Objective: ${objectiveType || 'UNKNOWN'}
-Criteria: ${relevanceCriteria || 'Evaluate relevance based on query.'}
+  const criteria = relevanceCriteria || 'Evaluate relevance based on query.';
 
-Analyze the following files and determine which are strictly necessary to fulfill the user's request based on the Objective and Criteria.
-
-${fileEntries}
-
-Task:
-- If Objective is ACTION, discard any file not strictly needed for the build/modification (e.g., unrelated utils, huge datasets).
-- If SEARCH, keep files that provide necessary context or answer the query.
-
-For each file, determine:
-1. Is it strictly necessary to fulfill the user's request? (true/false)
-2. How confident are you? (0-1 score)
-
-Return a JSON array with the structure:
-[
-  {"path": "file path", "isRelevant": true/false, "confidence": 0.0-1.0}
-]
-`;
+  if (objectiveType === 'ACTION') {
+    return prompts.ACTION_RELEVANCE_PROMPT(query, criteria, fileEntries);
+  } else {
+    // Default to SEARCH logic if undefined or explicit SEARCH
+    return prompts.SEARCH_RELEVANCE_PROMPT(query, criteria, fileEntries);
+  }
 }
 
 // ============================================================================
@@ -587,19 +558,11 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
   // Remove duplicates (possible when batches overlap in logic)
   const uniqueConfirmed = Array.from(new Set(confirmed));
 
-  // Failsafe: ensure we have at least some files if candidates existed
+  // Failsafe removed to ensure strict relevance filtering
   if (uniqueConfirmed.length === 0 && state.candidateFiles.length > 0) {
-    logger.both.warn("Agent: No files confirmed as relevant, applying failsafe");
-
-    // Show warning to user that relevance check failed and fallback is being used
-    vscode.window.showWarningMessage(
-      `Agent relevance check failed for all candidate files, using fallback selection of first ${Math.min(CONFIG.FALLBACK_MIN_FILES, state.candidateFiles.length)} files.`
-    );
-
-    // Return first few candidates as a fallback
-    const fallbackFiles = state.candidateFiles.slice(0, CONFIG.FALLBACK_MIN_FILES);
-    logger.both.info(`Agent: Fallback selected ${fallbackFiles.length} files`);
-    return { confirmedFiles: fallbackFiles, totalTokens: stepTokens };
+    logger.both.info("Agent: No relevant files found after deep analysis.");
+    // Do NOT return fallback files. Return empty to signify no relevant files found.
+    return { confirmedFiles: [], totalTokens: stepTokens };
   }
 
   logger.both.info(`Agent: Confirmed ${uniqueConfirmed.length} files as strictly relevant (used ${stepTokens.toLocaleString()} tokens).`);
@@ -669,6 +632,12 @@ async function fallbackSequentialProcessing(
 export async function commandGeneration(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 5 - Generating final command...");
 
+  // If explicit false, skip generation
+  if (state.generateFile === false) {
+    logger.both.info("Agent: generateFile is false, skipping command generation.");
+    return { finalCommand: "", outputPath: undefined };
+  }
+
   if (state.confirmedFiles.length === 0) {
     logger.both.warn("Agent: No relevant files found. Skipping execution.");
     return { finalCommand: "", outputPath: undefined };
@@ -709,9 +678,15 @@ export async function finalExecution(
   let error: string | undefined;
 
   if (!state.finalCommand) {
-    const errorMessage = "Repomix Agent: No relevant files found for your query.";
-    vscode.window.showWarningMessage(errorMessage);
-    error = errorMessage;
+    // If generation was intentionally skipped but we have files, treat as success
+    if (state.generateFile === false && state.confirmedFiles && state.confirmedFiles.length > 0) {
+      success = true;
+      vscode.window.showInformationMessage(`Agent found ${state.confirmedFiles.length} relevant files.`);
+    } else {
+      const errorMessage = "Repomix Agent: No relevant files found for your query.";
+      vscode.window.showWarningMessage(errorMessage);
+      error = errorMessage;
+    }
 
     // Save failed run to database
     const runHistory: AgentRunHistory = {
