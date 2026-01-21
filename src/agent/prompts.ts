@@ -48,3 +48,20 @@ Identify files that provide context, definitions, or examples related to the que
 
 Return JSON: [{"path": "string", "isRelevant": boolean, "confidence": number}]
 `;
+
+export const GENERATE_SUMMARY_PROMPT = (query: string, filesContent: string) => `
+You are a technical architect summarizing a codebase for a specific user request.
+User Request: "${query}"
+
+Below are the contents of the relevant files:
+${filesContent}
+
+Task:
+Generate a comprehensive markdown summary that includes:
+1. **Overview**: A high-level explanation of how these files fulfill the request.
+2. **Data Structures**: Extract key interfaces, types, classes, or schemas. Include the full code for these structures or accurately inferred types.
+3. **Core Logic**: Identify and explain the most important functions or logic blocks.
+4. **Context**: Briefly explain why each file was included and its role in the system.
+
+Format the output as clean, professional Markdown. Use code blocks for all snippets and types.
+`;

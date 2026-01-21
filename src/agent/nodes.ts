@@ -2,6 +2,8 @@ import { z } from "zod";
 import { AgentState } from "./state";
 import * as tools from "./tools";
 import * as prompts from "./prompts";
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
@@ -592,6 +594,47 @@ async function fallbackSequentialProcessing(
   }
 
   return { confirmedFiles: confirmed, totalTokens: stepTokens };
+}
+
+// Node New: Generate Summary
+export async function generateSummary(state: typeof AgentState.State) {
+  if (state.confirmedFiles.length === 0) return {};
+
+  logger.both.info("Agent: Generating markdown summary...");
+
+  // 1. Collect full content of confirmed files
+  const contentMap = await tools.getFileContents(state.workspaceRoot, state.confirmedFiles);
+  const fullContent = state.confirmedFiles.map(filePath => {
+    return `FILE: ${filePath}\nCONTENT:\n${contentMap.get(filePath)}\n---`;
+  }).join('\n\n');
+
+  // 2. Call LLM
+  const prompt = prompts.GENERATE_SUMMARY_PROMPT(state.userQuery, fullContent);
+
+  const { content: summaryMarkdown, totalTokens } = await llmClient.generateText(
+    state.apiKey,
+    prompt,
+    "Generate Summary"
+  );
+
+  // 3. Ensure .repomix-runner/ directory exists
+  const runnerDir = path.join(state.workspaceRoot, '.repomix-runner');
+  if (!fs.existsSync(runnerDir)) {
+    fs.mkdirSync(runnerDir, { recursive: true });
+  }
+
+  // 4. Save the summary
+  const fileName = `summary-${Date.now()}.md`;
+  const summaryPath = path.join(runnerDir, fileName);
+  fs.writeFileSync(summaryPath, summaryMarkdown);
+
+  logger.both.info(`Agent: Summary generated at ${summaryPath}`);
+
+  return {
+    summaryPath: summaryPath,
+    confirmedFiles: [...state.confirmedFiles, summaryPath],
+    totalTokens: totalTokens
+  };
 }
 
 // Node 5: Command Generation

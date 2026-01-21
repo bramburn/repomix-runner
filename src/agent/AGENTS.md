@@ -1,0 +1,165 @@
+# Agent Development Guide
+
+This guide explains the architecture of the Repomix Runner Smart Agent and how to extend its capabilities. The agent is built using **LangGraph** and uses **Google Gemini** models.
+
+## Architecture Overview
+
+The agent is organized into the following components within `src/agent/`:
+
+*   **`graph.ts`**: The central orchestrator. It defines the workflow, nodes, and edges (connections) that determine the execution path.
+*   **`nodes.ts`**: Contains the core logic for each step in the workflow. Each node receives the current state and returns updates to that state.
+*   **`state.ts`**: Defines the `AgentState` schema, which acts as the shared memory passed between nodes.
+*   **`prompts.ts`**: Centralized storage for all LLM prompts to separate logic from text generation.
+*   **`llmClient.ts`**: A wrapper around the Gemini API that handles rate limiting, retries, and structured output parsing.
+
+---
+
+## 1. How to Add a New Node
+
+Nodes are asynchronous functions that perform a specific task and return a partial state update.
+
+### Step 1: Define the Node in `nodes.ts`
+
+```typescript
+// src/agent/nodes.ts
+import { AgentState } from "./state";
+import { logger } from "../shared/logger";
+
+export async function myNewNode(state: typeof AgentState.State) {
+  logger.both.info("Agent: Executing my new node...");
+
+  // ... perform logic ...
+
+  // Return only the fields you want to update in the state
+  return {
+    someStateField: "newValue"
+  };
+}
+```
+
+### Step 2: Register the Node in `graph.ts`
+
+```typescript
+// src/agent/graph.ts
+import * as nodes from "./nodes";
+
+export function createSmartRepomixGraph(...) {
+  const workflow = new StateGraph(AgentState)
+    // ... existing nodes ...
+    .addNode("myNewNode", nodes.myNewNode) // <--- Add this
+
+    // ... define edges to connect it ...
+    .addEdge("previousNode", "myNewNode")
+    .addEdge("myNewNode", "nextNode");
+
+  return workflow.compile();
+}
+```
+
+---
+
+## 2. Conditional Nodes and Edges
+
+You can create dynamic workflows where the path changes based on the agent's state.
+
+### Using Conditional Edges
+
+In `src/agent/graph.ts`, use `addConditionalEdges` to route execution based on state values.
+
+```typescript
+// src/agent/graph.ts
+
+workflow.addConditionalEdges(
+  "decisionNode", // The node where the decision is made
+  (state) => {
+    // Logic to determine the next node
+    if (state.needsRefinement) {
+      return "refinementNode";
+    }
+    return "executionNode";
+  }
+);
+```
+
+---
+
+## 3. Prompt Usage
+
+All prompts should be defined in `src/agent/prompts.ts` to maintain cleanliness and reusability.
+
+### Step 1: Add to `prompts.ts`
+
+```typescript
+// src/agent/prompts.ts
+
+export const MY_NEW_PROMPT = (context: string) => `
+You are a helpful assistant.
+Context: ${context}
+
+Task: Analyze the context and provide a summary.
+`;
+```
+
+### Step 2: Use in a Node
+
+```typescript
+// src/agent/nodes.ts
+import * as prompts from "./prompts";
+
+const prompt = prompts.MY_NEW_PROMPT(someContext);
+```
+
+---
+
+## 4. Making LLM Calls
+
+Use the `src/agent/llmClient.ts` wrapper for all LLM interactions. This ensures:
+*   Rate limiting (preventing 429 errors)
+*   Automatic retries with exponential backoff
+*   Type-safe structured outputs
+
+### Text Generation
+
+Use `generateText` for simple string responses.
+
+```typescript
+import * as llmClient from "./llmClient";
+
+const { content, totalTokens } = await llmClient.generateText(
+  state.apiKey,
+  prompt,
+  "My Node Name" // Label for logging
+);
+```
+
+### Structured Output (JSON)
+
+Use `generateStructured` when you need the LLM to return specific data shapes. This is preferred for reliability.
+
+1.  **Define Schema**: Use Zod to define the expected structure.
+2.  **Call Client**:
+
+```typescript
+import { z } from "zod";
+import * as llmClient from "./llmClient";
+
+// 1. Define Schema
+const AnalysisSchema = z.object({
+  isRelevant: z.boolean(),
+  reasoning: z.string(),
+  tags: z.array(z.string())
+});
+
+// 2. Call LLM
+const { parsed, totalTokens } = await llmClient.generateStructured(
+  state.apiKey,
+  AnalysisSchema,
+  prompt,
+  "Analysis Node"
+);
+
+// parsed is fully typed!
+if (parsed.isRelevant) {
+  console.log(parsed.reasoning);
+}
+```

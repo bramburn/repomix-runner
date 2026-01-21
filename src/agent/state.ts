@@ -34,6 +34,9 @@ export const AgentState = Annotation.Root({
   // Output path for the generated file
   outputPath: Annotation<string | undefined>,
 
+  // Path to the generated summary markdown file
+  summaryPath: Annotation<string | undefined>,
+
   // Whether to generate the repomix command and output file
   generateFile: Annotation<boolean>({
     reducer: (curr, next) => next,
