@@ -249,6 +249,11 @@ export const CopySearchFilePathsSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
 });
 
+export const SearchSummaryReadySchema = z.object({
+  command: z.literal('searchSummaryReady'),
+  summaryPath: z.string().min(1),
+});
+
 // --- Clipboard Configuration Schemas ---
 
 export const GetCopyModeSchema = z.object({
@@ -396,6 +401,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ReportClientInfoSchema,
   ApplyPatchesSchema,
   RemoteClipboardProcessingCompleteSchema,
+  SearchSummaryReadySchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

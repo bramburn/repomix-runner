@@ -22,4 +22,5 @@ package.json.bak
 src/**/*.map
 src/**/*.js
 .idea/
-.repomix-clipboard-*.md
+.repomix-clipboard-*.md 
+.repomix-runner/

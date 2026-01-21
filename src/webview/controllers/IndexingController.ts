@@ -125,12 +125,20 @@ export class IndexingController extends BaseController {
           // Resolve absolute paths for the generator
           const absolutePaths = dedupedPaths.map(p => path.join(cwd, p));
 
-          await generateMarkdownSummary(
+          const result = await generateMarkdownSummary(
             googleKey || '',
             q,
             absolutePaths,
             cwd
           );
+
+          if (result.summaryPath) {
+            this.context.postMessage({
+              command: 'searchSummaryReady',
+              summaryPath: result.summaryPath
+            });
+          }
+
         } catch (summaryErr) {
           console.error('[INDEXING_CONTROLLER] Failed to generate summary:', summaryErr);
         }

@@ -65,6 +65,10 @@ interface SearchTabState {
   openAccordionItems: string[];
   topK: number;
   confidenceThreshold: number;
+  results?: RepoSearchResult[];
+  lastSearchOutputPath?: string | null;
+  summaryPath?: string | null;
+  expandedQueries?: string[];
 }
 
 const DEFAULT_FILTERS: FileTypeFilterState = {
@@ -198,13 +202,14 @@ export const SearchTab = () => {
   // Initialize with saved state or defaults
   const [query, setQuery] = useState(loadedState?.query || '');
   const [smartFilterEnabled, setSmartFilterEnabled] = useState(loadedState?.smartFilterEnabled ?? false);
-  const [expandedQueries, setExpandedQueries] = useState<string[]>([]);
+  const [expandedQueries, setExpandedQueries] = useState<string[]>(loadedState?.expandedQueries || []);
   const [openItems, setOpenItems] = useState<string[]>(loadedState?.openAccordionItems || ['indexing', 'filters']);
 
   const [isSearching, setIsSearching] = useState(false);
-  const [results, setResults] = useState<RepoSearchResult[]>([]);
+  const [results, setResults] = useState<RepoSearchResult[]>(loadedState?.results || []);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(null);
+  const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(loadedState?.lastSearchOutputPath || null);
+  const [summaryPath, setSummaryPath] = useState<string | null>(loadedState?.summaryPath || null);
 
   const [copyDecisionsLabel, setCopyDecisionsLabel] = useState('Copy Smart Filter Decisions');
   const [copyMarkdownLabel, setCopyMarkdownLabel] = useState('Copy as Markdown');
@@ -219,6 +224,7 @@ export const SearchTab = () => {
 
   // Persist state changes (merge with existing state to avoid clobbering other tabs)
   useEffect(() => {
+
     const prev = vscode.getState() ?? {};
     vscode.setState({
       ...prev,
@@ -228,8 +234,12 @@ export const SearchTab = () => {
       openAccordionItems: openItems,
       topK,
       confidenceThreshold,
+      results,
+      lastSearchOutputPath,
+      summaryPath,
+      expandedQueries
     });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold]);
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, results, lastSearchOutputPath, summaryPath, expandedQueries]);
 
   const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
     const val = data.value as string;
@@ -546,6 +556,10 @@ export const SearchTab = () => {
           setLastSearchOutputPath(message.outputPath ?? null);
           break;
 
+        case 'searchSummaryReady':
+          setSummaryPath(message.summaryPath);
+          break;
+
         case 'copySuccess':
           // Show temporary success feedback on the copy button
           setCopyMarkdownLabel('Copied!');
@@ -603,6 +617,7 @@ export const SearchTab = () => {
     setIsSearching(true);
     setSearchError(null);
     setResults([]);
+    setSummaryPath(null);
     setExpandedQueries([]);
 
     vscode.postMessage({
@@ -622,7 +637,17 @@ export const SearchTab = () => {
   const handleCopySearchResultsMarkdown = () => {
     if (dedupedResults.length === 0) return;
     const filePaths = dedupedResults.map(r => r.path).filter((p): p is string => !!p);
-    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: filePaths });
+
+    // If a summary exists, prepend it to the list of files to be copied?
+    // Or actually, user request was "return filepath to summary so display it and allow us to copy it in 'copy as markdown'"
+    // The current 'copySearchResultsMarkdown' takes a list of file paths and generates markdown.
+    // If we pass the summary file path, it will be included in the generation.
+    // Ideally we want the summary to be the *summary* of the markdown, not just another file.
+    // But for now, adding it to the list is the simplest way to get it included.
+
+    const filesToCopy = summaryPath ? [summaryPath, ...filePaths] : filePaths;
+
+    vscode.postMessage({ command: 'copySearchResultsMarkdown', files: filesToCopy });
   };
 
   const handleCopyFilePaths = () => {
@@ -976,6 +1001,27 @@ export const SearchTab = () => {
               </AccordionPanel>
             </AccordionItem>
           </Accordion>
+        )}
+
+        {summaryPath && (
+          <div style={{
+            marginTop: '10px',
+            padding: '10px',
+            backgroundColor: 'var(--vscode-editor-background)',
+            border: '1px solid var(--vscode-widget-border)',
+            borderRadius: '4px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <Label weight="semibold">AI Summary Generated</Label>
+            <Text size={200} style={{ opacity: 0.8 }}>A markdown summary of the search results has been created.</Text>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'openFile', filePath: summaryPath })}>
+                Open Summary
+              </Button>
+            </div>
+          </div>
         )}
 
         <Button appearance="secondary" icon={<DatabaseSearchRegular />} style={{ width: '100%' }} disabled={!canGenerate} onClick={handleGenerate}>
