@@ -148,11 +148,24 @@ export async function generateText(
             const model = createGeminiModel(apiKey);
             const response = await model.invoke(prompt);
 
-            const content = typeof response.content === "string"
-                ? response.content
-                : Array.isArray(response.content)
-                    ? response.content.join("")
-                    : String(response.content);
+            let content = "";
+            if (typeof response.content === "string") {
+                content = response.content;
+            } else if (Array.isArray(response.content)) {
+                // Handle array of content blocks
+                content = response.content.map(c => {
+                    if (typeof c === "string") return c;
+                    if (typeof c === "object" && c && "text" in c) return (c as any).text;
+                    return JSON.stringify(c);
+                }).join("");
+            } else {
+                content = String(response.content);
+            }
+
+            // Log raw content type if weird for debugging
+            if (typeof response.content !== 'string' && !Array.isArray(response.content)) {
+                logger.both.warn(`[${name}] Unexpected content type: ${typeof response.content}. Value: ${JSON.stringify(response.content)}`);
+            }
 
             const totalTokens = (response.response_metadata as any)?.usage_metadata?.total_tokens || 0;
 

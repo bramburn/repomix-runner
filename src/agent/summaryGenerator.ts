@@ -54,6 +54,13 @@ export async function generateMarkdownSummary(
             "Generate Summary"
         );
 
+        logger.both.debug(`SummaryGenerator: Receieved content type: ${typeof summaryMarkdown}. Length: ${summaryMarkdown?.length}`);
+        if (typeof summaryMarkdown === 'string') {
+            logger.both.debug(`SummaryGenerator: Preview: ${summaryMarkdown.slice(0, 100)}...`);
+        } else {
+            logger.both.warn(`SummaryGenerator: Content is not a string: ${JSON.stringify(summaryMarkdown)}`);
+        }
+
         // 3. Ensure .repomix-runner/ directory exists
         const runnerDir = path.join(workspaceRoot, '.repomix-runner');
         if (!fs.existsSync(runnerDir)) {
