@@ -678,13 +678,12 @@ export class ConfigController extends BaseController {
       }
 
       // Save configuration to workspace settings
-      const workspaceConfig = vscode.workspace.getConfiguration('repomix');
-      await workspaceConfig.update('embedding.provider', provider, vscode.ConfigurationTarget.Global);
+      await config.update('repomix.embedding.provider', provider, vscode.ConfigurationTarget.Global);
       
       if (provider === 'ollama') {
-        await workspaceConfig.update('ollama.url', ollamaUrl, vscode.ConfigurationTarget.Global);
-        await workspaceConfig.update('ollama.model', ollamaModel, vscode.ConfigurationTarget.Global);
-        await workspaceConfig.update('ollama.dimension', ollamaDimension, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.ollama.url', ollamaUrl, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.ollama.model', ollamaModel, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.ollama.dimension', ollamaDimension, vscode.ConfigurationTarget.Global);
       }
 
       console.log('[ConfigController] Embedding configuration saved');
