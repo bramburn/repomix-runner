@@ -241,8 +241,43 @@
         }
       },
       {
-        "title": "Smart Agent",
+        "title": "Embedding",
         "order": 7,
+        "type": "object",
+        "properties": {
+          "repomix.embedding.provider": {
+            "order": 1,
+            "type": "string",
+            "enum": [
+              "gemini",
+              "ollama"
+            ],
+            "default": "gemini",
+            "description": "🤖 \n Embedding provider to use"
+          },
+          "repomix.ollama.url": {
+            "order": 2,
+            "type": "string",
+            "default": "http://localhost:11434",
+            "description": "🌐 \n Ollama API URL"
+          },
+          "repomix.ollama.model": {
+            "order": 3,
+            "type": "string",
+            "default": "nomic-embed-text",
+            "description": "📦 \n Ollama embedding model name"
+          },
+          "repomix.ollama.dimension": {
+            "order": 4,
+            "type": "number",
+            "default": 768,
+            "description": "📏 \n Embedding dimension size"
+          }
+        }
+      },
+      {
+        "title": "Smart Agent",
+        "order": 8,
         "type": "object",
         "properties": {}
       }

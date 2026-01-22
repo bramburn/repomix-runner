@@ -1,101 +1,69 @@
-import { GoogleGenAI } from '@google/genai';
+import { IEmbeddingProvider } from './embeddings/types';
+import { GeminiProvider } from './embeddings/GeminiProvider';
+import { OllamaProvider } from './embeddings/OllamaProvider';
 
-/**
- * Embedding service using Google Gemini SDK directly.
- * Handles vector generation for text chunks with proper dimension control.
- */
+export interface EmbeddingProviderConfig {
+    provider: 'gemini' | 'ollama';
+    gemini?: {
+        apiKey: string;
+    };
+    ollama?: {
+        url: string;
+        model: string;
+        dimension: number;
+    };
+}
+
 export class EmbeddingService {
-  private client: GoogleGenAI | null = null;
-  private currentApiKey: string | null = null;
-  private readonly dimensions = 768;
+  private provider: IEmbeddingProvider | null = null;
+  private currentConfig: EmbeddingProviderConfig | null = null;
 
-  /**
-   * Gets or creates a Gemini client for the given API key.
-   */
-  private getClient(apiKey: string): GoogleGenAI {
-    if (this.client && this.currentApiKey === apiKey) {
-      return this.client;
+  public switchProvider(config: EmbeddingProviderConfig) {
+    if (this.provider && JSON.stringify(this.currentConfig) === JSON.stringify(config)) {
+      return;
     }
 
-    this.client = new GoogleGenAI({ apiKey });
-    this.currentApiKey = apiKey;
-    return this.client;
+    console.log(`[EMBEDDING_SERVICE] Switching provider to ${config.provider}`);
+    this.currentConfig = config;
+
+    switch (config.provider) {
+      case 'gemini':
+        if (!config.gemini?.apiKey) {
+            throw new Error('Gemini API key is missing for embedding provider.');
+        }
+        this.provider = new GeminiProvider(config.gemini);
+        break;
+      case 'ollama':
+        if (!config.ollama) {
+            throw new Error('Ollama config is missing for embedding provider.');
+        }
+        this.provider = new OllamaProvider(config.ollama);
+        break;
+      default:
+        const exhaustiveCheck: never = config.provider;
+        throw new Error(`Unsupported embedding provider: ${exhaustiveCheck}`);
+    }
   }
 
-  /**
-   * Embeds a single text chunk.
-   * @param apiKey Google Gemini API key
-   * @param text Text to embed
-   * @returns Vector (array of numbers)
-   */
-  async embedText(apiKey: string, text: string): Promise<number[]> {
-    const startTime = Date.now();
-    const textLength = text.length;
-    console.log(`[EMBEDDING_SERVICE] Starting single text embedding (length: ${textLength} chars)`);
-
-    const client = this.getClient(apiKey);
-    
-    const response = await client.models.embedContent({
-      model: 'gemini-embedding-001',
-      contents: text,
-      config: {
-        outputDimensionality: this.dimensions,
-      },
-    });
-
-    const embedding = response.embeddings?.[0]?.values;
-    if (!embedding) {
-      throw new Error('No embedding returned from Gemini API');
+  async embedText(text: string): Promise<number[]> {
+    if (!this.provider) {
+      throw new Error('Embedding provider is not initialized. Call switchProvider first.');
     }
-
-    const duration = Date.now() - startTime;
-    console.log(`[EMBEDDING_SERVICE] Completed single text embedding in ${duration}ms, vector size: ${embedding.length}`);
-    
-    // Verify dimension
-    if (embedding.length !== this.dimensions) {
-      throw new Error(`Dimension mismatch: expected ${this.dimensions}, got ${embedding.length}`);
-    }
-
-    return embedding;
+    return this.provider.embedText(text);
   }
 
-  /**
-   * Embeds multiple text chunks in batch.
-   * @param apiKey Google Gemini API key
-   * @param texts Array of texts to embed
-   * @returns Array of vectors
-   */
-  async embedTexts(apiKey: string, texts: string[]): Promise<number[][]> {
-    const startTime = Date.now();
-    const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
-    console.log(`[EMBEDDING_SERVICE] Starting batch embedding of ${texts.length} texts (${totalChars} total chars)`);
-
-    const client = this.getClient(apiKey);
-    
-    const response = await client.models.embedContent({
-      model: 'gemini-embedding-001',
-      contents: texts,
-      config: {
-        outputDimensionality: this.dimensions,
-      },
-    });
-
-    const embeddings = response.embeddings?.map(e => e.values);
-    if (!embeddings || embeddings.length !== texts.length) {
-      throw new Error(`Expected ${texts.length} embeddings, got ${embeddings?.length || 0}`);
+  async embedTexts(texts: string[]): Promise<number[][]> {
+    if (!this.provider) {
+      throw new Error('Embedding provider is not initialized. Call switchProvider first.');
     }
+    return this.provider.embedTexts(texts);
+  }
 
-    const duration = Date.now() - startTime;
-    console.log(`[EMBEDDING_SERVICE] Completed batch embedding in ${duration}ms, ${embeddings.length} vectors generated`);
-    
-    // Verify all dimensions
-    for (let i = 0; i < embeddings.length; i++) {
-      if (embeddings[i].length !== this.dimensions) {
-        throw new Error(`Dimension mismatch at index ${i}: expected ${this.dimensions}, got ${embeddings[i].length}`);
-      }
+  getDimensions(): number {
+    if (!this.provider) {
+      throw new Error('Embedding provider is not initialized. Call switchProvider first.');
     }
-
-    return embeddings;
+    return this.provider.getDimensions();
   }
 }
 

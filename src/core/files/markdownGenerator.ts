@@ -111,13 +111,13 @@ export async function generateMarkdownContent(
         const fullPath = path.join(cwd, relativeFile);
 
         if (!fs.existsSync(fullPath)) {
-            entries.push(`<file path="${relativeFile}">[Error: File not found]</file>`);
+            entries.push(`## ${relativeFile}\n\n> File not found`);
             continue;
         }
 
         const stats = await fs.promises.stat(fullPath).catch(() => null);
         if (!stats || !stats.isFile()) {
-            entries.push(`<file path="${relativeFile}">[Error: Not a file]</file>`);
+            entries.push(`## ${relativeFile}\n\n> Not a file`);
             continue;
         }
 
@@ -131,7 +131,7 @@ export async function generateMarkdownContent(
             entries.push(`<file path="${relativeFile}">${content}</file>`);
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
-            entries.push(`<file path="${relativeFile}">[Error: ${errorMsg}]</file>`);
+            entries.push(`## ${relativeFile}\n\n> Error reading file: ${errorMsg}`);
         }
     }
 
@@ -139,7 +139,7 @@ export async function generateMarkdownContent(
         throw new Error('No text files could be read (all files may be binary)');
     }
 
-    const concatenated = entries.join('\n');
+    const concatenated = entries.join('\n\n');
     const tokenCount = await calculateTokenCount(concatenated);
 
     return { concatenated, tokenCount };
