@@ -344,6 +344,102 @@ export const RemoteClipboardProcessingCompleteSchema = z.object({
   error: z.string().optional(),
 });
 
+// --- Embedding Configuration Schemas ---
+
+export const GetEmbeddingConfigSchema = z.object({
+  command: z.literal('getEmbeddingConfig'),
+});
+
+export const SetEmbeddingConfigSchema = z.object({
+  command: z.literal('setEmbeddingConfig'),
+  provider: z.enum(['gemini', 'ollama']),
+  ollamaUrl: z.string().min(1, "Ollama URL is required"),
+  ollamaModel: z.string().min(1, "Ollama model is required"),
+  ollamaDimension: z.number().int().positive(),
+});
+
+export const FetchOllamaModelsSchema = z.object({
+  command: z.literal('fetchOllamaModels'),
+  url: z.string().min(1, "Ollama URL is required").optional(),
+});
+
+export const OllamaModelsResultSchema = z.object({
+  command: z.literal('ollamaModelsResult'),
+  models: z.array(z.object({
+    name: z.string(),
+    model: z.string().optional(),
+    size: z.number().optional(),
+    digest: z.string().optional(),
+    details: z.record(z.unknown()).optional(),
+  })),
+  error: z.string().optional(),
+});
+
+export const TestEmbeddingSchema = z.object({
+  command: z.literal('testEmbedding'),
+  provider: z.enum(['gemini', 'ollama']),
+  url: z.string().optional(),
+  model: z.string().optional(),
+  text: z.string().min(1),
+});
+
+export const TestOllamaDimensionSchema = z.object({
+  command: z.literal('testOllamaDimension'),
+  url: z.string().min(1, "Ollama URL is required"),
+  model: z.string().min(1, "Model name is required"),
+});
+
+export const OllamaDimensionResultSchema = z.object({
+  command: z.literal('ollamaDimensionResult'),
+  dimension: z.number().int().positive().optional(),
+  error: z.string().optional(),
+});
+
+export const EmbeddingConfigSchema = z.object({
+  command: z.literal('embeddingConfig'),
+  provider: z.enum(['gemini', 'ollama']),
+  ollamaUrl: z.string(),
+  ollamaModel: z.string(),
+  ollamaDimension: z.number().int().positive(),
+});
+
+export const EmbeddingTestResultSchema = z.object({
+  command: z.literal('embeddingTestResult'),
+  success: z.boolean(),
+  dimension: z.number().int().positive().optional(),
+  error: z.string().optional(),
+});
+
+// --- Dimension Compatibility Schemas ---
+
+export const CheckCompatibilitySchema = z.object({
+  command: z.literal('checkCompatibility'),
+});
+
+export const CompatibilityStatusSchema = z.object({
+  command: z.literal('compatibilityStatus'),
+  compatible: z.boolean(),
+  blocked: z.boolean(),
+  embeddingDimension: z.number(),
+  indexDimension: z.number().optional(),
+  message: z.string(),
+});
+
+export const ResetVectorIndexSchema = z.object({
+  command: z.literal('resetVectorIndex'),
+});
+
+export const VectorIndexResetSchema = z.object({
+  command: z.literal('vectorIndexReset'),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const IndexingBlockedSchema = z.object({
+  command: z.literal('indexingBlocked'),
+  blocked: z.boolean(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -402,6 +498,20 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ApplyPatchesSchema,
   RemoteClipboardProcessingCompleteSchema,
   SearchSummaryReadySchema,
+  GetEmbeddingConfigSchema,
+  SetEmbeddingConfigSchema,
+  FetchOllamaModelsSchema,
+  OllamaModelsResultSchema,
+  TestEmbeddingSchema,
+  TestOllamaDimensionSchema,
+  OllamaDimensionResultSchema,
+  EmbeddingConfigSchema,
+  EmbeddingTestResultSchema,
+  CheckCompatibilitySchema,
+  CompatibilityStatusSchema,
+  ResetVectorIndexSchema,
+  VectorIndexResetSchema,
+  IndexingBlockedSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

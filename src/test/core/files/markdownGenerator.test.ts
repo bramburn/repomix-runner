@@ -28,7 +28,7 @@ suite('markdownGenerator', () => {
         assert.strictEqual(isBinaryFile('unknown_ext.xyz'), true);
     });
 
-    test('generateMarkdownContent should concatenate files with file tags', async () => {
+    test('generateMarkdownContent should concatenate files with markdown code blocks', async () => {
         const file1 = path.join(tempDir, 'file1.txt');
         const file2 = path.join(tempDir, 'file2.ts');
 
@@ -37,14 +37,19 @@ suite('markdownGenerator', () => {
 
         const { concatenated, tokenCount } = await generateMarkdownContent(tempDir, ['file1.txt', 'file2.ts']);
 
-        assert.ok(concatenated.includes('<file path="file1.txt">content of file 1</file>'));
-        assert.ok(concatenated.includes('<file path="file2.ts">content of file 2</file>'));
+        assert.ok(concatenated.includes('## file1.txt'));
+        assert.ok(concatenated.includes('```txt\ncontent of file 1\n```'));
+
+        assert.ok(concatenated.includes('## file2.ts'));
+        assert.ok(concatenated.includes('```ts\ncontent of file 2\n```'));
+
         assert.ok(tokenCount > 0);
     });
 
     test('generateMarkdownContent should handle missing files', async () => {
         const { concatenated } = await generateMarkdownContent(tempDir, ['non-existent.txt']);
-        assert.ok(concatenated.includes('<file path="non-existent.txt">[Error: File not found]</file>'));
+        assert.ok(concatenated.includes('## non-existent.txt'));
+        assert.ok(concatenated.includes('> File not found'));
     });
 
     test('generateMarkdownContent should skip binary files', async () => {

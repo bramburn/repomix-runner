@@ -68,7 +68,7 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
     }
 
     const vectors = await Promise.all(
-        state.expandedQueries.map((queryText) => embeddingService.embedText(state.googleApiKey!, queryText))
+        state.expandedQueries.map((queryText) => embeddingService.embedText(queryText))
     );
 
     const resList = await Promise.all(

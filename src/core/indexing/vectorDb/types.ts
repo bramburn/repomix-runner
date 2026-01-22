@@ -10,6 +10,12 @@ export type VectorDbQueryResult = {
   matches: Array<{ id: string; score: number; metadata?: any }>;
 };
 
+export interface IndexMetadata {
+  dimension: number;
+  count: number;
+  metric?: string;  // 'cosine', 'euclidean', 'dotproduct'
+}
+
 export interface VectorDbAdapter {
   provider: VectorDbProvider;
 
@@ -29,5 +35,9 @@ export interface VectorDbAdapter {
   deleteVectorsForFile(args: { repoId: string; filePath: string }): Promise<void>;
 
   describeRepoStats?(args: { repoId: string }): Promise<{ vectorCount?: number } | null>;
+
+  getIndexMetadata?(args: { repoId: string }): Promise<IndexMetadata | null>;
+
+  deleteIndex(args: { repoId: string }): Promise<void>;
 }
 

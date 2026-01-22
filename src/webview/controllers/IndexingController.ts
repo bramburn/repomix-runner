@@ -375,6 +375,21 @@ export class IndexingController extends BaseController {
   }
 
   private async handleIndexRepo(resumeFromCheckpoint: boolean = false) {
+    // Check if indexing is blocked due to dimension mismatch
+    const isBlocked = this.extensionContext.globalState.get('repomix.indexingBlocked');
+    if (isBlocked) {
+      console.log('[INDEXING_CONTROLLER] Indexing blocked due to dimension mismatch');
+      vscode.window.showWarningMessage(
+        'Indexing blocked: Embedding dimension mismatch detected. ' +
+        'Please reset your vector index from the Settings tab before indexing.'
+      );
+      this.context.postMessage({
+        command: 'indexRepoStateChange',
+        state: 'idle'
+      });
+      return;
+    }
+
     const overallStart = Date.now();
     console.log(`[INDEXING_CONTROLLER] Starting repository indexing process (resume: ${resumeFromCheckpoint})`);
 

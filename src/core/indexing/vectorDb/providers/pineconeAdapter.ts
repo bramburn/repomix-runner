@@ -1,6 +1,6 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import { PineconeService } from '../../pineconeService.js';
-import type { VectorDbAdapter, VectorDbQueryResult } from '../types.js';
+import type { VectorDbAdapter, VectorDbQueryResult, IndexMetadata } from '../types.js';
 
 export class PineconeAdapter implements VectorDbAdapter {
   provider: 'pinecone' = 'pinecone';
@@ -50,5 +50,33 @@ export class PineconeAdapter implements VectorDbAdapter {
       (stats as any)?.namespaces?.[args.repoId]?.recordCount ??
       0;
     return { vectorCount: count };
+  }
+
+  async getIndexMetadata(args: { repoId: string }): Promise<IndexMetadata | null> {
+    try {
+      const pc = new Pinecone({ apiKey: this.cfg.apiKey });
+      const indexDescription = await pc.describeIndex(this.cfg.indexName);
+      const stats = await this.describeRepoStats(args);
+
+      // Dimension must be present for a valid index
+      if (indexDescription.dimension === undefined) {
+        console.warn('PineconeAdapter: Index dimension not available');
+        return null;
+      }
+
+      return {
+        dimension: indexDescription.dimension,
+        count: stats?.vectorCount ?? 0,
+        metric: indexDescription.metric,
+      };
+    } catch (error) {
+      console.error('PineconeAdapter: Failed to get index metadata', error);
+      return null;  // Fail-safe: return null on error
+    }
+  }
+
+  async deleteIndex(args: { repoId: string }): Promise<void> {
+    // Delete namespace (repo-level), not entire index
+    await this.svc.deleteRepo(this.cfg.apiKey, this.cfg.indexName, args.repoId);
   }
 }

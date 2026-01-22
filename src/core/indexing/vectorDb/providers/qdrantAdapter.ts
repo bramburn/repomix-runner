@@ -1,4 +1,4 @@
-import type { VectorDbQueryResult, Vector, VectorDbAdapter } from '../types.js';
+import type { VectorDbQueryResult, Vector, VectorDbAdapter, IndexMetadata } from '../types.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { v5 as uuidv5 } from 'uuid';
 
@@ -197,5 +197,47 @@ export class QdrantAdapter implements VectorDbAdapter {
             // Return null instead of throwing to match interface signature
             return null;
         }
+    }
+
+    async getIndexMetadata(args: { repoId: string }): Promise<IndexMetadata | null> {
+        try {
+            const collectionInfo = await this.client.getCollection(this.collection);
+            const stats = await this.describeRepoStats(args);
+
+            // Extract dimension from vector config
+            const vectorsConfig = collectionInfo.config?.params?.vectors;
+            let dimension: number;
+
+            if (typeof vectorsConfig === 'object' && vectorsConfig !== null && 'size' in vectorsConfig) {
+                dimension = (vectorsConfig as { size: number }).size;
+            } else {
+                console.warn('QdrantAdapter: Could not determine dimension from collection config');
+                return null;
+            }
+
+            // Extract distance metric
+            let metric: string | undefined;
+            if (typeof vectorsConfig === 'object' && vectorsConfig !== null && 'distance' in vectorsConfig) {
+                metric = String((vectorsConfig as { distance: string }).distance).toLowerCase();
+            }
+
+            return {
+                dimension,
+                count: stats?.vectorCount ?? 0,
+                metric,
+            };
+        } catch (error) {
+            console.error('QdrantAdapter: Failed to get index metadata', {
+                collection: this.collection,
+                repoId: args.repoId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return null;  // Fail-safe: return null on error
+        }
+    }
+
+    async deleteIndex(args: { repoId: string }): Promise<void> {
+        // Use existing deleteRepo which does filtered deletion
+        await this.deleteRepo(args);
     }
 }

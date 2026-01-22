@@ -18,6 +18,7 @@ import {
   SearchRegular,
   ChevronRightRegular,
   ChevronDownRegular,
+  WarningRegular,
 } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 import { PineconeIndex } from '../types.js';
@@ -139,8 +140,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [qdrantCollectionsError, setQdrantCollectionsError] = useState<string | null>(null);
   const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
 
+  // Embedding Provider State
+  const [embeddingProvider, setEmbeddingProvider] = useState<'gemini' | 'ollama'>('gemini');
+  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
+  const [ollamaModel, setOllamaModel] = useState('nomic-embed-text');
+  const [ollamaDimension, setOllamaDimension] = useState(768);
+  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string }>>([]);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null);
+  const [isFetchingOllamaModels, setIsFetchingOllamaModels] = useState(false);
+  const [isTestingDimension, setIsTestingDimension] = useState(false);
+
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
+
+  // Compatibility status state
+  const [compatibilityStatus, setCompatibilityStatus] = useState<{
+    compatible: boolean;
+    blocked: boolean;
+    embeddingDimension: number;
+    indexDimension?: number;
+    message: string;
+  } | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Auto-fetch indexes if we have the key but no indexes yet
   useEffect(() => {
@@ -237,6 +258,47 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           setQdrantCollectionsError(message.error || null);
           setIsFetchingQdrantCollections(false);
           break;
+
+        case 'embeddingConfig':
+          setEmbeddingProvider(message.provider);
+          setOllamaUrl(message.ollamaUrl || 'http://localhost:11434');
+          setOllamaModel(message.ollamaModel || 'nomic-embed-text');
+          setOllamaDimension(message.ollamaDimension || 768);
+          break;
+
+        case 'ollamaModelsResult':
+          setOllamaModels(message.models || []);
+          setOllamaModelsError(message.error || null);
+          setIsFetchingOllamaModels(false);
+          break;
+
+        case 'ollamaDimensionResult':
+          setIsTestingDimension(false);
+          if (message.dimension) {
+            setOllamaDimension(message.dimension);
+          }
+          if (message.error) {
+            vscode.postMessage({
+              command: 'showNotification',
+              type: 'error',
+              message: `Dimension test failed: ${message.error}`,
+            });
+          }
+          break;
+
+        case 'compatibilityStatus':
+          setCompatibilityStatus({
+            compatible: message.compatible,
+            blocked: message.blocked,
+            embeddingDimension: message.embeddingDimension,
+            indexDimension: message.indexDimension,
+            message: message.message,
+          });
+          break;
+
+        case 'vectorIndexReset':
+          setIsResetting(false);
+          break;
       }
     };
     window.addEventListener('message', handler);
@@ -249,6 +311,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
     vscode.postMessage({ command: 'getPineconeIndex' });
     vscode.postMessage({ command: 'getCopyMode' });
+    vscode.postMessage({ command: 'getEmbeddingConfig' });
+    vscode.postMessage({ command: 'checkCompatibility' });
 
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -331,9 +395,108 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'setCopyMode', mode: newMode });
   };
 
+  const handleEmbeddingProviderChange = (_e: any, data: any) => {
+    const provider = data.optionValue as 'gemini' | 'ollama';
+    setEmbeddingProvider(provider);
+  };
+
+  const handleFetchOllamaModels = () => {
+    setIsFetchingOllamaModels(true);
+    setOllamaModelsError(null);
+    vscode.postMessage({ command: 'fetchOllamaModels', url: ollamaUrl });
+  };
+
+  const handleOllamaModelSelect = (_e: any, data: any) => {
+    const modelName = data.optionValue as string;
+    setOllamaModel(modelName);
+    
+    // Auto-test dimension when model is selected
+    setIsTestingDimension(true);
+    vscode.postMessage({ 
+      command: 'testOllamaDimension', 
+      url: ollamaUrl,
+      model: modelName 
+    });
+  };
+
+  const handleSaveEmbeddingConfig = () => {
+    if (embeddingProvider === 'ollama') {
+      if (!ollamaUrl.trim() || !ollamaModel.trim() || ollamaDimension <= 0) {
+        vscode.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: 'Please fill in all Ollama configuration fields',
+        });
+        return;
+      }
+    }
+
+    vscode.postMessage({
+      command: 'setEmbeddingConfig',
+      provider: embeddingProvider,
+      ollamaUrl: ollamaUrl,
+      ollamaModel: ollamaModel,
+      ollamaDimension: ollamaDimension,
+    });
+  };
+
+  const handleResetVectorIndex = () => {
+    setIsResetting(true);
+    vscode.postMessage({ command: 'resetVectorIndex' });
+  };
+
   return (
     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <Text size={400} weight="semibold">Configuration</Text>
+
+      {/* Compatibility Status Alert */}
+      {compatibilityStatus && (
+        <div style={{
+          padding: '12px',
+          borderRadius: '4px',
+          border: '1px solid',
+          borderColor: compatibilityStatus.compatible
+            ? 'var(--vscode-inputValidation-infoBorder)'
+            : 'var(--vscode-inputValidation-errorBorder)',
+          backgroundColor: compatibilityStatus.compatible
+            ? 'var(--vscode-inputValidation-infoBackground)'
+            : 'var(--vscode-inputValidation-errorBackground)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {compatibilityStatus.compatible ? (
+              <CheckmarkCircleRegular style={{ color: 'var(--vscode-charts-green)', fontSize: '20px' }} />
+            ) : (
+              <WarningRegular style={{ color: 'var(--vscode-errorForeground)', fontSize: '20px' }} />
+            )}
+            <Text weight="semibold" style={{
+              color: compatibilityStatus.compatible
+                ? 'var(--vscode-charts-green)'
+                : 'var(--vscode-errorForeground)'
+            }}>
+              {compatibilityStatus.compatible ? 'System Ready' : 'Dimension Mismatch Detected'}
+            </Text>
+          </div>
+          <Text size={200} style={{ display: 'block', marginTop: '8px' }}>
+            {compatibilityStatus.message}
+          </Text>
+          {!compatibilityStatus.compatible && (
+            <div style={{ marginTop: '12px' }}>
+              <Text size={100} style={{ display: 'block', marginBottom: '8px', opacity: 0.8 }}>
+                Indexing is disabled until the dimension mismatch is resolved.
+                Reset the vector index to recreate it with the new embedding dimension.
+              </Text>
+              <Button
+                appearance="primary"
+                onClick={handleResetVectorIndex}
+                disabled={isResetting}
+                style={{ backgroundColor: 'var(--vscode-errorForeground)' }}
+              >
+                {isResetting ? 'Resetting...' : 'Reset & Recreate Index'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Label weight="semibold">General Settings</Label>
@@ -361,6 +524,151 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <Text size={100} style={{ opacity: 0.7 }}>
             Choose which vector database Repomix uses for search (and indexing where supported).
           </Text>
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* Embedding Provider Configuration */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Embedding Provider</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <Label size="small">Active Provider</Label>
+            <Dropdown 
+              value={embeddingProvider} 
+              onOptionSelect={handleEmbeddingProviderChange} 
+              style={{ width: '240px', marginTop: '4px' }}
+            >
+              <Option value="gemini">Google Gemini (768d)</Option>
+              <Option value="ollama">Ollama (Local)</Option>
+            </Dropdown>
+            <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+              Choose which embedding model to use for vector search indexing.
+            </Text>
+          </div>
+
+          {/* Ollama Configuration Accordion */}
+          {embeddingProvider === 'ollama' && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '12px',
+              padding: '12px',
+              border: '1px solid var(--vscode-panel-border)',
+              borderRadius: '4px',
+              backgroundColor: 'var(--vscode-editor-background)'
+            }}>
+              <Label weight="semibold" size="small">Ollama Connection Settings</Label>
+
+              {/* Endpoint Input */}
+              <div>
+                <Label size="small">Ollama URL</Label>
+                <Input
+                  placeholder="http://localhost:11434"
+                  value={ollamaUrl}
+                  onChange={(_e, data) => setOllamaUrl(data.value)}
+                  style={{ marginTop: '4px' }}
+                />
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  URL of your Ollama server
+                </Text>
+              </div>
+
+              {/* Model Manager */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <Label size="small">Model</Label>
+                  <Button
+                    size="small"
+                    appearance="secondary"
+                    icon={isFetchingOllamaModels ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
+                    onClick={handleFetchOllamaModels}
+                    disabled={!ollamaUrl.trim() || isFetchingOllamaModels}
+                  >
+                    Fetch Models
+                  </Button>
+                </div>
+                <Dropdown
+                  placeholder="Select a model"
+                  value={ollamaModel}
+                  onOptionSelect={handleOllamaModelSelect}
+                  disabled={ollamaModels.length === 0}
+                >
+                  {ollamaModels.map((model) => (
+                    <Option key={model.name} value={model.name}>{model.name}</Option>
+                  ))}
+                </Dropdown>
+                {ollamaModelsError && (
+                  <Text size={100} style={{ color: 'var(--vscode-errorForeground)', marginTop: '4px' }}>
+                    {ollamaModelsError}
+                  </Text>
+                )}
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  Recommended: nomic-embed-text, mxbai-embed-large, or all-minilm
+                </Text>
+              </div>
+
+              {/* Dimension Input */}
+              <div>
+                <Label size="small">Embedding Dimension</Label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                  <Input
+                    type="number"
+                    value={ollamaDimension.toString()}
+                    onChange={(_e, data) => {
+                      const val = parseInt(data.value);
+                      if (!isNaN(val) && val > 0) {
+                        setOllamaDimension(val);
+                      }
+                    }}
+                    style={{ width: '120px' }}
+                    disabled={isTestingDimension}
+                  />
+                  {isTestingDimension && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Spinner size="tiny" />
+                      <Text size={100}>Testing...</Text>
+                    </div>
+                  )}
+                </div>
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  Auto-detected when you select a model. Common values: 768, 1024, 384
+                </Text>
+              </div>
+
+              {/* Save Button */}
+              <Button
+                appearance="primary"
+                onClick={handleSaveEmbeddingConfig}
+                disabled={!ollamaUrl.trim() || !ollamaModel.trim() || ollamaDimension <= 0}
+              >
+                Save Embedding Configuration
+              </Button>
+            </div>
+          )}
+
+          {/* Gemini Info */}
+          {embeddingProvider === 'gemini' && (
+            <div style={{ 
+              padding: '12px',
+              border: '1px solid var(--vscode-panel-border)',
+              borderRadius: '4px',
+              backgroundColor: 'var(--vscode-editor-background)'
+            }}>
+              <Text size={200}>Using Google Gemini embedding model (768 dimensions)</Text>
+              <Text size={100} style={{ display: 'block', marginTop: '8px', opacity: 0.7 }}>
+                Ensure your Google Gemini API Key is configured above.
+              </Text>
+              <Button
+                appearance="primary"
+                onClick={handleSaveEmbeddingConfig}
+                style={{ marginTop: '12px' }}
+              >
+                Save Embedding Configuration
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 

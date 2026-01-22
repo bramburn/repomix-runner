@@ -181,6 +181,7 @@ export const SearchTab = () => {
 
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexingState, setIndexingState] = useState<'idle' | 'running' | 'paused' | 'stopping'>('idle');
+  const [indexingBlocked, setIndexingBlocked] = useState(false);
   const [pausedProgress, setPausedProgress] = useState<{ completed: number; total: number } | null>(null);
 
   const [indexProgress, setIndexProgress] = useState<{
@@ -572,6 +573,10 @@ export const SearchTab = () => {
           setCopyMarkdownLabel('Copy Failed');
           setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 3000);
           break;
+
+        case 'indexingBlocked':
+          setIndexingBlocked(message.blocked);
+          break;
       }
     };
 
@@ -581,6 +586,7 @@ export const SearchTab = () => {
     vscode.postMessage({ command: 'getRepoVectorCount' });
     vscode.postMessage({ command: 'getVectorDbProvider' });
     vscode.postMessage({ command: 'getVectorDbCollectionInfo' });
+    vscode.postMessage({ command: 'checkCompatibility' });
 
     return () => window.removeEventListener('message', handleMessage);
   }, [fileTypeFilter]);
@@ -774,10 +780,36 @@ export const SearchTab = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+              {/* Warning banner when indexing is blocked */}
+              {indexingBlocked && indexingState === 'idle' && (
+                <div style={{
+                  padding: '8px 12px',
+                  backgroundColor: 'var(--vscode-inputValidation-warningBackground)',
+                  border: '1px solid var(--vscode-inputValidation-warningBorder)',
+                  borderRadius: '4px',
+                  marginBottom: '4px',
+                }}>
+                  <Text size={200}>
+                    Indexing disabled due to embedding dimension mismatch.
+                    Go to Settings to reset your vector index.
+                  </Text>
+                </div>
+              )}
+
               {indexingState === 'idle' && (
-                <Button appearance="primary" onClick={handleIndex} disabled={isIndexing} icon={isIndexing ? <Spinner size="tiny" /> : undefined}>
-                  {isIndexing ? 'Indexing…' : 'Index Repository'}
-                </Button>
+                <Tooltip
+                  content={indexingBlocked ? 'Indexing disabled: Dimension mismatch. Visit Settings to reset.' : ''}
+                  relationship="label"
+                >
+                  <Button
+                    appearance="primary"
+                    onClick={handleIndex}
+                    disabled={isIndexing || indexingBlocked}
+                    icon={isIndexing ? <Spinner size="tiny" /> : undefined}
+                  >
+                    {isIndexing ? 'Indexing…' : 'Index Repository'}
+                  </Button>
+                </Tooltip>
               )}
 
               {indexingState === 'running' && (

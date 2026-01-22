@@ -5,6 +5,7 @@ import { getRepoId } from '../../utils/repoIdentity.js';
 import { MigrationService } from '../../core/indexing/migrationService.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
 import { IndexingController } from './IndexingController.js';
+import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -82,6 +83,28 @@ export class ConfigController extends BaseController {
 
       case 'fetchQdrantCollections':
         await this.handleFetchQdrantCollections();
+        return true;
+
+      // --- Embedding Provider Configuration ---
+      case 'getEmbeddingConfig':
+        await this.handleGetEmbeddingConfig();
+        return true;
+      case 'setEmbeddingConfig':
+        await this.handleSetEmbeddingConfig(message);
+        return true;
+      case 'fetchOllamaModels':
+        await this.handleFetchOllamaModels(message.url);
+        return true;
+      case 'testOllamaDimension':
+        await this.handleTestOllamaDimension(message.url, message.model);
+        return true;
+
+      // --- Dimension Compatibility ---
+      case 'checkCompatibility':
+        await this.handleCheckCompatibility();
+        return true;
+      case 'resetVectorIndex':
+        await this.handleResetVectorIndex();
         return true;
     }
     return false;
@@ -247,6 +270,9 @@ export class ConfigController extends BaseController {
         vscode.window.showInformationMessage(
           `Successfully switched to ${normalized}. Local state reset to trigger re-indexing.`
         );
+
+        // Trigger compatibility check after provider switch
+        await this.handleCheckCompatibility();
       }
     } catch (error) {
       // 4. Handle validation failures (e.g. switching to Qdrant without a URL set)
@@ -484,6 +510,371 @@ export class ConfigController extends BaseController {
         collections: [],
         error: errorMessage
       });
+    }
+  }
+
+  // --- Embedding Provider Configuration Handlers ---
+
+  private async handleGetEmbeddingConfig() {
+    try {
+      const config = vscode.workspace.getConfiguration();
+      const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+      const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
+      const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
+      const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
+
+      this.context.postMessage({
+        command: 'embeddingConfig',
+        provider,
+        ollamaUrl,
+        ollamaModel,
+        ollamaDimension
+      });
+    } catch (error) {
+      console.error('Failed to get embedding config:', error);
+    }
+  }
+
+  /**
+   * Fetch available models from Ollama server
+   */
+  private async handleFetchOllamaModels(explicitUrl?: string) {
+    try {
+      let ollamaUrl = explicitUrl;
+      if (!ollamaUrl) {
+        const config = vscode.workspace.getConfiguration();
+        ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
+      }
+
+      console.log(`[ConfigController] Fetching Ollama models from ${ollamaUrl}`);
+
+      const response = await fetch(`${ollamaUrl}/api/tags`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama API request failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const models = data.models || [];
+
+      console.log(`[ConfigController] Found ${models.length} Ollama models`);
+
+      this.context.postMessage({
+        command: 'ollamaModelsResult',
+        models: models
+      });
+    } catch (error: unknown) {
+      console.error('[ConfigController] Failed to fetch Ollama models:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.context.postMessage({
+        command: 'ollamaModelsResult',
+        models: [],
+        error: errorMessage
+      });
+    }
+  }
+
+  /**
+   * Test Ollama embedding dimension by running a single embedding
+   */
+  private async handleTestOllamaDimension(url: string, model: string) {
+    try {
+      console.log(`[ConfigController] Testing Ollama dimension for model ${model} at ${url}`);
+
+      const response = await fetch(`${url}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model,
+          prompt: 'test',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`[ConfigController] Ollama dimension test failed: ${response.status}`, errorBody);
+        throw new Error(`Ollama API request failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.embedding || !Array.isArray(data.embedding)) {
+        throw new Error('Invalid response from Ollama API: missing or invalid embedding');
+      }
+
+      const dimension = data.embedding.length;
+      console.log(`[ConfigController] Ollama dimension test successful: ${dimension}`);
+
+      this.context.postMessage({
+        command: 'ollamaDimensionResult',
+        dimension: dimension
+      });
+
+      vscode.window.showInformationMessage(`Detected dimension: ${dimension}`);
+    } catch (error: unknown) {
+      console.error('[ConfigController] Failed to test Ollama dimension:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.context.postMessage({
+        command: 'ollamaDimensionResult',
+        error: errorMessage
+      });
+      vscode.window.showErrorMessage(`Failed to test dimension: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Save embedding configuration and switch provider
+   * CRITICAL: If dimension changes, warn about Vector DB incompatibility
+   */
+  private async handleSetEmbeddingConfig(message: any) {
+    try {
+      const { provider, ollamaUrl, ollamaModel, ollamaDimension } = message;
+
+      console.log(`[ConfigController] Setting embedding config:`, { provider, ollamaUrl, ollamaModel, ollamaDimension });
+
+      // Get current dimension to detect changes
+      const config = vscode.workspace.getConfiguration();
+      const currentProvider = config.get<string>('repomix.embedding.provider') || 'gemini';
+      const currentDimension = currentProvider === 'gemini' 
+        ? 768 
+        : config.get<number>('repomix.ollama.dimension') || 768;
+
+      // Determine new dimension
+      const newDimension = provider === 'gemini' ? 768 : ollamaDimension;
+
+      // Check if dimension is changing
+      const dimensionChanged = currentDimension !== newDimension;
+
+      if (dimensionChanged) {
+        console.warn(`[ConfigController] Dimension change detected: ${currentDimension} -> ${newDimension}`);
+        
+        const choice = await vscode.window.showWarningMessage(
+          `⚠️ Dimension Change Detected: ${currentDimension} → ${newDimension}\n\n` +
+          `This will make your current Vector DB index incompatible!\n` +
+          `You will need to re-index your repository.\n\n` +
+          `Continue with embedding configuration change?`,
+          { modal: true },
+          'Continue',
+          'Cancel'
+        );
+
+        if (choice !== 'Continue') {
+          console.log('[ConfigController] User cancelled embedding config change');
+          return;
+        }
+
+        // Stop any in-flight indexing
+        await this.indexingController.abortIndexing();
+
+        // Clear the local index state to force re-indexing
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (cwd) {
+          const repoId = await getRepoId(cwd);
+          await this.databaseService.clearRepoFiles(repoId);
+          console.log(`[ConfigController] Cleared index state for repo ${repoId}`);
+        }
+      }
+
+      // Save configuration to workspace settings
+      await config.update('repomix.embedding.provider', provider, vscode.ConfigurationTarget.Global);
+      
+      if (provider === 'ollama') {
+        await config.update('repomix.ollama.url', ollamaUrl, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.ollama.model', ollamaModel, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.ollama.dimension', ollamaDimension, vscode.ConfigurationTarget.Global);
+      }
+
+      console.log('[ConfigController] Embedding configuration saved');
+
+      // Import and switch the embedding service provider
+      const { embeddingService } = await import('../../core/indexing/embeddingService.js');
+      
+      if (provider === 'gemini') {
+        const apiKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+        if (!apiKey) {
+          throw new Error('Gemini API key is missing. Please configure it in Settings.');
+        }
+        embeddingService.switchProvider({
+          provider: 'gemini',
+          gemini: { apiKey }
+        });
+      } else if (provider === 'ollama') {
+        embeddingService.switchProvider({
+          provider: 'ollama',
+          ollama: {
+            url: ollamaUrl,
+            model: ollamaModel,
+            dimension: ollamaDimension
+          }
+        });
+      }
+
+      console.log('[ConfigController] Embedding service provider switched');
+
+      // Send updated config back to webview
+      await this.handleGetEmbeddingConfig();
+
+      if (dimensionChanged) {
+        // Notify webview that index was cleared
+        this.context.postMessage({ command: 'repoIndexDeleted' });
+        vscode.window.showInformationMessage(
+          `Embedding provider switched to ${provider}. ` +
+          `Local index cleared due to dimension change. Please re-index your repository.`
+        );
+      } else {
+        vscode.window.showInformationMessage(`Embedding provider set to ${provider}`);
+      }
+
+      // Trigger compatibility check after config change
+      await this.handleCheckCompatibility();
+
+    } catch (error) {
+      console.error('[ConfigController] Failed to set embedding config:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to save embedding configuration: ${errorMessage}`);
+    }
+  }
+
+  // --- Dimension Compatibility Methods ---
+
+  private async handleCheckCompatibility() {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders?.length) {
+        this.postCompatibilityStatus(true, false, 768, undefined, 'No workspace open');
+        return;
+      }
+
+      const cwd = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(cwd);
+
+      // Get desired embedding dimension
+      const config = vscode.workspace.getConfiguration();
+      const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+      const embeddingDimension = provider === 'gemini'
+        ? 768
+        : config.get<number>('repomix.ollama.dimension') || 768;
+
+      // Get actual index dimension from vector DB
+      let indexDimension: number | undefined;
+      let indexCount = 0;
+
+      try {
+        const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
+        const metadata = await adapter.getIndexMetadata?.({ repoId });
+        if (metadata) {
+          indexDimension = metadata.dimension;
+          indexCount = metadata.count;
+        }
+      } catch (e) {
+        console.warn('[ConfigController] Could not get index metadata:', e);
+        // Fail-safe: treat as blocked if we can't verify
+        await this.extensionContext.globalState.update('repomix.indexingBlocked', true);
+        this.postCompatibilityStatus(false, true, embeddingDimension, undefined,
+          'Cannot verify compatibility. Check your Vector DB connection.');
+        return;
+      }
+
+      // Determine compatibility
+      // Compatible if: no index exists, index is empty, or dimensions match
+      const compatible = indexDimension === undefined ||
+                         indexCount === 0 ||
+                         indexDimension === embeddingDimension;
+
+      const blocked = !compatible;
+      await this.extensionContext.globalState.update('repomix.indexingBlocked', blocked);
+
+      let message: string;
+      if (compatible) {
+        message = indexDimension
+          ? `System Ready. Embedding (${embeddingDimension}d) matches Index (${indexDimension}d).`
+          : `System Ready. No existing index found.`;
+      } else {
+        message = `Dimension Mismatch! Embedding model: ${embeddingDimension}d, Vector index: ${indexDimension}d`;
+      }
+
+      this.postCompatibilityStatus(compatible, blocked, embeddingDimension, indexDimension, message);
+
+      // Also notify SearchTab
+      this.context.postMessage({ command: 'indexingBlocked', blocked });
+
+    } catch (error) {
+      console.error('[ConfigController] Compatibility check failed:', error);
+      this.postCompatibilityStatus(false, true, 768, undefined, 'Compatibility check failed');
+    }
+  }
+
+  private postCompatibilityStatus(
+    compatible: boolean,
+    blocked: boolean,
+    embeddingDimension: number,
+    indexDimension: number | undefined,
+    message: string
+  ) {
+    this.context.postMessage({
+      command: 'compatibilityStatus',
+      compatible,
+      blocked,
+      embeddingDimension,
+      indexDimension,
+      message,
+    });
+  }
+
+  private async handleResetVectorIndex() {
+    try {
+      const choice = await vscode.window.showWarningMessage(
+        'Reset Vector Index?\n\n' +
+        'This will delete all vectors for this repository from the remote database.\n' +
+        'You will need to re-index your repository afterwards.\n\n' +
+        'This action cannot be undone.',
+        { modal: true },
+        'Reset Index',
+        'Cancel'
+      );
+
+      if (choice !== 'Reset Index') {
+        return;
+      }
+
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders?.length) {
+        throw new Error('No workspace folder open');
+      }
+
+      const cwd = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(cwd);
+
+      // 1. Abort any running indexing
+      await this.indexingController.abortIndexing();
+
+      // 2. Delete vectors from remote DB
+      const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
+      await adapter.deleteIndex({ repoId });
+
+      // 3. Clear local tracking state
+      await this.databaseService.clearRepoFiles(repoId);
+
+      // 4. Clear blocking flag
+      await this.extensionContext.globalState.update('repomix.indexingBlocked', false);
+
+      // 5. Notify UI
+      this.context.postMessage({ command: 'vectorIndexReset', success: true });
+      this.context.postMessage({ command: 'repoIndexDeleted' });
+      this.context.postMessage({ command: 'indexingBlocked', blocked: false });
+
+      // 6. Re-run compatibility check
+      await this.handleCheckCompatibility();
+
+      vscode.window.showInformationMessage('Vector index reset complete. Please re-index your repository.');
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[ConfigController] Reset failed:', error);
+      this.context.postMessage({ command: 'vectorIndexReset', success: false, error: errorMsg });
+      vscode.window.showErrorMessage(`Reset failed: ${errorMsg}`);
     }
   }
 }
