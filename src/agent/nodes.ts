@@ -185,8 +185,8 @@ export async function retrieval(
   try {
     logger.both.info("Agent: Attempting RAG retrieval with embedding service...");
 
-    // 1. Core query embedding
-    const queryVector = await embeddingService.embedText(state.userQuery);
+    // 1. Core query embedding (priority=true for user-facing operations)
+    const queryVector = await embeddingService.embedText(state.userQuery, 'agent', true);
     logger.both.info("Agent: Query embedding successful");
 
     // 2. Query Vector DB

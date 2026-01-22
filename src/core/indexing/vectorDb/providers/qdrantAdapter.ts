@@ -35,7 +35,9 @@ export class QdrantAdapter implements VectorDbAdapter {
 
         this.client = new QdrantClient({
             url: baseUrl,
-            apiKey: apiKey
+            apiKey: apiKey,
+            timeout: 30000,  // 30 second timeout for all operations
+            checkCompatibility: false  // Disable version compatibility check to prevent warnings
         });
     }
 
@@ -189,7 +191,8 @@ export class QdrantAdapter implements VectorDbAdapter {
             });
             return { vectorCount: countResult.count };
         } catch (error) {
-            console.error('QdrantAdapter: Failed to get repository stats', {
+            // Only log as warning since this is a non-critical operation
+            console.warn('QdrantAdapter: Failed to get repository stats', {
                 collection: this.collection,
                 repoId: args.repoId,
                 error: error instanceof Error ? error.message : String(error)
@@ -227,7 +230,8 @@ export class QdrantAdapter implements VectorDbAdapter {
                 metric,
             };
         } catch (error) {
-            console.error('QdrantAdapter: Failed to get index metadata', {
+            // Only log as warning since this is a non-critical metadata operation
+            console.warn('QdrantAdapter: Failed to get index metadata', {
                 collection: this.collection,
                 repoId: args.repoId,
                 error: error instanceof Error ? error.message : String(error)

@@ -92,13 +92,74 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
         };
     }
 
+    // Step 1: Embed the queries (separate try-catch for better error handling)
+    // Search embeddings use priority=true to jump ahead of indexing queue
+    let vectors: number[][];
     try {
-        console.log('[SEARCH_GRAPH] Embedding queries...');
-        const vectors = await Promise.all(
-            state.expandedQueries.map((queryText) => embeddingService.embedText(queryText))
+        console.log('[SEARCH_GRAPH] Embedding queries with priority...');
+        console.log('[SEARCH_GRAPH] Queue stats before:', embeddingService.getQueueStats());
+        vectors = await Promise.all(
+            state.expandedQueries.map((queryText) => embeddingService.embedText(queryText, 'search', true))
         );
         console.log('[SEARCH_GRAPH] Embeddings generated:', vectors.length);
+        console.log('[SEARCH_GRAPH] Queue stats after:', embeddingService.getQueueStats());
+    } catch (embeddingError) {
+        const errorMessage = embeddingError instanceof Error ? embeddingError.message : String(embeddingError);
+        console.error('[SEARCH_GRAPH] Embedding failed:', embeddingError);
+        console.error('[SEARCH_GRAPH] Error type:', embeddingError instanceof Error ? embeddingError.constructor.name : typeof embeddingError);
+        console.error('[SEARCH_GRAPH] Error stack:', embeddingError instanceof Error ? embeddingError.stack : 'N/A');
+        
+        let userFriendlyError: string;
+        
+        // Rate limiting
+        if (errorMessage.toLowerCase().includes('429') || 
+            errorMessage.toLowerCase().includes('rate limit') ||
+            errorMessage.toLowerCase().includes('quota') ||
+            errorMessage.toLowerCase().includes('too many requests')) {
+            userFriendlyError = `Embedding API rate limit exceeded. Please wait a moment and try again.\n` +
+                `If you are indexing files, consider waiting for indexing to complete before searching.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        // Network errors for embedding API
+        else if (errorMessage.toLowerCase().includes('fetch failed') || 
+                 errorMessage.toLowerCase().includes('econnrefused') ||
+                 errorMessage.toLowerCase().includes('enotfound') ||
+                 errorMessage.toLowerCase().includes('etimedout') ||
+                 errorMessage.toLowerCase().includes('network')) {
+            userFriendlyError = `Network error during search. Please check your connection and try again.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        // API key issues
+        else if (errorMessage.toLowerCase().includes('api key') || 
+                 errorMessage.toLowerCase().includes('unauthorized') ||
+                 errorMessage.toLowerCase().includes('401') ||
+                 errorMessage.toLowerCase().includes('403') ||
+                 errorMessage.toLowerCase().includes('invalid')) {
+            userFriendlyError = `Embedding API authentication failed. Please verify your API key in Settings.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        // Provider not initialized
+        else if (errorMessage.toLowerCase().includes('not initialized') ||
+                 errorMessage.toLowerCase().includes('switchprovider')) {
+            userFriendlyError = `Embedding service not initialized. Please check your embedding provider settings.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        // Generic embedding error
+        else {
+            userFriendlyError = `Embedding service error. Please check your embedding provider settings.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        
+        console.error('[SEARCH_GRAPH] Embedding error (user-friendly):', userFriendlyError);
+        
+        return {
+            errors: [{ node: 'vectorSearch', error: userFriendlyError, ts: Date.now() }],
+            timings: { vectorSearch: Date.now() - start }
+        };
+    }
 
+    // Step 2: Query the vector database
+    try {
         console.log('[SEARCH_GRAPH] Querying vector database...');
         console.log('[SEARCH_GRAPH] Vector DB details:', {
             repoId: state.repoId,
@@ -136,14 +197,13 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
             vectorHits,
             timings: { vectorSearch: Date.now() - start }
         };
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('[SEARCH_GRAPH] Vector search failed:', error);
-        console.error('[SEARCH_GRAPH] Error type:', error instanceof Error ? error.constructor.name : typeof error);
-        console.error('[SEARCH_GRAPH] Error stack:', error instanceof Error ? error.stack : 'N/A');
+    } catch (vectorDbError) {
+        const errorMessage = vectorDbError instanceof Error ? vectorDbError.message : String(vectorDbError);
+        console.error('[SEARCH_GRAPH] Vector DB query failed:', vectorDbError);
+        console.error('[SEARCH_GRAPH] Error type:', vectorDbError instanceof Error ? vectorDbError.constructor.name : typeof vectorDbError);
+        console.error('[SEARCH_GRAPH] Error stack:', vectorDbError instanceof Error ? vectorDbError.stack : 'N/A');
         
-        // Provide more specific error messages based on error content
-        let userFriendlyError = errorMessage;
+        let userFriendlyError: string;
         
         // Network/connectivity errors
         if (errorMessage.toLowerCase().includes('fetch failed') || 
@@ -162,27 +222,29 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
                  errorMessage.toLowerCase().includes('unauthorized') ||
                  errorMessage.toLowerCase().includes('401') ||
                  errorMessage.toLowerCase().includes('403')) {
-            userFriendlyError = `Authentication failed. Please verify your API key in Settings.\nDetails: ${errorMessage}`;
+            userFriendlyError = `Vector database authentication failed. Please verify your API key in Settings.\n\n` +
+                `Details: ${errorMessage}`;
         } 
         // Collection/index not found
         else if (errorMessage.toLowerCase().includes('not found') ||
                  errorMessage.toLowerCase().includes('404') ||
                  errorMessage.toLowerCase().includes('collection') ||
                  errorMessage.toLowerCase().includes('index')) {
-            userFriendlyError = `Vector database collection/index not found. Please check Settings and ensure the collection exists.\nDetails: ${errorMessage}`;
-        }
-        // Embedding provider errors
-        else if (errorMessage.toLowerCase().includes('embedding') ||
-                 errorMessage.toLowerCase().includes('gemini') ||
-                 errorMessage.toLowerCase().includes('ollama')) {
-            userFriendlyError = `Embedding service error. Please check your embedding provider settings.\nDetails: ${errorMessage}`;
+            userFriendlyError = `Vector database collection/index not found. Please check Settings and ensure the collection exists.\n\n` +
+                `Details: ${errorMessage}`;
         }
         // Timeout errors
         else if (errorMessage.toLowerCase().includes('timeout')) {
-            userFriendlyError = `Request timed out. The vector database may be slow or unresponsive.\nDetails: ${errorMessage}`;
+            userFriendlyError = `Request timed out. The vector database may be slow or unresponsive.\n\n` +
+                `Details: ${errorMessage}`;
+        }
+        // Generic vector DB error
+        else {
+            userFriendlyError = `Vector database error. Please check your vector DB settings.\n\n` +
+                `Details: ${errorMessage}`;
         }
         
-        console.error('[SEARCH_GRAPH] User-friendly error:', userFriendlyError);
+        console.error('[SEARCH_GRAPH] Vector DB error (user-friendly):', userFriendlyError);
         
         return {
             errors: [{ node: 'vectorSearch', error: userFriendlyError, ts: Date.now() }],

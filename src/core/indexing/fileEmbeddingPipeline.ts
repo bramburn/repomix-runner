@@ -309,7 +309,7 @@ export async function embedAndUpsertFile(
           const embedStart = Date.now();
 
           const embeddings = await retryWithBackoff(
-            () => embeddingService.embedTexts(texts),
+            () => embeddingService.embedTexts(texts, `indexing:${relativeFilePath}`),
             `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
             { maxRetries: 2 }
           );
@@ -359,7 +359,7 @@ export async function embedAndUpsertFile(
         const embedStart = Date.now();
 
         const embeddings = await retryWithBackoff(
-          () => embeddingService.embedTexts(texts),
+          () => embeddingService.embedTexts(texts, `indexing:${relativeFilePath}`),
           `${context}:embed[batch ${batchIdx + 1}/${chunkBatches.length}]`,
           { maxRetries: 2 }
         );
