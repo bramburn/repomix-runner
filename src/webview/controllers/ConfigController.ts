@@ -6,6 +6,7 @@ import { MigrationService } from '../../core/indexing/migrationService.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
 import { IndexingController } from './IndexingController.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
+import { BlueprintService, initBlueprintService, getBlueprintService } from '../../fingerprint/blueprintService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -105,6 +106,14 @@ export class ConfigController extends BaseController {
         return true;
       case 'resetVectorIndex':
         await this.handleResetVectorIndex();
+        return true;
+
+      // --- Repository Analysis ---
+      case 'analyzeRepository':
+        await this.handleAnalyzeRepository();
+        return true;
+      case 'getAnalysisStatus':
+        await this.handleGetAnalysisStatus();
         return true;
     }
     return false;
@@ -875,6 +884,116 @@ export class ConfigController extends BaseController {
       console.error('[ConfigController] Reset failed:', error);
       this.context.postMessage({ command: 'vectorIndexReset', success: false, error: errorMsg });
       vscode.window.showErrorMessage(`Reset failed: ${errorMsg}`);
+    }
+  }
+
+  // --- Repository Analysis Handlers ---
+
+  private async handleAnalyzeRepository() {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders?.length) {
+        throw new Error('No workspace folder open');
+      }
+
+      const repoRoot = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(repoRoot);
+      const apiKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+
+      console.log(`[ConfigController] Starting repository analysis for ${repoId}`);
+
+      // Initialize or get blueprint service
+      let blueprintService = getBlueprintService();
+      if (!blueprintService) {
+        blueprintService = initBlueprintService(this.databaseService);
+      }
+
+      // Run with VS Code progress notification
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'Analyzing repository...',
+        cancellable: false
+      }, async (progress) => {
+        // Progress callback that updates both VS Code and webview
+        const onProgress = (phase: string, current: number, total: number) => {
+          const percentage = Math.round((current / total) * 100);
+          progress.report({ message: phase, increment: (100 / total) });
+          this.context.postMessage({
+            command: 'analysisProgress',
+            phase,
+            current,
+            total
+          });
+        };
+
+        // Generate the blueprint
+        await blueprintService!.generateBlueprint(
+          { repoId, repoRoot, apiKey: apiKey || undefined },
+          onProgress
+        );
+      });
+
+      // Fetch and send the updated status
+      const status = await this.databaseService.getBlueprintStatus(repoId);
+      this.context.postMessage({
+        command: 'analysisComplete',
+        success: true
+      });
+      this.context.postMessage({
+        command: 'analysisStatus',
+        ...status
+      });
+
+      vscode.window.showInformationMessage('Repository analysis complete!');
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[ConfigController] Analysis failed:', error);
+      this.context.postMessage({
+        command: 'analysisComplete',
+        success: false,
+        error: errorMsg
+      });
+      vscode.window.showErrorMessage(`Analysis failed: ${errorMsg}`);
+    }
+  }
+
+  private async handleGetAnalysisStatus() {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders?.length) {
+        this.context.postMessage({
+          command: 'analysisStatus',
+          exists: false,
+          valid: false
+        });
+        return;
+      }
+
+      const repoRoot = workspaceFolders[0].uri.fsPath;
+      const repoId = await getRepoId(repoRoot);
+
+      // Initialize or get blueprint service
+      let blueprintService = getBlueprintService();
+      if (!blueprintService) {
+        blueprintService = initBlueprintService(this.databaseService);
+      }
+
+      // Get status with validation
+      const status = await blueprintService.getBlueprintStatus(repoId, repoRoot);
+
+      this.context.postMessage({
+        command: 'analysisStatus',
+        ...status
+      });
+
+    } catch (error) {
+      console.error('[ConfigController] Failed to get analysis status:', error);
+      this.context.postMessage({
+        command: 'analysisStatus',
+        exists: false,
+        valid: false
+      });
     }
   }
 }

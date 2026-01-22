@@ -163,6 +163,27 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   } | null>(null);
   const [isResetting, setIsResetting] = useState(false);
 
+  // Repository Analysis State
+  const [analysisStatus, setAnalysisStatus] = useState<{
+    exists: boolean;
+    valid: boolean;
+    repoId?: string;
+    generatedAt?: number;
+    expiresAt?: number;
+    framework?: string;
+    configFileCount?: number;
+    patternsCount?: number;
+    guidesCount?: number;
+    tokensUsed?: number;
+    invalidationReason?: 'ttl' | 'hash' | 'git' | 'manual' | null;
+  } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<{
+    phase: string;
+    current: number;
+    total: number;
+  } | null>(null);
+
   // Auto-fetch indexes if we have the key but no indexes yet
   useEffect(() => {
     if (pineconeKeyExists && pineconeIndexes.length === 0 && !isFetchingIndexes) {
@@ -299,6 +320,35 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         case 'vectorIndexReset':
           setIsResetting(false);
           break;
+
+        case 'analysisProgress':
+          setAnalysisProgress({
+            phase: message.phase,
+            current: message.current,
+            total: message.total
+          });
+          break;
+
+        case 'analysisComplete':
+          setIsAnalyzing(false);
+          setAnalysisProgress(null);
+          break;
+
+        case 'analysisStatus':
+          setAnalysisStatus({
+            exists: message.exists,
+            valid: message.valid,
+            repoId: message.repoId,
+            generatedAt: message.generatedAt,
+            expiresAt: message.expiresAt,
+            framework: message.framework,
+            configFileCount: message.configFileCount,
+            patternsCount: message.patternsCount,
+            guidesCount: message.guidesCount,
+            tokensUsed: message.tokensUsed,
+            invalidationReason: message.invalidationReason
+          });
+          break;
       }
     };
     window.addEventListener('message', handler);
@@ -313,6 +363,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'getCopyMode' });
     vscode.postMessage({ command: 'getEmbeddingConfig' });
     vscode.postMessage({ command: 'checkCompatibility' });
+    vscode.postMessage({ command: 'getAnalysisStatus' });
 
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -444,6 +495,18 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setIsResetting(true);
     vscode.postMessage({ command: 'resetVectorIndex' });
   };
+
+  const handleAnalyzeRepository = () => {
+    setIsAnalyzing(true);
+    setAnalysisProgress(null);
+    vscode.postMessage({ command: 'analyzeRepository' });
+  };
+
+  // Check if prerequisites are met for repository analysis
+  const canAnalyze = googleKeyExists && (
+    (vectorDbProvider === 'pinecone' && pineconeKeyExists && selectedPineconeIndex) ||
+    (vectorDbProvider === 'qdrant' && qdrantUrl.trim() && qdrantCollection.trim())
+  );
 
   return (
     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -797,6 +860,116 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <Button icon={<SearchRegular />}>Search</Button>
         </div>
       </div>
+
+      <Divider />
+
+      {/* Repository Analysis Section */}
+      {canAnalyze && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <Label weight="semibold">Repository Analysis</Label>
+          <div style={{
+            padding: '12px',
+            border: '1px solid var(--vscode-panel-border)',
+            borderRadius: '4px',
+            backgroundColor: 'var(--vscode-editor-background)'
+          }}>
+            {/* Status Display */}
+            {analysisStatus?.exists ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {analysisStatus.valid ? (
+                    <CheckmarkCircleRegular style={{ color: 'var(--vscode-charts-green)' }} />
+                  ) : (
+                    <WarningRegular style={{ color: 'var(--vscode-editorWarning-foreground)' }} />
+                  )}
+                  <Text weight="semibold">
+                    Status: {analysisStatus.valid ? 'Valid' : 'Stale'}
+                    {analysisStatus.invalidationReason && ` (${analysisStatus.invalidationReason})`}
+                  </Text>
+                </div>
+                {analysisStatus.generatedAt && (
+                  <Text size={200}>
+                    Last analyzed: {new Date(analysisStatus.generatedAt).toLocaleString()}
+                  </Text>
+                )}
+                {analysisStatus.framework && (
+                  <Text size={200}>Framework: {analysisStatus.framework}</Text>
+                )}
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <Text size={100} style={{ opacity: 0.7 }}>
+                    Config files: {analysisStatus.configFileCount || 0}
+                  </Text>
+                  <Text size={100} style={{ opacity: 0.7 }}>
+                    Patterns: {analysisStatus.patternsCount || 0}
+                  </Text>
+                  <Text size={100} style={{ opacity: 0.7 }}>
+                    Guides: {analysisStatus.guidesCount || 0}
+                  </Text>
+                </div>
+                {analysisStatus.expiresAt && (
+                  <Text size={100} style={{ opacity: 0.7 }}>
+                    Expires: {new Date(analysisStatus.expiresAt).toLocaleString()}
+                  </Text>
+                )}
+              </div>
+            ) : (
+              <Text size={200} style={{ opacity: 0.7 }}>
+                No analysis available. Click below to analyze your repository.
+              </Text>
+            )}
+
+            {/* Progress Indicator */}
+            {isAnalyzing && analysisProgress && (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <Spinner size="tiny" />
+                  <Text size={200}>{analysisProgress.phase}</Text>
+                </div>
+                <div style={{
+                  height: '4px',
+                  backgroundColor: 'var(--vscode-progressBar-background)',
+                  borderRadius: '2px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${(analysisProgress.current / analysisProgress.total) * 100}%`,
+                    backgroundColor: 'var(--vscode-progressBar-foreground)',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+                <Text size={100} style={{ opacity: 0.7, marginTop: '4px' }}>
+                  Step {analysisProgress.current} of {analysisProgress.total}
+                </Text>
+              </div>
+            )}
+
+            {/* Analyze Button */}
+            <Button
+              appearance="primary"
+              onClick={handleAnalyzeRepository}
+              disabled={isAnalyzing}
+              style={{ marginTop: '12px' }}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Spinner size="tiny" style={{ marginRight: '8px' }} />
+                  Analyzing...
+                </>
+              ) : analysisStatus?.exists ? (
+                'Re-analyze Repository'
+              ) : (
+                'Analyze Repository'
+              )}
+            </Button>
+
+            <Text size={100} style={{ display: 'block', marginTop: '8px', opacity: 0.7 }}>
+              Generates architectural insights and development guides for your repository.
+              Uses LLM to identify patterns and create how-to documentation.
+            </Text>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

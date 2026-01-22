@@ -473,6 +473,44 @@ export const IndexHistoryEventSchema = z.object({
   entry: IndexHistoryEntrySchema,
 });
 
+// --- Repository Analysis (Fingerprinting) Schemas ---
+
+export const AnalyzeRepositorySchema = z.object({
+  command: z.literal('analyzeRepository'),
+});
+
+export const GetAnalysisStatusSchema = z.object({
+  command: z.literal('getAnalysisStatus'),
+});
+
+export const AnalysisProgressSchema = z.object({
+  command: z.literal('analysisProgress'),
+  phase: z.string(),
+  current: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+export const AnalysisCompleteSchema = z.object({
+  command: z.literal('analysisComplete'),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const AnalysisStatusSchema = z.object({
+  command: z.literal('analysisStatus'),
+  exists: z.boolean(),
+  valid: z.boolean(),
+  repoId: z.string().optional(),
+  generatedAt: z.number().optional(),
+  expiresAt: z.number().optional(),
+  framework: z.string().optional(),
+  configFileCount: z.number().int().nonnegative().optional(),
+  patternsCount: z.number().int().nonnegative().optional(),
+  guidesCount: z.number().int().nonnegative().optional(),
+  tokensUsed: z.number().int().nonnegative().optional(),
+  invalidationReason: z.enum(['ttl', 'hash', 'git', 'manual']).nullable().optional(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -548,6 +586,12 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetIndexHistorySchema,
   IndexHistoryUpdateSchema,
   IndexHistoryEventSchema,
+  // Repository Analysis
+  AnalyzeRepositorySchema,
+  GetAnalysisStatusSchema,
+  AnalysisProgressSchema,
+  AnalysisCompleteSchema,
+  AnalysisStatusSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

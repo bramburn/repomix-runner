@@ -37,6 +37,77 @@ export interface IndexHistoryEntry {
   details?: string;
 }
 
+// ========== Repository Blueprint Types ==========
+
+export interface PackageInfo {
+  name?: string;
+  version?: string;
+  framework?: string;
+  language?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+}
+
+export interface ConfigFile {
+  path: string;
+  type: string;
+  content?: string;
+}
+
+export interface DirectoryNode {
+  name: string;
+  type: 'file' | 'directory';
+  children?: DirectoryNode[];
+  classification?: string;
+}
+
+export interface ArchitecturalPatterns {
+  namingConventions?: string;
+  dataFetching?: string;
+  stateManagement?: string;
+  formHandling?: string;
+  apiConventions?: string;
+  databasePatterns?: string;
+}
+
+export interface DevelopmentGuides {
+  addPage?: string;
+  addForm?: string;
+  addAPI?: string;
+  addDatabase?: string;
+}
+
+export interface RepoBlueprint {
+  id?: number;
+  repoId: string;
+  packageInfo?: PackageInfo;
+  configFiles?: ConfigFile[];
+  directoryStructure?: DirectoryNode;
+  architecturalPatterns?: ArchitecturalPatterns;
+  developmentGuides?: DevelopmentGuides;
+  criticalFileHashes?: Record<string, string>;
+  lastGitCommit?: string;
+  generatedAt: number;
+  expiresAt: number;
+  analysisVersion: string;
+  tokensUsed?: number;
+}
+
+export interface BlueprintStatus {
+  exists: boolean;
+  valid: boolean;
+  repoId?: string;
+  generatedAt?: number;
+  expiresAt?: number;
+  framework?: string;
+  configFileCount?: number;
+  patternsCount?: number;
+  guidesCount?: number;
+  tokensUsed?: number;
+  invalidationReason?: 'ttl' | 'hash' | 'git' | 'manual' | 'missing' | null;
+}
+
 export class DatabaseService {
   private db: Database | null = null;
   private dbPath: string;
@@ -163,6 +234,26 @@ export class DatabaseService {
       );
     `);
 
+    // Repository blueprints for fingerprinting/architectural analysis
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS repo_blueprints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id TEXT NOT NULL UNIQUE,
+        package_info TEXT,
+        config_files TEXT,
+        directory_structure TEXT,
+        architectural_patterns TEXT,
+        development_guides TEXT,
+        critical_file_hashes TEXT,
+        last_git_commit TEXT,
+        generated_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        analysis_version TEXT DEFAULT 'v1.0',
+        tokens_used INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_timestamp ON agent_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
@@ -172,6 +263,8 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_status ON repo_file_state(repo_id, status)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_timestamp ON index_history(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_repo_id ON index_history(repo_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_repo_id ON repo_blueprints(repo_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_expires_at ON repo_blueprints(expires_at)`);
 
     // Run migrations for existing databases
     await this.runMigrations();
@@ -1102,6 +1195,211 @@ export class DatabaseService {
         SELECT id FROM index_history ORDER BY id DESC LIMIT ${this.INDEX_HISTORY_LIMIT}
       )
     `);
+  }
+
+  // ========== Repository Blueprint Methods ==========
+
+  /**
+   * Save or update a repository blueprint.
+   * Uses UPSERT to handle both insert and update cases.
+   */
+  async saveBlueprint(blueprint: RepoBlueprint): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log(`[DatabaseService] saveBlueprint: Saving blueprint for repo "${blueprint.repoId}"`);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO repo_blueprints (
+        repo_id, package_info, config_files, directory_structure,
+        architectural_patterns, development_guides, critical_file_hashes,
+        last_git_commit, generated_at, expires_at, analysis_version, tokens_used
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(repo_id) DO UPDATE SET
+        package_info = excluded.package_info,
+        config_files = excluded.config_files,
+        directory_structure = excluded.directory_structure,
+        architectural_patterns = excluded.architectural_patterns,
+        development_guides = excluded.development_guides,
+        critical_file_hashes = excluded.critical_file_hashes,
+        last_git_commit = excluded.last_git_commit,
+        generated_at = excluded.generated_at,
+        expires_at = excluded.expires_at,
+        analysis_version = excluded.analysis_version,
+        tokens_used = excluded.tokens_used
+    `);
+
+    try {
+      stmt.run([
+        blueprint.repoId,
+        blueprint.packageInfo ? JSON.stringify(blueprint.packageInfo) : null,
+        blueprint.configFiles ? JSON.stringify(blueprint.configFiles) : null,
+        blueprint.directoryStructure ? JSON.stringify(blueprint.directoryStructure) : null,
+        blueprint.architecturalPatterns ? JSON.stringify(blueprint.architecturalPatterns) : null,
+        blueprint.developmentGuides ? JSON.stringify(blueprint.developmentGuides) : null,
+        blueprint.criticalFileHashes ? JSON.stringify(blueprint.criticalFileHashes) : null,
+        blueprint.lastGitCommit || null,
+        blueprint.generatedAt,
+        blueprint.expiresAt,
+        blueprint.analysisVersion,
+        blueprint.tokensUsed || null
+      ]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+    console.log(`[DatabaseService] saveBlueprint: Complete`);
+  }
+
+  /**
+   * Get a repository blueprint by repo ID.
+   */
+  async getBlueprint(repoId: string): Promise<RepoBlueprint | null> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, repo_id, package_info, config_files, directory_structure,
+             architectural_patterns, development_guides, critical_file_hashes,
+             last_git_commit, generated_at, expires_at, analysis_version, tokens_used
+      FROM repo_blueprints
+      WHERE repo_id = ?
+    `);
+
+    let blueprint: RepoBlueprint | null = null;
+
+    try {
+      stmt.bind([repoId]);
+      if (stmt.step()) {
+        const row = stmt.getAsObject() as any;
+        blueprint = {
+          id: row.id as number,
+          repoId: row.repo_id as string,
+          packageInfo: row.package_info ? JSON.parse(row.package_info) : undefined,
+          configFiles: row.config_files ? JSON.parse(row.config_files) : undefined,
+          directoryStructure: row.directory_structure ? JSON.parse(row.directory_structure) : undefined,
+          architecturalPatterns: row.architectural_patterns ? JSON.parse(row.architectural_patterns) : undefined,
+          developmentGuides: row.development_guides ? JSON.parse(row.development_guides) : undefined,
+          criticalFileHashes: row.critical_file_hashes ? JSON.parse(row.critical_file_hashes) : undefined,
+          lastGitCommit: row.last_git_commit as string | undefined,
+          generatedAt: row.generated_at as number,
+          expiresAt: row.expires_at as number,
+          analysisVersion: row.analysis_version as string,
+          tokensUsed: row.tokens_used as number | undefined
+        };
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return blueprint;
+  }
+
+  /**
+   * Delete a repository blueprint.
+   */
+  async deleteBlueprint(repoId: string): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log(`[DatabaseService] deleteBlueprint: Deleting blueprint for repo "${repoId}"`);
+
+    const stmt = this.db.prepare(`DELETE FROM repo_blueprints WHERE repo_id = ?`);
+    try {
+      stmt.run([repoId]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+    console.log(`[DatabaseService] deleteBlueprint: Complete`);
+  }
+
+  /**
+   * Get the status of a repository blueprint.
+   * Returns a summary without the full blueprint data.
+   */
+  async getBlueprintStatus(repoId: string): Promise<BlueprintStatus> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const blueprint = await this.getBlueprint(repoId);
+
+    if (!blueprint) {
+      return { exists: false, valid: false };
+    }
+
+    const now = Date.now();
+    const isExpired = now > blueprint.expiresAt;
+
+    // Count patterns and guides
+    const patternsCount = blueprint.architecturalPatterns
+      ? Object.values(blueprint.architecturalPatterns).filter(v => v).length
+      : 0;
+    const guidesCount = blueprint.developmentGuides
+      ? Object.values(blueprint.developmentGuides).filter(v => v).length
+      : 0;
+
+    return {
+      exists: true,
+      valid: !isExpired,
+      repoId: blueprint.repoId,
+      generatedAt: blueprint.generatedAt,
+      expiresAt: blueprint.expiresAt,
+      framework: blueprint.packageInfo?.framework,
+      configFileCount: blueprint.configFiles?.length || 0,
+      patternsCount,
+      guidesCount,
+      tokensUsed: blueprint.tokensUsed,
+      invalidationReason: isExpired ? 'ttl' : null
+    };
+  }
+
+  /**
+   * Update the critical file hashes for a blueprint.
+   * Used by the hash validator to refresh hashes without regenerating.
+   */
+  async updateBlueprintHashes(repoId: string, hashes: Record<string, string>): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      UPDATE repo_blueprints
+      SET critical_file_hashes = ?
+      WHERE repo_id = ?
+    `);
+
+    try {
+      stmt.run([JSON.stringify(hashes), repoId]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+  }
+
+  /**
+   * Update the git commit SHA for a blueprint.
+   * Used by the git validator after validating changes.
+   */
+  async updateBlueprintGitCommit(repoId: string, commitSha: string): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      UPDATE repo_blueprints
+      SET last_git_commit = ?
+      WHERE repo_id = ?
+    `);
+
+    try {
+      stmt.run([commitSha, repoId]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
   }
 
   dispose(): void {
