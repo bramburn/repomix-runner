@@ -50,39 +50,58 @@ export class IndexingController extends BaseController {
   private currentRepoId: string | null = null;
 
   private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean, confidenceThreshold?: number) {
+    console.log('[INDEXING_CONTROLLER] ===== HANDLE SEARCH REPO START =====');
+    console.log('[INDEXING_CONTROLLER] Query:', query);
+    console.log('[INDEXING_CONTROLLER] TopK:', topK);
+    console.log('[INDEXING_CONTROLLER] Smart Filter:', useSmartFilter);
+    console.log('[INDEXING_CONTROLLER] Confidence Threshold:', confidenceThreshold);
+    
     try {
       const q = (query ?? '').trim();
       if (!q) {
+        console.log('[INDEXING_CONTROLLER] Empty query, aborting');
         return;
       }
 
+      console.log('[INDEXING_CONTROLLER] Getting current working directory...');
       const cwd = getCwd();
-      const repoId = await getRepoId(cwd);
-
-      const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+      console.log('[INDEXING_CONTROLLER] CWD:', cwd);
       
-      // Initialize embedding service before search
+      console.log('[INDEXING_CONTROLLER] Getting repo ID...');
+      const repoId = await getRepoId(cwd);
+      console.log('[INDEXING_CONTROLLER] Repo ID:', repoId);
+
+      console.log('[INDEXING_CONTROLLER] Fetching Google API key...');
+      const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+      console.log('[INDEXING_CONTROLLER] Google API key present:', !!googleKey);
+      console.log('[INDEXING_CONTROLLER] Initializing embedding service...');
       try {
         const { embeddingService } = await import('../../core/indexing/embeddingService.js');
         const config = vscode.workspace.getConfiguration();
         const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+        console.log('[INDEXING_CONTROLLER] Embedding provider:', provider);
         
         if (provider === 'gemini') {
           if (!googleKey) {
+            console.error('[INDEXING_CONTROLLER] Gemini API key missing');
             this.context.postMessage({
               command: 'repoSearchError',
               error: 'Gemini API key is required for search. Please configure it in Settings.'
             });
             return;
           }
+          console.log('[INDEXING_CONTROLLER] Switching to Gemini provider...');
           embeddingService.switchProvider({
             provider: 'gemini',
             gemini: { apiKey: googleKey }
           });
+          console.log('[INDEXING_CONTROLLER] Gemini provider configured');
         } else if (provider === 'ollama') {
           const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
           const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
           const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
+          console.log('[INDEXING_CONTROLLER] Ollama config:', { url: ollamaUrl, model: ollamaModel, dimension: ollamaDimension });
+          console.log('[INDEXING_CONTROLLER] Switching to Ollama provider...');
           embeddingService.switchProvider({
             provider: 'ollama',
             ollama: {
@@ -91,6 +110,7 @@ export class IndexingController extends BaseController {
               dimension: ollamaDimension
             }
           });
+          console.log('[INDEXING_CONTROLLER] Ollama provider configured');
         }
         console.log(`[INDEXING_CONTROLLER] Embedding service initialized with ${provider} provider`);
       } catch (embeddingError) {
@@ -104,21 +124,54 @@ export class IndexingController extends BaseController {
       }
       
       // Resolve active vector DB adapter (pinecone or qdrant)
+      console.log('[INDEXING_CONTROLLER] Getting vector DB adapter...');
       let adapter;
       try {
         ({ adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId));
+        console.log('[INDEXING_CONTROLLER] Vector DB adapter initialized successfully');
       } catch (e) {
         const errorDetail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
         console.error('[INDEXING_CONTROLLER] Vector DB adapter error:', e);
+        
+        // Provide more helpful error messages based on error type
+        let userFriendlyError = errorDetail;
+        
+        if (errorDetail.toLowerCase().includes('missing pinecone api key')) {
+          userFriendlyError = 'Pinecone API key is not configured. Please add your API key in the Settings tab.';
+        } else if (errorDetail.toLowerCase().includes('no pinecone index selected')) {
+          userFriendlyError = 'No Pinecone index selected for this repository. Please select an index in the Settings tab.';
+        } else if (errorDetail.toLowerCase().includes('missing qdrant url')) {
+          userFriendlyError = 'Qdrant URL is not configured. Please add your Qdrant URL in the Settings tab.';
+        } else if (errorDetail.toLowerCase().includes('no qdrant collection configured')) {
+          userFriendlyError = 'No Qdrant collection configured. Please select a collection in the Settings tab.';
+        } else if (errorDetail.toLowerCase().includes('qdrant api key is required')) {
+          userFriendlyError = 'Qdrant API key is required for hosted instances. Please add your API key in the Settings tab.';
+        }
+        
         this.context.postMessage({
           command: 'repoSearchError',
-          error: `Failed to initialize search adapter. Please check your Vector DB settings.\nDetails: ${errorDetail}`
+          error: `Failed to initialize vector database connection.
+
+${userFriendlyError}
+
+Please check your Vector DB settings and try again.`
         });
         return;
       }
 
       console.log('[INDEXING_CONTROLLER] Using LangGraph for search');
+      console.log('[INDEXING_CONTROLLER] Importing search graph...');
       const { runSearchGraph } = await import('../../search/graph.js');
+      console.log('[INDEXING_CONTROLLER] Search graph imported');
+
+      console.log('[INDEXING_CONTROLLER] Running search graph with params:', {
+        repoId,
+        repoRoot: cwd,
+        userQuery: q,
+        smartFilterEnabled: !!useSmartFilter,
+        maxResults: typeof topK === 'number' ? topK : 50,
+        confidenceThreshold: confidenceThreshold,
+      });
 
       const finalState = await runSearchGraph({
         repoId,
@@ -129,6 +182,10 @@ export class IndexingController extends BaseController {
         googleApiKey: googleKey || undefined,
         confidenceThreshold: confidenceThreshold,
       }, adapter, this.context);
+
+      console.log('[INDEXING_CONTROLLER] Search graph execution completed');
+      console.log('[INDEXING_CONTROLLER] Errors:', finalState.errors.length);
+      console.log('[INDEXING_CONTROLLER] Final hits:', finalState.finalHits?.length || 0);
 
       if (finalState.errors.length > 0) {
         const firstError = finalState.errors[0];
@@ -141,9 +198,11 @@ export class IndexingController extends BaseController {
       }
 
       const results = finalState.finalHits;
+      console.log('[INDEXING_CONTROLLER] Sending results to webview:', results.length);
 
       // Post results to webview
       this.context.postMessage({ command: 'repoSearchResults', results: results });
+      console.log('[INDEXING_CONTROLLER] Results sent to webview');
 
       // Log timings for debugging
       console.log('[INDEXING_CONTROLLER] LangGraph Search Timings:', JSON.stringify(finalState.timings, null, 2));
@@ -163,6 +222,7 @@ export class IndexingController extends BaseController {
       // If Smart Filter passed, generate a markdown summary for the user
       if (useSmartFilter && dedupedPaths.length > 0) {
         console.log('[INDEXING_CONTROLLER] Generating markdown summary for search results...');
+        console.log('[INDEXING_CONTROLLER] Summary for', dedupedPaths.length, 'files');
         try {
           const { generateMarkdownSummary } = await import('../../agent/summaryGenerator.js');
           // Resolve absolute paths for the generator
@@ -176,22 +236,30 @@ export class IndexingController extends BaseController {
           );
 
           if (result.summaryPath) {
+            console.log('[INDEXING_CONTROLLER] Summary generated at:', result.summaryPath);
             this.context.postMessage({
               command: 'searchSummaryReady',
               summaryPath: result.summaryPath
             });
+          } else {
+            console.log('[INDEXING_CONTROLLER] Summary generation completed but no path returned');
           }
 
         } catch (summaryErr) {
           console.error('[INDEXING_CONTROLLER] Failed to generate summary:', summaryErr);
         }
+      } else {
+        console.log('[INDEXING_CONTROLLER] Skipping summary generation (smartFilter:', useSmartFilter, ', files:', dedupedPaths.length, ')');
       }
       // --- GENERATE SUMMARY END ---
 
       // Opportunistically refresh vector count after a search (cheap + useful)
       // (If it fails, it won't break search UX.)
+      console.log('[INDEXING_CONTROLLER] Refreshing vector count...');
       void this.handleGetRepoVectorCount(repoId);
+      console.log('[INDEXING_CONTROLLER] ===== HANDLE SEARCH REPO END =====');
     } catch (err) {
+      console.error('[INDEXING_CONTROLLER] Search error:', err);
       this.context.postMessage({
         command: 'repoSearchError',
         error: err instanceof Error ? err.message : String(err),

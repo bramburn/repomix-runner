@@ -462,6 +462,7 @@ export const SearchTab = () => {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
+      console.log('[SearchTab] Received message:', message.command);
 
       switch (message.command) {
         case 'repoIndexCount':
@@ -536,28 +537,37 @@ export const SearchTab = () => {
           break;
 
         case 'searchQueryExpanded':
+          console.log('[SearchTab] Query expanded. Expanded queries:', message.queries);
           setExpandedQueries(Array.isArray(message.queries) ? message.queries : []);
           break;
 
         case 'repoSearchResults': {
+          console.log('[SearchTab] Search results received. Raw count:', message.results?.length || 0);
           setIsSearching(false);
           setSearchError(null);
           const rawResults: RepoSearchResult[] = Array.isArray(message.results) ? message.results : [];
+          console.log('[SearchTab] Filtering results by file type...');
           const filteredResults = filterByFileType(rawResults);
+          console.log('[SearchTab] Filtered results count:', filteredResults.length);
           setResults(filteredResults);
+          console.log('[SearchTab] ===== SEARCH COMPLETE =====');
           break;
         }
 
         case 'repoSearchError':
+          console.error('[SearchTab] Search error received:', message.error);
           setIsSearching(false);
           setSearchError(message.error ?? 'Search failed');
+          console.log('[SearchTab] ===== SEARCH FAILED =====');
           break;
 
         case 'searchOutputReady':
+          console.log('[SearchTab] Search output ready:', message.outputPath);
           setLastSearchOutputPath(message.outputPath ?? null);
           break;
 
         case 'searchSummaryReady':
+          console.log('[SearchTab] Search summary ready:', message.summaryPath);
           setSummaryPath(message.summaryPath);
           break;
 
@@ -620,12 +630,19 @@ export const SearchTab = () => {
     const q = query.trim();
     if (!q) return;
 
+    console.log('[SearchTab] ===== SEARCH INITIATED =====');
+    console.log('[SearchTab] Query:', q);
+    console.log('[SearchTab] TopK:', topK);
+    console.log('[SearchTab] Smart Filter Enabled:', smartFilterEnabled);
+    console.log('[SearchTab] Confidence Threshold:', confidenceThreshold);
+
     setIsSearching(true);
     setSearchError(null);
     setResults([]);
     setSummaryPath(null);
     setExpandedQueries([]);
 
+    console.log('[SearchTab] Sending searchRepo message to extension...');
     vscode.postMessage({
       command: 'searchRepo',
       query: q,
@@ -633,6 +650,7 @@ export const SearchTab = () => {
       useSmartFilter: smartFilterEnabled,
       confidenceThreshold: confidenceThreshold,
     });
+    console.log('[SearchTab] searchRepo message sent');
   };
 
   const handleCopySearchOutput = () => {
