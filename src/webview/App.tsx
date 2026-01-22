@@ -20,6 +20,7 @@ import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
 import { ApplyTab } from './components/ApplyTab.js';
+import { IndexHistoryTab } from './components/IndexHistoryTab.js';
 import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
 
@@ -198,6 +199,7 @@ export const App = () => {
           <Tab value="settings">Settings</Tab>
           <Tab value="apply">Apply</Tab>
           <Tab value="debug">Debug</Tab>
+          <Tab value="indexHistory">Index History</Tab>
         </TabList>
 
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -244,6 +246,7 @@ export const App = () => {
           {selectedTab === 'apply' && <ApplyTab />}
 
           {selectedTab === 'debug' && <DebugTab />}
+          {selectedTab === 'indexHistory' && <IndexHistoryTab />}
         </div>
 
         {version && (

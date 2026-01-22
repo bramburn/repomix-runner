@@ -128,6 +128,15 @@ export class RepoIndexMonitor {
     // Log only on first queue for each file (avoid spam)
     if (!wasAlreadyPending) {
       console.log(`[RepoIndexMonitor] Queued file for re-embedding: ${relativePath} (pending: ${this.pending.size})`);
+      
+      // Record to index history (fire-and-forget to avoid blocking)
+      this.databaseService.addIndexHistoryEvent({
+        timestamp: Date.now(),
+        repoId: this.repoId,
+        filePath: relativePath,
+        eventType: 'queued',
+        status: 'pending'
+      }).catch(err => console.error(`[RepoIndexMonitor] Failed to record history event:`, err));
     }
   }
 
@@ -187,6 +196,19 @@ export class RepoIndexMonitor {
       await this.databaseService.markRepoFilesPending(this.repoId, paths);
       const dbDuration = Date.now() - dbStart;
       console.log(`[RepoIndexMonitor] Step 1 complete: Database updated in ${dbDuration}ms`);
+
+      // Record flush event to index history
+      const flushTimestamp = Date.now();
+      await this.databaseService.addIndexHistoryBatch(
+        paths.map(p => ({
+          timestamp: flushTimestamp,
+          repoId: this.repoId,
+          filePath: p,
+          eventType: 'flush' as const,
+          status: 'pending' as const,
+          details: JSON.stringify({ batchSize: paths.length })
+        }))
+      );
 
       // Step 2: Trigger incremental embedding callback
       console.log(`[RepoIndexMonitor] Step 2: Triggering incremental embedding callback...`);

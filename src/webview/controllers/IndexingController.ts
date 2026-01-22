@@ -60,6 +60,49 @@ export class IndexingController extends BaseController {
       const repoId = await getRepoId(cwd);
 
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
+      
+      // Initialize embedding service before search
+      try {
+        const { embeddingService } = await import('../../core/indexing/embeddingService.js');
+        const config = vscode.workspace.getConfiguration();
+        const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+        
+        if (provider === 'gemini') {
+          if (!googleKey) {
+            this.context.postMessage({
+              command: 'repoSearchError',
+              error: 'Gemini API key is required for search. Please configure it in Settings.'
+            });
+            return;
+          }
+          embeddingService.switchProvider({
+            provider: 'gemini',
+            gemini: { apiKey: googleKey }
+          });
+        } else if (provider === 'ollama') {
+          const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
+          const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
+          const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
+          embeddingService.switchProvider({
+            provider: 'ollama',
+            ollama: {
+              url: ollamaUrl,
+              model: ollamaModel,
+              dimension: ollamaDimension
+            }
+          });
+        }
+        console.log(`[INDEXING_CONTROLLER] Embedding service initialized with ${provider} provider`);
+      } catch (embeddingError) {
+        const errorDetail = embeddingError instanceof Error ? embeddingError.message : String(embeddingError);
+        console.error('[INDEXING_CONTROLLER] Embedding service initialization error:', embeddingError);
+        this.context.postMessage({
+          command: 'repoSearchError',
+          error: `Failed to initialize embedding service. Please check your embedding provider settings.\nDetails: ${errorDetail}`
+        });
+        return;
+      }
+      
       // Resolve active vector DB adapter (pinecone or qdrant)
       let adapter;
       try {

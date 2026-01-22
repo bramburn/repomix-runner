@@ -13,6 +13,7 @@ import { ConfigController } from './controllers/ConfigController.js';
 import { DebugController } from './controllers/DebugController.js';
 import { IndexingController } from './controllers/IndexingController.js';
 import { ApplyController } from './controllers/ApplyController.js';
+import { IndexHistoryController } from './controllers/IndexHistoryController.js';
 import { ExecutionQueueManager } from './services/ExecutionQueueManager.js';
 
 
@@ -83,7 +84,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new ConfigController(webviewContext, this._context, this._databaseService, indexingCtrl),
       indexingCtrl,
       new DebugController(webviewContext, this._databaseService),
-      new ApplyController(webviewContext, this._context)
+      new ApplyController(webviewContext, this._context),
+      new IndexHistoryController(webviewContext, this._databaseService)
     ];
     console.log('[quick-repomix] Controllers initialized:', this._controllers.length, 'controllers');
 

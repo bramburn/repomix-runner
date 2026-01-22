@@ -50,6 +50,45 @@ export async function activate(context: vscode.ExtensionContext) {
   await databaseService.initialize();
   console.log('[quick-repomix] Database service initialized');
 
+  // Initialize embedding service with saved configuration
+  console.log('[quick-repomix] Initializing embedding service...');
+  try {
+    const { embeddingService } = await import('./core/indexing/embeddingService.js');
+    const config = vscode.workspace.getConfiguration();
+    const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+    const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
+    const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
+    const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
+
+    const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
+    const googleApiKey = await context.secrets.get(SECRET_GOOGLE_GEMINI);
+
+    if (provider === 'gemini') {
+      if (googleApiKey) {
+        embeddingService.switchProvider({
+          provider: 'gemini',
+          gemini: { apiKey: googleApiKey }
+        });
+        console.log('[quick-repomix] ✓ Embedding service initialized with Gemini provider');
+      } else {
+        console.log('[quick-repomix] ⚠ Gemini provider selected but API key missing - skipping initialization');
+      }
+    } else if (provider === 'ollama') {
+      embeddingService.switchProvider({
+        provider: 'ollama',
+        ollama: {
+          url: ollamaUrl,
+          model: ollamaModel,
+          dimension: ollamaDimension
+        }
+      });
+      console.log('[quick-repomix] ✓ Embedding service initialized with Ollama provider');
+    }
+  } catch (error) {
+    console.error('[quick-repomix] ✗ Failed to initialize embedding service:', error);
+    // Non-fatal - extension can still function without embeddings
+  }
+
   // Expose context for agent graph
   (global as any).extensionContext = context;
 

@@ -404,6 +404,16 @@ export class RepoEmbeddingOrchestrator {
         await this.databaseService.markRepoFileIndexed(repoId, filePath, contentHash);
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Marked as indexed (hash: ${hashPreview})`);
 
+        // Record embedding completion to index history
+        await this.databaseService.addIndexHistoryEvent({
+          timestamp: Date.now(),
+          repoId,
+          filePath,
+          eventType: 'embedding_complete',
+          status: 'indexed',
+          details: JSON.stringify({ vectors: vectorCount, durationMs: fileTime })
+        });
+
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         const errorName = error instanceof Error ? error.name : '';
@@ -417,6 +427,16 @@ export class RepoEmbeddingOrchestrator {
         // Log error but continue with next file
         console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
         errors.push({ filePath, error: errorMsg });
+
+        // Record embedding failure to index history
+        await this.databaseService.addIndexHistoryEvent({
+          timestamp: Date.now(),
+          repoId,
+          filePath,
+          eventType: 'embedding_failed',
+          status: 'failed',
+          details: JSON.stringify({ error: errorMsg })
+        });
       }
     }
 

@@ -67,37 +67,57 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
         };
     }
 
-    const vectors = await Promise.all(
-        state.expandedQueries.map((queryText) => embeddingService.embedText(queryText))
-    );
+    try {
+        const vectors = await Promise.all(
+            state.expandedQueries.map((queryText) => embeddingService.embedText(queryText))
+        );
 
-    const resList = await Promise.all(
-        vectors.map((vector) =>
-            adapter.queryVectors({
-                repoId: state.repoId,
-                vector,
-                topK: state.maxResults,
-            })
-        )
-    );
+        const resList = await Promise.all(
+            vectors.map((vector) =>
+                adapter.queryVectors({
+                    repoId: state.repoId,
+                    vector,
+                    topK: state.maxResults,
+                })
+            )
+        );
 
-    const vectorHits: RepoSearchResult[] = [];
-    for (const res of resList) {
-        const matches = res?.matches ?? [];
-        for (const m of matches) {
-            vectorHits.push({
-                id: m.id,
-                score: m.score ?? 0,
-                path: m.metadata?.filePath as string,
-                snippet: (m.metadata?.snippet ?? m.metadata?.text) as string | undefined,
-            });
+        const vectorHits: RepoSearchResult[] = [];
+        for (const res of resList) {
+            const matches = res?.matches ?? [];
+            for (const m of matches) {
+                vectorHits.push({
+                    id: m.id,
+                    score: m.score ?? 0,
+                    path: m.metadata?.filePath as string,
+                    snippet: (m.metadata?.snippet ?? m.metadata?.text) as string | undefined,
+                });
+            }
         }
-    }
 
-    return {
-        vectorHits,
-        timings: { vectorSearch: Date.now() - start }
-    };
+        return {
+            vectorHits,
+            timings: { vectorSearch: Date.now() - start }
+        };
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[SEARCH_GRAPH] Vector search failed:', error);
+        
+        // Provide more specific error messages
+        let userFriendlyError = errorMessage;
+        if (errorMessage.toLowerCase().includes('fetch') || errorMessage.toLowerCase().includes('network')) {
+            userFriendlyError = `Network error during search. Please check your connection and try again.\nDetails: ${errorMessage}`;
+        } else if (errorMessage.toLowerCase().includes('api key') || errorMessage.toLowerCase().includes('unauthorized')) {
+            userFriendlyError = `API authentication failed. Please check your API key in Settings.\nDetails: ${errorMessage}`;
+        } else if (errorMessage.toLowerCase().includes('embedding provider')) {
+            userFriendlyError = `Embedding service not configured. Please check Settings.\nDetails: ${errorMessage}`;
+        }
+        
+        return {
+            errors: [{ node: 'vectorSearch', error: userFriendlyError, ts: Date.now() }],
+            timings: { vectorSearch: Date.now() - start }
+        };
+    }
 }
 
 export async function dedupeNode(state: SearchGraphState) {

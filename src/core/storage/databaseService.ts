@@ -24,6 +24,19 @@ export interface DebugRun {
   repoName?: string;
 }
 
+export type IndexHistoryEventType = 'queued' | 'flush' | 'embedding_complete' | 'embedding_failed';
+export type IndexHistoryStatus = 'pending' | 'indexed' | 'failed' | null;
+
+export interface IndexHistoryEntry {
+  id: number;
+  timestamp: number;
+  repoId: string;
+  filePath: string;
+  eventType: IndexHistoryEventType;
+  status: IndexHistoryStatus;
+  details?: string;
+}
+
 export class DatabaseService {
   private db: Database | null = null;
   private dbPath: string;
@@ -136,6 +149,20 @@ export class DatabaseService {
       );
     `);
 
+    // Index history for debugging - stores last 500 events
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS index_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        repo_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        status TEXT,
+        details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_timestamp ON agent_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
@@ -143,6 +170,8 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id ON repo_indexing_progress(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_status ON repo_indexing_progress(status)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_status ON repo_file_state(repo_id, status)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_timestamp ON index_history(timestamp)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_repo_id ON index_history(repo_id)`);
 
     // Run migrations for existing databases
     await this.runMigrations();
@@ -878,6 +907,201 @@ export class DatabaseService {
     }
 
     return states;
+  }
+
+  // ========== Index History Methods (Debugging) ==========
+
+  private indexHistoryInsertCount = 0;
+  private readonly INDEX_HISTORY_LIMIT = 500;
+  private readonly CLEANUP_THRESHOLD = 50; // Cleanup every 50 inserts
+
+  /**
+   * Add a single index history event.
+   * Used for individual file events like 'queued'.
+   */
+  async addIndexHistoryEvent(entry: Omit<IndexHistoryEntry, 'id'>): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO index_history (timestamp, repo_id, file_path, event_type, status, details)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    try {
+      stmt.run([
+        entry.timestamp,
+        entry.repoId,
+        entry.filePath,
+        entry.eventType,
+        entry.status,
+        entry.details || null
+      ]);
+    } finally {
+      stmt.free();
+    }
+
+    this.indexHistoryInsertCount++;
+    if (this.indexHistoryInsertCount >= this.CLEANUP_THRESHOLD) {
+      await this.cleanupIndexHistory();
+      this.indexHistoryInsertCount = 0;
+    }
+
+    await this.saveDatabase();
+  }
+
+  /**
+   * Add multiple index history events in a batch.
+   * Used for bulk operations like flush events.
+   */
+  async addIndexHistoryBatch(entries: Omit<IndexHistoryEntry, 'id'>[]): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (entries.length === 0) return;
+
+    try {
+      this.db.run('BEGIN TRANSACTION');
+
+      const stmt = this.db.prepare(`
+        INSERT INTO index_history (timestamp, repo_id, file_path, event_type, status, details)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const entry of entries) {
+        stmt.run([
+          entry.timestamp,
+          entry.repoId,
+          entry.filePath,
+          entry.eventType,
+          entry.status,
+          entry.details || null
+        ]);
+      }
+
+      stmt.free();
+      this.db.run('COMMIT');
+
+      // Always cleanup after batch insert
+      await this.cleanupIndexHistory();
+      await this.saveDatabase();
+    } catch (err) {
+      this.db.run('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /**
+   * Get index history entries, ordered by most recent first.
+   */
+  async getIndexHistory(repoId?: string, limit: number = 500): Promise<IndexHistoryEntry[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const entries: IndexHistoryEntry[] = [];
+
+    let query = `
+      SELECT id, timestamp, repo_id, file_path, event_type, status, details
+      FROM index_history
+    `;
+    const params: any[] = [];
+
+    if (repoId) {
+      query += ` WHERE repo_id = ?`;
+      params.push(repoId);
+    }
+
+    query += ` ORDER BY timestamp DESC, id DESC LIMIT ?`;
+    params.push(limit);
+
+    const stmt = this.db.prepare(query);
+    try {
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        entries.push({
+          id: row.id as number,
+          timestamp: row.timestamp as number,
+          repoId: row.repo_id as string,
+          filePath: row.file_path as string,
+          eventType: row.event_type as IndexHistoryEventType,
+          status: (row.status as IndexHistoryStatus) || null,
+          details: row.details as string | undefined
+        });
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return entries;
+  }
+
+  /**
+   * Get summary stats for index history.
+   */
+  async getIndexHistoryStats(repoId?: string): Promise<{
+    queued: number;
+    flush: number;
+    embeddingComplete: number;
+    embeddingFailed: number;
+  }> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT
+        SUM(CASE WHEN event_type = 'queued' THEN 1 ELSE 0 END) AS queued,
+        SUM(CASE WHEN event_type = 'flush' THEN 1 ELSE 0 END) AS flush,
+        SUM(CASE WHEN event_type = 'embedding_complete' THEN 1 ELSE 0 END) AS embedding_complete,
+        SUM(CASE WHEN event_type = 'embedding_failed' THEN 1 ELSE 0 END) AS embedding_failed
+      FROM index_history
+    `;
+    const params: any[] = [];
+
+    if (repoId) {
+      query += ` WHERE repo_id = ?`;
+      params.push(repoId);
+    }
+
+    const stmt = this.db.prepare(query);
+    let result = { queued: 0, flush: 0, embeddingComplete: 0, embeddingFailed: 0 };
+
+    try {
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        result = {
+          queued: (row.queued as number) || 0,
+          flush: (row.flush as number) || 0,
+          embeddingComplete: (row.embedding_complete as number) || 0,
+          embeddingFailed: (row.embedding_failed as number) || 0
+        };
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return result;
+  }
+
+  /**
+   * Enforce the 500-record limit by deleting oldest entries.
+   */
+  private async cleanupIndexHistory(): Promise<void> {
+    if (!this.db) return;
+
+    // Delete all records except the most recent 500
+    this.db.run(`
+      DELETE FROM index_history WHERE id NOT IN (
+        SELECT id FROM index_history ORDER BY id DESC LIMIT ${this.INDEX_HISTORY_LIMIT}
+      )
+    `);
   }
 
   dispose(): void {

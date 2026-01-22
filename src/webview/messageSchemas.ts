@@ -440,6 +440,39 @@ export const IndexingBlockedSchema = z.object({
   blocked: z.boolean(),
 });
 
+// --- Index History Schemas ---
+
+export const GetIndexHistorySchema = z.object({
+  command: z.literal('getIndexHistory'),
+  repoId: z.string().optional(),
+});
+
+export const IndexHistoryEntrySchema = z.object({
+  id: z.number(),
+  timestamp: z.number(),
+  repoId: z.string(),
+  filePath: z.string(),
+  eventType: z.enum(['queued', 'flush', 'embedding_complete', 'embedding_failed']),
+  status: z.enum(['pending', 'indexed', 'failed']).nullable(),
+  details: z.string().optional(),
+});
+
+export const IndexHistoryUpdateSchema = z.object({
+  command: z.literal('indexHistoryUpdate'),
+  entries: z.array(IndexHistoryEntrySchema),
+  stats: z.object({
+    queued: z.number(),
+    flush: z.number(),
+    embeddingComplete: z.number(),
+    embeddingFailed: z.number(),
+  }),
+});
+
+export const IndexHistoryEventSchema = z.object({
+  command: z.literal('indexHistoryEvent'),
+  entry: IndexHistoryEntrySchema,
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -512,6 +545,9 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ResetVectorIndexSchema,
   VectorIndexResetSchema,
   IndexingBlockedSchema,
+  GetIndexHistorySchema,
+  IndexHistoryUpdateSchema,
+  IndexHistoryEventSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
