@@ -20,7 +20,6 @@ import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
 import { ApplyTab } from './components/ApplyTab.js';
-import { IndexHistoryTab } from './components/IndexHistoryTab.js';
 import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
 
@@ -50,10 +49,10 @@ export const App = () => {
 
   const [selectedTab, setSelectedTab] = useState<string>(() => {
     const savedTab = vscode.getState()?.selectedTab;
-    // If the saved tab was 'agent' and agent tab is disabled, default to 'search'
-    if (savedTab === 'agent' && !ENABLE_SMART_AGENT_TAB) {
-      return 'search';
-    }
+
+    if (savedTab === 'indexHistory') return 'debug';
+    if (savedTab === 'agent' && !ENABLE_SMART_AGENT_TAB) return 'search';
+
     return savedTab || 'bundles';
   });
   const [bundles, setBundles] = useState<Bundle[]>([]);
@@ -123,6 +122,8 @@ export const App = () => {
             updateVsState({ pineconeIndexes: message.indexes });
           }
           break;
+
+        case 'updateSelectedPineconeIndex':
           setSelectedPineconeIndex(message.index);
           updateVsState({ selectedPineconeIndex: message.index });
           break;
@@ -212,7 +213,6 @@ export const App = () => {
           <Tab value="settings">Settings</Tab>
           <Tab value="apply">Apply</Tab>
           <Tab value="debug">Debug</Tab>
-          <Tab value="indexHistory">Index History</Tab>
         </TabList>
 
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -259,7 +259,6 @@ export const App = () => {
           {selectedTab === 'apply' && <ApplyTab />}
 
           {selectedTab === 'debug' && <DebugTab />}
-          {selectedTab === 'indexHistory' && <IndexHistoryTab />}
         </div>
 
         {version && (

@@ -111,3 +111,20 @@ export interface WebViewState {
   selectedPineconeIndex?: PineconeIndex | null;
   smartFilterEnabled?: boolean;
 }
+
+export interface IndexHistoryEntry {
+  id: number;
+  timestamp: number;
+  repoId: string;
+  filePath: string;
+  eventType: 'queued' | 'flush' | 'embedding_complete' | 'embedding_failed';
+  status: 'pending' | 'indexed' | 'failed' | null;
+  details?: string;
+}
+
+export interface IndexHistoryStats {
+  queued: number;
+  flush: number;
+  embeddingComplete: number;
+  embeddingFailed: number;
+}

@@ -25,8 +25,7 @@ export class IndexHistoryController extends BaseController {
   }
 
   async onWebviewLoaded(): Promise<void> {
-    // Send initial history when webview loads
-    await this.handleGetIndexHistory();
+    // No-op: UI will request history when needed (e.g., Debug tab mount / refresh)
   }
 
   private async handleGetIndexHistory(repoId?: string): Promise<void> {
@@ -34,9 +33,18 @@ export class IndexHistoryController extends BaseController {
       // If no repoId provided, use current repo
       const effectiveRepoId = repoId || await this.getCurrentRepoId();
       
+      if (!effectiveRepoId) {
+        this.context.postMessage({
+          command: 'indexHistoryUpdate',
+          entries: [],
+          stats: { queued: 0, flush: 0, embeddingComplete: 0, embeddingFailed: 0 },
+        });
+        return;
+      }
+
       const [entries, stats] = await Promise.all([
         this.databaseService.getIndexHistory(effectiveRepoId),
-        this.databaseService.getIndexHistoryStats(effectiveRepoId)
+        this.databaseService.getIndexHistoryStats(effectiveRepoId),
       ]);
 
       this.context.postMessage({
@@ -99,5 +107,8 @@ export class IndexHistoryController extends BaseController {
       clearTimeout(this.pushTimer);
       this.pushTimer = undefined;
     }
+
+    // Best-effort flush so we don't lose events on teardown
+    this.flushPendingEvents();
   }
 }

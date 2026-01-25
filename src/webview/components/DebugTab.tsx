@@ -1,29 +1,89 @@
-import React, { useState, useEffect } from 'react';
-import { Button, Text, Accordion, AccordionItem, AccordionHeader, AccordionPanel } from '@fluentui/react-components';
-import { CopyRegular, DeleteRegular, ArrowCounterclockwiseRegular } from '@fluentui/react-icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { Button, Text, Accordion, AccordionItem, AccordionHeader, AccordionPanel, Badge } from '@fluentui/react-components';
+import { CopyRegular, DeleteRegular, ArrowCounterclockwiseRegular, ArrowSyncRegular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
-import { DebugRun, EnvironmentInfo } from '../types.js';
+import { DebugRun, EnvironmentInfo, IndexHistoryEntry, IndexHistoryStats } from '../types.js';
 
 export const DebugTab = () => {
   const [runs, setRuns] = useState<DebugRun[]>([]);
   const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
   const [environmentInfo, setEnvironmentInfo] = useState<EnvironmentInfo | null>(null);
 
+  // Index History State
+  const [indexEntries, setIndexEntries] = useState<IndexHistoryEntry[]>([]);
+  const [indexStats, setIndexStats] = useState<IndexHistoryStats>({
+    queued: 0,
+    flush: 0,
+    embeddingComplete: 0,
+    embeddingFailed: 0
+  });
+  const [isIndexHistoryLoading, setIsIndexHistoryLoading] = useState(true);
+
+  // Tracks the current "loading safety timeout" so we can cancel it reliably
+  const indexHistoryTimeoutRef = useRef<number | null>(null);
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
-      if (message.command === 'updateDebugRuns') {
-        setRuns(message.runs);
-      } else if (message.command === 'updateEnvironmentInfo') {
-        setEnvironmentInfo(message.environmentInfo);
+
+      switch (message.command) {
+        case 'updateDebugRuns':
+          setRuns(message.runs);
+          return;
+
+        case 'updateEnvironmentInfo':
+          setEnvironmentInfo(message.environmentInfo);
+          return;
+
+        case 'indexHistoryUpdate':
+          // Clear loading timeout when we receive data
+          if (indexHistoryTimeoutRef.current !== null) {
+            clearTimeout(indexHistoryTimeoutRef.current);
+            indexHistoryTimeoutRef.current = null;
+          }
+        
+          setIndexEntries(message.entries);
+          setIndexStats(message.stats);
+          setIsIndexHistoryLoading(false);
+          return;
+
+        case 'indexHistoryEvent':
+          setIndexEntries(prev => [message.entry, ...prev].slice(0, 500));
+          setIndexStats(prev => {
+            const next = { ...prev };
+            switch (message.entry.eventType) {
+              case 'queued': next.queued++; break;
+              case 'flush': next.flush++; break;
+              case 'embedding_complete': next.embeddingComplete++; break;
+              case 'embedding_failed': next.embeddingFailed++; break;
+            }
+            return next;
+          });
+          return;
       }
     };
 
     window.addEventListener('message', handleMessage);
     vscode.postMessage({ command: 'getDebugRuns' });
     vscode.postMessage({ command: 'getEnvironmentInfo' });
+    
+    setIsIndexHistoryLoading(true);
+    vscode.postMessage({ command: 'getIndexHistory' });
+
+    // Safety: don't show loading forever if extension never responds
+    if (indexHistoryTimeoutRef.current !== null) {
+      clearTimeout(indexHistoryTimeoutRef.current);
+    }
+    indexHistoryTimeoutRef.current = window.setTimeout(() => {
+      setIsIndexHistoryLoading(false);
+      indexHistoryTimeoutRef.current = null;
+    }, 5000);
 
     return () => {
+      if (indexHistoryTimeoutRef.current !== null) {
+        clearTimeout(indexHistoryTimeoutRef.current);
+        indexHistoryTimeoutRef.current = null;
+      }
       window.removeEventListener('message', handleMessage);
     };
   }, []);
@@ -53,6 +113,73 @@ export const DebugTab = () => {
 
   const handleDelete = (id: number) => {
     vscode.postMessage({ command: 'deleteDebugRun', id });
+  };
+
+  // --- Index History Helpers (VS Code theme + FluentUI v9 compatible) ---
+  const formatTimestamp = (timestamp: number) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
+
+  const getEventLabel = (eventType: IndexHistoryEntry['eventType']): string => {
+    switch (eventType) {
+      case 'queued': return 'QUEUED';
+      case 'flush': return 'FLUSH';
+      case 'embedding_complete': return 'INDEXED';
+      case 'embedding_failed': return 'FAILED';
+      default: return String(eventType).toUpperCase();
+    }
+  };
+
+  const getEventBadgeColor = (
+    eventType: IndexHistoryEntry['eventType']
+  ): 'informative' | 'success' | 'danger' | 'warning' => {
+    switch (eventType) {
+      case 'queued': return 'informative';
+      case 'flush': return 'warning';
+      case 'embedding_complete': return 'success';
+      case 'embedding_failed': return 'danger';
+      default: return 'informative';
+    }
+  };
+
+  const getStatusColor = (status: IndexHistoryEntry['status']) => {
+    switch (status) {
+      case 'pending':
+        return 'var(--vscode-charts-blue)';
+      case 'indexed':
+        return 'var(--vscode-charts-green)';
+      case 'failed':
+        return 'var(--vscode-errorForeground)';
+      default:
+        return 'var(--vscode-foreground)';
+    }
+  };
+
+  const truncatePath = (p: string, maxLength: number = 80) => {
+    if (p.length <= maxLength) return p;
+    const keep = Math.floor((maxLength - 3) / 2);
+    return `${p.slice(0, keep)}...${p.slice(-keep)}`;
+  };
+
+  const handleIndexHistoryRefresh = () => {
+    if (indexHistoryTimeoutRef.current !== null) {
+      clearTimeout(indexHistoryTimeoutRef.current);
+      indexHistoryTimeoutRef.current = null;
+    }
+
+    setIsIndexHistoryLoading(true);
+    vscode.postMessage({ command: 'getIndexHistory' });
+
+    indexHistoryTimeoutRef.current = window.setTimeout(() => {
+      setIsIndexHistoryLoading(false);
+      indexHistoryTimeoutRef.current = null;
+    }, 5000);
   };
 
   return (
@@ -174,6 +301,84 @@ export const DebugTab = () => {
         ))
       )}
 
+      {/* Index History Section */}
+      <div style={{
+        marginTop: '20px',
+        padding: '12px',
+        backgroundColor: 'var(--vscode-editor-background)',
+        borderRadius: '4px',
+        border: '1px solid var(--vscode-widget-border)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <Text size={200} weight="semibold">
+            Index History
+          </Text>
+          <Button
+            appearance="subtle"
+            icon={<ArrowSyncRegular />}
+            onClick={handleIndexHistoryRefresh}
+            disabled={isIndexHistoryLoading}
+            title="Refresh Index History"
+          >
+            Refresh
+          </Button>
+        </div>
+
+        {isIndexHistoryLoading ? (
+          <Text style={{ opacity: 0.7 }}>Loading index history...</Text>
+        ) : indexEntries.length === 0 ? (
+          <Text style={{ opacity: 0.7 }}>No index history events recorded.</Text>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '10px' }}>
+              <Text size={100}><Badge appearance="filled" color="informative">{indexStats.queued}</Badge> Queued</Text>
+              <Text size={100}><Badge appearance="filled" color="warning">{indexStats.flush}</Badge> Flushed</Text>
+              <Text size={100}><Badge appearance="filled" color="success">{indexStats.embeddingComplete}</Badge> Completed</Text>
+              <Text size={100}><Badge appearance="filled" color="danger">{indexStats.embeddingFailed}</Badge> Failed</Text>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '300px', overflowY: 'auto' }}>
+              {indexEntries.map((entry) => {
+                const statusColor = getStatusColor(entry.status);
+                const badgeColor = getEventBadgeColor(entry.eventType);
+                return (
+                  <div 
+                    key={entry.id} 
+                    style={{ 
+                      padding: '6px', 
+                      borderLeft: `4px solid ${statusColor}`,
+                      backgroundColor: 'var(--vscode-list-hoverBackground)',
+                      borderRadius: '2px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      fontSize: '12px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                        <Badge appearance="filled" color={badgeColor}>
+                          {getEventLabel(entry.eventType)}
+                        </Badge>
+                        <Text size={100} style={{ fontStyle: 'italic', color: 'var(--vscode-sideBarSectionHeader-foreground)' }}>
+                          {formatTimestamp(entry.timestamp)}
+                        </Text>
+                      </div>
+                      {entry.status && (
+                        <Text size={100} style={{ color: statusColor, fontWeight: 'bold' }}>
+                          {entry.status}
+                        </Text>
+                      )}
+                    </div>
+                    <Text size={100} style={{ marginTop: '2px', wordBreak: 'break-all' }}>
+                      {truncatePath(entry.filePath)}
+                    </Text>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
       {/* Environment Info Section */}
       {environmentInfo && (
         <div style={{
