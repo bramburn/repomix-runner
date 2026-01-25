@@ -54,6 +54,9 @@ export class AgentController extends BaseController {
       return;
     }
 
+    // Get token budget from settings
+    const tokenBudget = this.extensionContext.globalState.get<number>('repomix.tokenBudget') ?? 50000;
+
     this.context.postMessage({ command: 'agentStateChange', status: 'running' });
 
     vscode.window.withProgress({
@@ -75,7 +78,8 @@ export class AgentController extends BaseController {
           candidateFiles: [],
           confirmedFiles: [],
           finalCommand: "",
-          outputPath: undefined
+          outputPath: undefined,
+          tokenBudget: tokenBudget
         };
 
         const config = { configurable: { thread_id: `agent_${Date.now()}` } };
@@ -116,7 +120,17 @@ export class AgentController extends BaseController {
               const confirmed = update.confirmedFiles?.length || 0;
               progress.report({
                 message: `Deep analysis: confirmed ${confirmed} relevant files (${currentTokens.toLocaleString()} tokens)...`,
-                increment: 30
+                increment: 20
+              });
+              break;
+            case 'fetchBlueprint':
+              progress.report({ message: "Fetching repository blueprint...", increment: 5 });
+              break;
+            case 'optimizeContext':
+              const processed = update.processedFiles?.length || 0;
+              progress.report({
+                message: `Optimizing context: ${processed} files processed...`,
+                increment: 15
               });
               break;
             case 'commandGeneration':
@@ -222,6 +236,9 @@ export class AgentController extends BaseController {
         return;
       }
 
+      // Get token budget from settings
+      const tokenBudget = this.extensionContext.globalState.get<number>('repomix.tokenBudget') ?? 50000;
+
       const inputs = {
         apiKey,
         userQuery: previousRun.query,
@@ -230,7 +247,8 @@ export class AgentController extends BaseController {
         candidateFiles: [],
         confirmedFiles: useSavedFiles ? previousRun.files : [], // Use saved files or empty for fresh scan
         finalCommand: '',
-        outputPath: previousRun.outputPath
+        outputPath: previousRun.outputPath,
+        tokenBudget: tokenBudget
       };
 
       const config = { configurable: { thread_id: `rerun_${Date.now()}` } };

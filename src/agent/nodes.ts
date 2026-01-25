@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentState } from "./state";
+import { AgentState, ProcessedFile } from "./state";
 import * as tools from "./tools";
 import * as prompts from "./prompts";
 import * as fs from 'fs';
@@ -7,11 +7,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { execPromisify } from '../shared/execPromisify';
 import { logger } from "../shared/logger";
-import { DatabaseService, AgentRunHistory } from '../core/storage/databaseService';
+import { DatabaseService, AgentRunHistory, RepoBlueprint } from '../core/storage/databaseService';
 import * as crypto from 'crypto';
 import { embeddingService } from "../core/indexing/embeddingService";
 import { VectorDbAdapter } from "../core/indexing/vectorDb/types";
 import * as llmClient from "./llmClient";
+import { getBlueprintService } from "../fingerprint/blueprintService";
+import { treeSitterService, TreeSitterService } from "../core/indexing/treeSitterService";
+import { encode } from 'gpt-tokenizer';
 
 // ============================================================================
 // Caching Layer for LLM Responses
@@ -368,6 +371,7 @@ interface BatchFileResult {
 
 interface BatchProcessResult {
   relevantFiles: string[];
+  fileScores: Record<string, number>;
   tokens: number;
   error?: string;
 }
@@ -416,16 +420,23 @@ async function processBatch(
     const result = cacheResult.parsed as { files: BatchFileResult[] };
     const tokens = cacheResult.totalTokens || 0;
 
-    // Filter based on confidence threshold
-    const relevantFiles = result.files
-      .filter(file => file.isRelevant && file.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD)
-      .map(file => file.path);
+    // Filter based on confidence threshold and collect scores
+    const relevantFiles: string[] = [];
+    const fileScores: Record<string, number> = {};
+    
+    for (const file of result.files) {
+      fileScores[file.path] = file.confidence;
+      if (file.isRelevant && file.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
+        relevantFiles.push(file.path);
+      }
+    }
 
-    return { relevantFiles, tokens };
+    return { relevantFiles, fileScores, tokens };
   } catch (error) {
     logger.both.error(`Agent: Error processing batch:`, error);
     return {
       relevantFiles: [],
+      fileScores: {},
       tokens: 0,
       error: error instanceof Error ? error.message : String(error)
     };
@@ -455,6 +466,7 @@ async function processBatchesWithConcurrency(
       return {
         relevantFiles: [],
         tokens: 0,
+        fileScores: {},
         error: error instanceof Error ? error.message : String(error)
       };
     }
@@ -502,6 +514,7 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
     // Aggregate results
     let successCount = 0;
     let errorCount = 0;
+    const allFileScores: Record<string, number> = {};
 
     results.forEach((result, index) => {
       if (result.error) {
@@ -511,27 +524,28 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
         successCount++;
         confirmed.push(...result.relevantFiles);
         stepTokens += result.tokens;
+        // Merge file scores
+        Object.assign(allFileScores, result.fileScores);
       }
     });
 
     logger.both.info(`Agent: Batch processing complete - ${successCount} successful, ${errorCount} failed`);
+    
+    // Remove duplicates (possible when batches overlap in logic)
+    const uniqueConfirmed = Array.from(new Set(confirmed));
+
+    // Failsafe removed to ensure strict relevance filtering
+    if (uniqueConfirmed.length === 0 && state.candidateFiles.length > 0) {
+      logger.both.info("Agent: No relevant files found after deep analysis.");
+      return { confirmedFiles: [], fileRelevanceScores: allFileScores, totalTokens: stepTokens };
+    }
+
+    logger.both.info(`Agent: Confirmed ${uniqueConfirmed.length} files as strictly relevant (used ${stepTokens.toLocaleString()} tokens).`);
+    return { confirmedFiles: uniqueConfirmed, fileRelevanceScores: allFileScores, totalTokens: stepTokens };
   } catch (error) {
     logger.both.error("Agent: Parallel batch processing failed, falling back to sequential", error);
     return await fallbackSequentialProcessing(state, contentMap);
   }
-
-  // Remove duplicates (possible when batches overlap in logic)
-  const uniqueConfirmed = Array.from(new Set(confirmed));
-
-  // Failsafe removed to ensure strict relevance filtering
-  if (uniqueConfirmed.length === 0 && state.candidateFiles.length > 0) {
-    logger.both.info("Agent: No relevant files found after deep analysis.");
-    // Do NOT return fallback files. Return empty to signify no relevant files found.
-    return { confirmedFiles: [], totalTokens: stepTokens };
-  }
-
-  logger.both.info(`Agent: Confirmed ${uniqueConfirmed.length} files as strictly relevant (used ${stepTokens.toLocaleString()} tokens).`);
-  return { confirmedFiles: uniqueConfirmed, totalTokens: stepTokens };
 }
 
 // ============================================================================
@@ -541,13 +555,15 @@ export async function relevanceConfirmation(state: typeof AgentState.State) {
 async function fallbackSequentialProcessing(
   state: typeof AgentState.State,
   contentMap: Map<string, string>
-): Promise<{ confirmedFiles: string[]; totalTokens: number }> {
+): Promise<{ confirmedFiles: string[]; fileRelevanceScores: Record<string, number>; totalTokens: number }> {
   logger.both.info("Agent: Using fallback sequential processing...");
 
   const confirmed: string[] = [];
+  const fileScores: Record<string, number> = {};
 
   const checkSchema = z.object({
-    isRelevant: z.boolean().describe("True if the file is necessary to answer the user query")
+    isRelevant: z.boolean().describe("True if the file is necessary to answer the user query"),
+    confidence: z.number().min(0).max(1).describe("Confidence score between 0 and 1")
   });
 
   let stepTokens = 0;
@@ -573,6 +589,7 @@ async function fallbackSequentialProcessing(
 
       Based on the content, is this file strictly necessary to fulfill the user's request?
       Return true only if it contains logic, definitions, or data relevant to "${state.userQuery}".
+      Also provide a confidence score between 0 and 1.
     `;
 
     try {
@@ -584,8 +601,9 @@ async function fallbackSequentialProcessing(
       );
 
       stepTokens += tokens;
+      fileScores[filePath] = result.confidence;
 
-      if (result.isRelevant) {
+      if (result.isRelevant && result.confidence >= CONFIG.MIN_CONFIDENCE_THRESHOLD) {
         confirmed.push(filePath);
       }
     } catch (e) {
@@ -593,16 +611,44 @@ async function fallbackSequentialProcessing(
     }
   }
 
-  return { confirmedFiles: confirmed, totalTokens: stepTokens };
+  return { confirmedFiles: confirmed, fileRelevanceScores: fileScores, totalTokens: stepTokens };
 }
 
 // Node New: Generate Summary
 export async function generateSummary(state: typeof AgentState.State) {
-  if (state.confirmedFiles.length === 0) return {};
+  // Debug logging to trace state
+  logger.both.info(`Agent: generateSummary - confirmedFiles: ${state.confirmedFiles?.length || 0}, processedFiles: ${state.processedFiles?.length || 0}`);
+  
+  // Skip if no files to process
+  if ((!state.confirmedFiles || state.confirmedFiles.length === 0) && (!state.processedFiles || state.processedFiles.length === 0)) {
+    logger.both.warn("Agent: No files to summarize");
+    return {};
+  }
 
   logger.both.info("Agent: Generating markdown summary...");
   const summaryGenerator = await import('./summaryGenerator.js');
 
+  // Use structured summary if we have processed files with compression tiers
+  if (state.processedFiles && state.processedFiles.length > 0) {
+    logger.both.info(`Agent: Using structured output with semantic folding (${state.processedFiles.length} files)...`);
+    
+    const result = await summaryGenerator.generateStructuredSummary(
+      state.apiKey,
+      state.userQuery,
+      state.processedFiles,
+      state.blueprintSummary || '',
+      state.workspaceRoot
+    );
+
+    return {
+      summaryPath: result.summaryPath,
+      confirmedFiles: result.summaryPath ? [...state.confirmedFiles, result.summaryPath] : state.confirmedFiles,
+      totalTokens: result.totalTokens
+    };
+  }
+
+  // Fallback to original summary generation (for backward compatibility)
+  logger.both.info("Agent: Falling back to legacy summary generation (processedFiles empty)");
   const result = await summaryGenerator.generateMarkdownSummary(
     state.apiKey,
     state.userQuery,
@@ -615,6 +661,328 @@ export async function generateSummary(state: typeof AgentState.State) {
     confirmedFiles: result.summaryPath ? [...state.confirmedFiles, result.summaryPath] : state.confirmedFiles,
     totalTokens: result.totalTokens
   };
+}
+
+// ============================================================================
+// Semantic Folding Nodes
+// ============================================================================
+
+/**
+ * Estimate token count for a string
+ */
+function estimateTokens(text: string): number {
+  try {
+    return encode(text).length;
+  } catch {
+    // Fallback: ~4 characters per token
+    return Math.ceil(text.length / 4);
+  }
+}
+
+/**
+ * Generate a blueprint summary string from a RepoBlueprint
+ */
+function generateBlueprintSummaryText(blueprint: RepoBlueprint): string {
+  const parts: string[] = [];
+
+  // Package info
+  if (blueprint.packageInfo) {
+    const pkg = blueprint.packageInfo;
+    if (pkg.framework) {
+      parts.push(`Framework: ${pkg.framework}`);
+    }
+    if (pkg.language) {
+      parts.push(`Language: ${pkg.language}`);
+    }
+  }
+
+  // Architectural patterns
+  if (blueprint.architecturalPatterns) {
+    const patterns = blueprint.architecturalPatterns;
+    const patternParts: string[] = [];
+    
+    if (patterns.namingConventions) {
+      patternParts.push(`Naming: ${patterns.namingConventions}`);
+    }
+    if (patterns.stateManagement) {
+      patternParts.push(`State: ${patterns.stateManagement}`);
+    }
+    if (patterns.dataFetching) {
+      patternParts.push(`Data Fetching: ${patterns.dataFetching}`);
+    }
+    if (patterns.apiConventions) {
+      patternParts.push(`API: ${patterns.apiConventions}`);
+    }
+    
+    if (patternParts.length > 0) {
+      parts.push(`Patterns: ${patternParts.join('; ')}`);
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : 'No architectural blueprint available.';
+}
+
+/**
+ * Node: Fetch Blueprint
+ * Retrieves architectural context from the repository blueprint.
+ */
+export async function fetchBlueprint(state: typeof AgentState.State) {
+  logger.both.info("Agent: Fetching repository blueprint...");
+
+  try {
+    const blueprintService = getBlueprintService();
+    
+    if (!blueprintService) {
+      logger.both.warn("Agent: Blueprint service not available");
+      return { blueprintSummary: '', totalTokens: 0 };
+    }
+
+    // Get valid blueprint from the service
+    const blueprint = await blueprintService.getValidBlueprint(
+      state.workspaceRoot,
+      state.workspaceRoot
+    );
+
+    if (!blueprint) {
+      logger.both.info("Agent: No valid blueprint found, continuing without architectural context");
+      return { blueprintSummary: '', totalTokens: 0 };
+    }
+
+    // Generate summary text from blueprint
+    const summary = generateBlueprintSummaryText(blueprint);
+    logger.both.info(`Agent: Blueprint summary generated (${summary.length} chars)`);
+
+    return { 
+      blueprintSummary: summary,
+      totalTokens: 0 // No LLM calls needed
+    };
+  } catch (error) {
+    logger.both.warn("Agent: Failed to fetch blueprint, continuing without architectural context", error);
+    return { blueprintSummary: '', totalTokens: 0 };
+  }
+}
+
+/**
+ * Node: Optimize Context
+ * Assigns compression tiers to files based on relevance and token budget.
+ * 
+ * Tier A (Full): High relevance files, full source code
+ * Tier B (Skeleton): Medium relevance files, AST skeletons only
+ * Tier C (Summary): Low relevance files, LLM-generated 2-3 sentence summaries
+ */
+export async function optimizeContext(state: typeof AgentState.State) {
+  const fileCount = state.confirmedFiles.length;
+  const budget = state.tokenBudget || 50000;
+  
+  logger.both.info(`Agent: Optimizing context for ${fileCount} files with ${budget} token budget...`);
+
+  if (fileCount === 0) {
+    return { processedFiles: [], totalTokens: 0 };
+  }
+
+  // Budget allocation percentages
+  const TIER_A_BUDGET = budget * 0.70;  // 70% for full code
+  const TIER_B_BUDGET = budget * 0.20;  // 20% for skeletons
+  // Remaining 10% for summaries
+
+  // Get file contents
+  const contentMap = await tools.getFileContents(state.workspaceRoot, state.confirmedFiles);
+
+  // Calculate tokens and relevance for each file
+  interface FileMetadata {
+    path: string;
+    content: string;
+    tokens: number;
+    relevanceScore: number;
+  }
+
+  const filesWithMetadata: FileMetadata[] = [];
+  
+  for (const filePath of state.confirmedFiles) {
+    const content = contentMap.get(filePath) || '';
+    const tokens = estimateTokens(content);
+    
+    // Get relevance score from state if available, otherwise default to 0.7
+    const relevanceScore = state.fileRelevanceScores?.[filePath] ?? 0.7;
+    
+    filesWithMetadata.push({
+      path: filePath,
+      content,
+      tokens,
+      relevanceScore
+    });
+  }
+
+  // Sort by relevance score (descending) - but since scores are likely all the same,
+  // the original order from relevanceCheck is preserved (already ranked by LLM confidence)
+  filesWithMetadata.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  // Assign tiers based on budget (all confirmed files are considered relevant)
+  // Tier A: Full content - fills up to 70% of budget
+  // Tier B: Skeleton - fills up to 90% of budget (next 20%)
+  // Tier C: Summary - remaining files
+  const tierA: FileMetadata[] = [];
+  const tierB: FileMetadata[] = [];
+  const tierC: FileMetadata[] = [];
+  
+  let tierATokens = 0;
+  let tierBTokens = 0;
+
+  for (const file of filesWithMetadata) {
+    // First try to fit in Tier A (full content)
+    if (tierATokens + file.tokens <= TIER_A_BUDGET) {
+      tierA.push(file);
+      tierATokens += file.tokens;
+    }
+    // Then try Tier B (skeleton - estimated at ~15% of original tokens)
+    else {
+      const skeletonTokensEstimate = Math.max(100, Math.ceil(file.tokens * 0.15));
+      
+      if (tierBTokens + skeletonTokensEstimate <= TIER_B_BUDGET) {
+        tierB.push(file);
+        tierBTokens += skeletonTokensEstimate;
+      } else {
+        // Overflow to Tier C (summary only)
+        tierC.push(file);
+      }
+    }
+  }
+
+  logger.both.info(`Agent: Tier assignment - A:${tierA.length} (full), B:${tierB.length} (skeleton), C:${tierC.length} (summary)`);
+
+  // Process files according to their tiers
+  const processedFiles: ProcessedFile[] = [];
+  let totalTokensUsed = 0;
+
+  // Process Tier A (Full content)
+  for (const file of tierA) {
+    processedFiles.push({
+      path: file.path,
+      content: file.content,
+      compressionLevel: 'full',
+      tokens: file.tokens,
+      relevanceScore: file.relevanceScore
+    });
+    totalTokensUsed += file.tokens;
+  }
+
+  // Process Tier B (Skeletons)
+  // Initialize tree-sitter service
+  try {
+    // WASM files are copied to dist/tree-sitter-wasm/ during build
+    // __dirname at runtime is the dist/ folder
+    treeSitterService.setWasmDirectory(
+      path.join(__dirname, 'tree-sitter-wasm')
+    );
+    await treeSitterService.initialize();
+  } catch (error) {
+    logger.both.warn("Agent: Failed to initialize tree-sitter, Tier B files will use full content", error);
+  }
+
+  for (const file of tierB) {
+    const language = TreeSitterService.detectLanguage(file.path);
+    let processedContent = file.content;
+    let actualTokens = file.tokens;
+    
+    if (language && TreeSitterService.isLanguageSupported(language)) {
+      try {
+        const skeleton = await treeSitterService.generateSkeleton(file.content, language);
+        processedContent = skeleton;
+        actualTokens = estimateTokens(skeleton);
+      } catch (error) {
+        logger.both.warn(`Agent: Failed to generate skeleton for ${file.path}, using full content`, error);
+      }
+    }
+    
+    processedFiles.push({
+      path: file.path,
+      content: processedContent,
+      compressionLevel: 'skeleton',
+      tokens: actualTokens,
+      relevanceScore: file.relevanceScore
+    });
+    totalTokensUsed += actualTokens;
+  }
+
+  // Process Tier C (Summaries)
+  let summaryTokens = 0;
+  for (const file of tierC) {
+    try {
+      const summary = await generateFileSummary(state.apiKey, file.path, file.content);
+      const summaryContent = `// File: ${file.path}\n// Summary: ${summary}`;
+      const tokens = estimateTokens(summaryContent);
+      
+      processedFiles.push({
+        path: file.path,
+        content: summaryContent,
+        compressionLevel: 'summary',
+        tokens,
+        relevanceScore: file.relevanceScore
+      });
+      totalTokensUsed += tokens;
+      summaryTokens += 150; // Approximate tokens per summary call
+    } catch (error) {
+      logger.both.warn(`Agent: Failed to generate summary for ${file.path}`, error);
+      // Fall back to a minimal entry
+      const fallbackContent = `// File: ${file.path}\n// Summary: File content not summarized.`;
+      processedFiles.push({
+        path: file.path,
+        content: fallbackContent,
+        compressionLevel: 'summary',
+        tokens: estimateTokens(fallbackContent),
+        relevanceScore: file.relevanceScore
+      });
+    }
+  }
+
+  logger.both.info(`Agent: Context optimization complete - ${totalTokensUsed} tokens used, ${processedFiles.length} files processed`);
+
+  return {
+    processedFiles,
+    totalTokens: summaryTokens // Only count LLM tokens from summary generation
+  };
+}
+
+/**
+ * Generate a 2-3 sentence summary of a file using LLM
+ */
+async function generateFileSummary(apiKey: string, filePath: string, content: string): Promise<string> {
+  const schema = z.object({
+    summary: z.string().describe("2-3 sentence summary of the file's purpose and key functionality")
+  });
+
+  // Truncate content for efficiency
+  const truncatedContent = content.slice(0, 4000);
+
+  const prompt = `
+Summarize this source file in 2-3 concise sentences.
+Focus on:
+- Primary purpose/functionality
+- Key exports (functions, classes, types)
+- Main dependencies or integrations
+
+File: ${filePath}
+
+Content:
+---
+${truncatedContent}
+---
+
+Provide a clear, technical summary.
+`;
+
+  try {
+    const { parsed } = await llmClient.generateStructured(
+      apiKey,
+      schema,
+      prompt,
+      `Summary: ${path.basename(filePath)}`
+    );
+    return parsed.summary;
+  } catch (error) {
+    logger.both.warn(`Agent: Failed to generate summary for ${filePath}`, error);
+    return 'Summary not available.';
+  }
 }
 
 // Node 5: Command Generation
@@ -630,6 +998,16 @@ export async function commandGeneration(state: typeof AgentState.State) {
   if (state.confirmedFiles.length === 0) {
     logger.both.warn("Agent: No relevant files found. Skipping execution.");
     return { finalCommand: "", outputPath: undefined };
+  }
+
+  // If we have processedFiles from semantic folding, skip repomix CLI
+  // The structured markdown is already created by generateSummary node
+  if (state.processedFiles && state.processedFiles.length > 0 && state.summaryPath) {
+    logger.both.info("Agent: Semantic folding enabled - using structured markdown as output.");
+    return {
+      finalCommand: "", // No CLI command needed
+      outputPath: state.summaryPath // Use the structured markdown as output
+    };
   }
 
   // Generate unique 4-char ID for this run
@@ -666,6 +1044,42 @@ export async function finalExecution(
   let success = false;
   let error: string | undefined;
 
+  // Case 1: Semantic folding - output already exists (structured markdown)
+  if (!state.finalCommand && outputPath && state.processedFiles && state.processedFiles.length > 0) {
+    success = true;
+    const tierA = state.processedFiles.filter(f => f.compressionLevel === 'full').length;
+    const tierB = state.processedFiles.filter(f => f.compressionLevel === 'skeleton').length;
+    const tierC = state.processedFiles.filter(f => f.compressionLevel === 'summary').length;
+    
+    vscode.window.showInformationMessage(
+      `Agent packaged ${state.processedFiles.length} files (Full: ${tierA}, Skeleton: ${tierB}, Summary: ${tierC})`
+    );
+    logger.both.info(`Agent: Semantic folding complete - output at ${outputPath}`);
+
+    // Save successful run to database
+    const runHistory: AgentRunHistory = {
+      id: runId,
+      timestamp: startTime,
+      query: state.userQuery,
+      files: state.confirmedFiles,
+      fileCount: state.confirmedFiles.length,
+      outputPath: outputPath,
+      success: true,
+      duration: Date.now() - startTime,
+      bundleId
+    };
+
+    try {
+      await databaseService.saveAgentRun(runHistory);
+      logger.both.info(`Agent run saved to database: ${runId} (success - semantic folding)`);
+    } catch (dbError) {
+      logger.both.error("Failed to save agent run to database:", dbError);
+    }
+
+    return { outputPath };
+  }
+
+  // Case 2: No command and no semantic folding output
   if (!state.finalCommand) {
     // If generation was intentionally skipped but we have files, treat as success
     if (state.generateFile === false && state.confirmedFiles && state.confirmedFiles.length > 0) {
@@ -700,7 +1114,7 @@ export async function finalExecution(
     return { outputPath: undefined };
   }
 
-  // Execute the final command using the existing runner infrastructure
+  // Case 3: Execute repomix CLI command (legacy path)
   try {
     await execPromisify(state.finalCommand, { cwd: state.workspaceRoot });
     success = true;
@@ -732,7 +1146,6 @@ export async function finalExecution(
     logger.both.info(`Agent run saved to database: ${runId} (${success ? 'success' : 'failed'})`);
   } catch (dbError) {
     logger.both.error("Failed to save agent run to database:", dbError);
-    // Don't throw error here as it shouldn't affect the main functionality
   }
 
   return {

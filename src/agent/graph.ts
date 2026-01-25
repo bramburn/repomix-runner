@@ -31,6 +31,8 @@ export function createSmartRepomixGraph(databaseService: DatabaseService, bundle
       }
     })
     .addNode("relevanceCheck", nodes.relevanceConfirmation)
+    .addNode("fetchBlueprint", nodes.fetchBlueprint)
+    .addNode("optimizeContext", nodes.optimizeContext)
     .addNode("commandGeneration", nodes.commandGeneration)
     .addNode("generateSummary", nodes.generateSummary)
     .addNode("execution", (state) => nodes.finalExecution(state, databaseService, bundleId))
@@ -42,17 +44,22 @@ export function createSmartRepomixGraph(databaseService: DatabaseService, bundle
     // Analyze -> Retrieval
     .addEdge("analyzeObjective", "retrieval")
 
-    // Conditional edge: Skip to command generation if we already have confirmed files (re-pack scenario)
+    // Conditional edge: Skip to fetchBlueprint if we already have confirmed files (re-pack scenario)
     .addConditionalEdges("retrieval", (state) => {
       if (state.confirmedFiles.length > 0) {
-        return "generateSummary"; // Skip directly to summary generation
+        return "fetchBlueprint"; // Skip directly to blueprint fetch
       }
       return "relevanceCheck"; // Continue with normal flow
     })
 
+    // Relevance Check -> Fetch Blueprint
+    .addEdge("relevanceCheck", "fetchBlueprint")
 
-    // Check -> Generate Summary
-    .addEdge("relevanceCheck", "generateSummary")
+    // Fetch Blueprint -> Optimize Context (Semantic Folding)
+    .addEdge("fetchBlueprint", "optimizeContext")
+
+    // Optimize Context -> Generate Summary
+    .addEdge("optimizeContext", "generateSummary")
 
     // Summary -> Generate Command
     .addEdge("generateSummary", "commandGeneration")

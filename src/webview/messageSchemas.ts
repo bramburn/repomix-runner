@@ -511,6 +511,22 @@ export const AnalysisStatusSchema = z.object({
   invalidationReason: z.enum(['ttl', 'hash', 'git', 'manual']).nullable().optional(),
 });
 
+// --- Token Budget Configuration Schemas ---
+
+export const GetTokenBudgetSchema = z.object({
+  command: z.literal('getTokenBudget'),
+});
+
+export const SetTokenBudgetSchema = z.object({
+  command: z.literal('setTokenBudget'),
+  budget: z.number().int().positive(),
+});
+
+export const TokenBudgetSchema = z.object({
+  command: z.literal('tokenBudget'),
+  budget: z.number().int().positive(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -592,6 +608,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   AnalysisProgressSchema,
   AnalysisCompleteSchema,
   AnalysisStatusSchema,
+  // Token Budget
+  GetTokenBudgetSchema,
+  SetTokenBudgetSchema,
+  TokenBudgetSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

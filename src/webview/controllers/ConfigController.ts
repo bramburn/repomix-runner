@@ -58,6 +58,14 @@ export class ConfigController extends BaseController {
         await this.handleSetCopyMode(message.mode);
         return true;
 
+      // --- Token Budget ---
+      case 'getTokenBudget':
+        await this.handleGetTokenBudget();
+        return true;
+      case 'setTokenBudget':
+        await this.handleSetTokenBudget(message.budget);
+        return true;
+
       // --- Vector DB Provider & Qdrant ---
       case 'getVectorDbProvider':
         await this.handleGetVectorDbProvider();
@@ -249,6 +257,16 @@ export class ConfigController extends BaseController {
   private async handleSetCopyMode(mode: string) {
     await this.extensionContext.globalState.update('repomix.runner.copyMode', mode);
     this.context.postMessage({ command: 'updateCopyMode', mode });
+  }
+
+  private async handleGetTokenBudget() {
+    const budget = this.extensionContext.globalState.get<number>('repomix.tokenBudget') ?? 50000;
+    this.context.postMessage({ command: 'tokenBudget', budget });
+  }
+
+  private async handleSetTokenBudget(budget: number) {
+    await this.extensionContext.globalState.update('repomix.tokenBudget', budget);
+    this.context.postMessage({ command: 'tokenBudget', budget });
   }
 
   private async handleGetVectorDbProvider() {

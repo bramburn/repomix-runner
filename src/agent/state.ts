@@ -1,6 +1,17 @@
 import { Annotation } from "@langchain/langgraph";
 
 /**
+ * Processed file with compression level metadata
+ */
+export interface ProcessedFile {
+  path: string;
+  content: string;
+  compressionLevel: 'full' | 'skeleton' | 'summary';
+  tokens: number;
+  relevanceScore: number;
+}
+
+/**
  * Defines the shared memory of the agent as it moves through the graph.
  */
 export const AgentState = Annotation.Root({
@@ -47,5 +58,31 @@ export const AgentState = Annotation.Root({
   totalTokens: Annotation<number>({
     reducer: (x, y) => x + y, // Adds new usage to existing total
     default: () => 0,
+  }),
+
+  // === Semantic Folding Fields ===
+
+  // Token budget from settings (20k/35k/50k/75k/100k)
+  tokenBudget: Annotation<number>({
+    reducer: (curr, next) => next,
+    default: () => 50000,
+  }),
+
+  // Architectural blueprint summary from repository analysis
+  blueprintSummary: Annotation<string>({
+    reducer: (curr, next) => next || curr,
+    default: () => '',
+  }),
+
+  // Files processed with compression levels (full/skeleton/summary)
+  processedFiles: Annotation<ProcessedFile[]>({
+    reducer: (curr, next) => next,
+    default: () => [],
+  }),
+
+  // File relevance scores from relevance check (path -> score mapping)
+  fileRelevanceScores: Annotation<Record<string, number>>({
+    reducer: (curr, next) => ({ ...curr, ...next }),
+    default: () => ({}),
   }),
 });

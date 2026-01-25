@@ -1067,8 +1067,11 @@ export const SearchTab = () => {
             <Label weight="semibold">AI Summary Generated</Label>
             <Text size={200} style={{ opacity: 0.8 }}>A markdown summary of the search results has been created.</Text>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'openFile', filePath: summaryPath })}>
+              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'openFile', path: summaryPath })}>
                 Open Summary
+              </Button>
+              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'copySearchOutput', outputPath: summaryPath })}>
+                Copy Summary
               </Button>
             </div>
           </div>

@@ -134,7 +134,8 @@ export async function rerankResultsWithLLM(
 
     console.log(`[LLM_RERANKING] Re-ranked ${candidateResults.length} results, kept ${rerankedCandidates.length}`);
 
-    return [...rerankedCandidates, ...remainingResults];
+    // Only return LLM-verified relevant files (don't include unverified remainingResults)
+    return rerankedCandidates;
 
   } catch (error) {
     logger.both.error('[LLM_RERANKING] Failed to re-rank results:', error);

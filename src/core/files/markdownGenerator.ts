@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { encode } from 'gpt-tokenizer';
+import { ProcessedFile } from '../../agent/state.js';
 
 /**
  * List of binary file extensions to skip
@@ -143,4 +144,75 @@ export async function generateMarkdownContent(
     const tokenCount = await calculateTokenCount(concatenated);
 
     return { concatenated, tokenCount };
+}
+
+/**
+ * Generates structured markdown output with tiered context.
+ * 
+ * Output is organized into sections:
+ * 1. Architecture - Blueprint summary
+ * 2. Active Context (Full Code) - Tier A files
+ * 3. Structure & Interfaces (Skeletons) - Tier B files  
+ * 4. Supporting Summaries - Tier C files
+ */
+export async function generateStructuredOutput(
+    processedFiles: ProcessedFile[],
+    blueprintSummary: string,
+    userQuery: string
+): Promise<{ content: string; tokenCount: number }> {
+    const sections: string[] = [];
+
+    // Header
+    sections.push(`# Context for: ${userQuery}\n`);
+
+    // Section 1: Architecture
+    if (blueprintSummary && blueprintSummary.trim()) {
+        sections.push(`## 1. Architecture\n\n${blueprintSummary}\n`);
+    }
+
+    // Group files by compression level
+    const fullFiles = processedFiles.filter(f => f.compressionLevel === 'full');
+    const skeletonFiles = processedFiles.filter(f => f.compressionLevel === 'skeleton');
+    const summaryFiles = processedFiles.filter(f => f.compressionLevel === 'summary');
+
+    // Section 2: Active Context (Full Code)
+    if (fullFiles.length > 0) {
+        sections.push(`## 2. Active Context (Full Code)\n`);
+        sections.push(`The following ${fullFiles.length} file(s) are critical to your request and are provided in full.\n`);
+        
+        for (const file of fullFiles) {
+            sections.push(`### ${file.path}\n`);
+            sections.push(`<file path="${file.path}">\n${file.content}\n</file>\n`);
+        }
+    }
+
+    // Section 3: Structure & Interfaces (Skeletons)
+    if (skeletonFiles.length > 0) {
+        sections.push(`## 3. Structure & Interfaces (Skeletons)\n`);
+        sections.push(`The following ${skeletonFiles.length} file(s) provide type contracts and signatures referenced by the active context.\n`);
+        
+        for (const file of skeletonFiles) {
+            sections.push(`### ${file.path}\n`);
+            sections.push(`<file path="${file.path}" compression="skeleton">\n${file.content}\n</file>\n`);
+        }
+    }
+
+    // Section 4: Supporting Summaries
+    if (summaryFiles.length > 0) {
+        sections.push(`## 4. Supporting Summaries\n`);
+        sections.push(`High-level descriptions of ${summaryFiles.length} peripheral file(s) for context.\n`);
+        
+        for (const file of summaryFiles) {
+            // Extract summary content (it starts with "// File:" and "// Summary:")
+            const summaryLine = file.content.split('\n').find(line => line.startsWith('// Summary:'));
+            const summary = summaryLine ? summaryLine.replace('// Summary:', '').trim() : file.content;
+            sections.push(`- **${file.path}**: ${summary}`);
+        }
+        sections.push('');
+    }
+
+    const content = sections.join('\n');
+    const tokenCount = await calculateTokenCount(content);
+
+    return { content, tokenCount };
 }

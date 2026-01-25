@@ -153,6 +153,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
 
+  // Token Budget State
+  const [tokenBudget, setTokenBudget] = useState<number>(50000);
+
   // Compatibility status state
   const [compatibilityStatus, setCompatibilityStatus] = useState<{
     compatible: boolean;
@@ -252,6 +255,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
         case 'updateCopyMode':
           setCopyMode(message.mode);
+          break;
+
+        case 'tokenBudget':
+          setTokenBudget(message.budget ?? 50000);
           break;
 
         case 'qdrantConnectionResult':
@@ -361,6 +368,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
     vscode.postMessage({ command: 'getPineconeIndex' });
     vscode.postMessage({ command: 'getCopyMode' });
+    vscode.postMessage({ command: 'getTokenBudget' });
     vscode.postMessage({ command: 'getEmbeddingConfig' });
     vscode.postMessage({ command: 'checkCompatibility' });
     vscode.postMessage({ command: 'getAnalysisStatus' });
@@ -571,6 +579,35 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           />
           <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
             Select whether to copy the raw text content or the file object itself when using the copy button.
+          </Text>
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* Context Budget Section */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Context Budget</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <Label size="small">Token Limit</Label>
+          <Dropdown 
+            value={tokenBudget.toString()} 
+            onOptionSelect={(_e, data) => {
+              const budget = parseInt(data.optionValue as string) || 50000;
+              setTokenBudget(budget);
+              vscode.postMessage({ command: 'setTokenBudget', budget });
+            }}
+            style={{ width: '160px' }}
+          >
+            <Option value="20000">20k (Compact)</Option>
+            <Option value="35000">35k (Balanced)</Option>
+            <Option value="50000">50k (Standard)</Option>
+            <Option value="75000">75k (Detailed)</Option>
+            <Option value="100000">100k (Full)</Option>
+          </Dropdown>
+          <Text size={100} style={{ opacity: 0.7 }}>
+            Controls how aggressively files are compressed during Smart Agent runs.
+            Smaller budgets use more skeleton/summary compression.
           </Text>
         </div>
       </div>
