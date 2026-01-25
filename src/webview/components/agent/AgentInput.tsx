@@ -8,8 +8,10 @@ interface AgentInputProps {
   isRunning: boolean;
   onRun: () => void;
   lastOutputPath?: string;
+  lastSummaryPath?: string;
   lastFileCount?: number;
   onCopyLastOutput: () => void;
+  onCopySummary: () => void;
 }
 
 export const AgentInput: React.FC<AgentInputProps> = ({
@@ -18,8 +20,10 @@ export const AgentInput: React.FC<AgentInputProps> = ({
   isRunning,
   onRun,
   lastOutputPath,
+  lastSummaryPath,
   lastFileCount,
-  onCopyLastOutput
+  onCopyLastOutput,
+  onCopySummary
 }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -49,6 +53,19 @@ export const AgentInput: React.FC<AgentInputProps> = ({
           title={`Copy generated file (${lastFileCount} files packaged)`}
         >
           Copy Generated File ({lastFileCount} files)
+        </Button>
+      )}
+
+      {/* Copy Summary Button - appears when summary is available */}
+      {lastSummaryPath && !isRunning && (
+        <Button
+          appearance="subtle"
+          icon={<CopyRegular />}
+          onClick={onCopySummary}
+          style={{ width: '100%' }}
+          title="Copy AI-generated summary with tiered context"
+        >
+          Copy Summary
         </Button>
       )}
     </div>

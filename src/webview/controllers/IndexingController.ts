@@ -2,59 +2,295 @@ import * as vscode from 'vscode';
 import { runRepomixOnSelectedFiles } from '../../commands/runRepomixOnSelectedFiles.js';
 import * as path from 'path';
 import * as fs from 'fs';
-import ignore from 'ignore'; // Import ignore package
 
 import { BaseController } from './BaseController.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
 import { getCwd } from '../../config/getCwd.js';
-import { indexRepository } from '../../core/indexing/repoIndexer.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
-
-import { RepoEmbeddingOrchestrator } from '../../core/indexing/repoEmbeddingOrchestrator.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
-
-import { embeddingService } from '../../core/indexing/embeddingService.js';
 import type { ExtensionContext } from 'vscode';
 
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
-// Fixed: Added missing import for RepoSearchResult
-import { RepoSearchResult } from '../../core/indexing/llmReranking.js';
+import { IndexingService, IndexingState, IndexingProgress, IndexingResult } from '../../core/services/IndexingService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
-const SECRET_PINECONE = 'repomix.agent.pineconeApiKey'; // still used by factory (pinecone provider)
-const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo'; // still used by factory
-const STATE_VECTORDB_PROVIDER = 'repomix.vectorDb.provider';
 
-enum IndexingState {
-  IDLE = 'idle',
-  RUNNING = 'running',
-  PAUSED = 'paused',
-  STOPPING = 'stopping',
-}
-
+/**
+ * IndexingController - Thin adapter between webview and IndexingService.
+ * 
+ * This controller:
+ * 1. Receives messages from webview and delegates to IndexingService
+ * 2. Subscribes to IndexingService events and forwards them to webview
+ * 3. Handles search operations (which are not long-running)
+ * 
+ * The actual indexing logic lives in IndexingService, which survives
+ * webview recreations.
+ */
 export class IndexingController extends BaseController {
+  private _eventListeners: Array<() => void> = [];
+
   constructor(
     context: any,
     private readonly databaseService: DatabaseService,
-    private readonly extensionContext: ExtensionContext
+    private readonly extensionContext: ExtensionContext,
+    private readonly indexingService: IndexingService
   ) {
     super(context);
+    this._subscribeToIndexingEvents();
   }
 
-  // Indexing state management
-  private indexingState: IndexingState = IndexingState.IDLE;
-  private currentAbortController: AbortController | null = null;
-  private currentRepoId: string | null = null;
+  /**
+   * Subscribe to IndexingService events and forward them to the webview.
+   * This allows the webview to receive updates even after being recreated.
+   */
+  private _subscribeToIndexingEvents(): void {
+    // State change events
+    const onStateChange = (state: IndexingState) => {
+      this.context.postMessage({ command: 'indexRepoStateChange', state });
+    };
+    this.indexingService.on('stateChange', onStateChange);
+    this._eventListeners.push(() => this.indexingService.off('stateChange', onStateChange));
+
+    // Progress events
+    const onProgress = (progress: IndexingProgress) => {
+      this.context.postMessage({
+        command: 'indexRepoProgress',
+        current: progress.current,
+        total: progress.total,
+        filePath: progress.filePath,
+      });
+    };
+    this.indexingService.on('progress', onProgress);
+    this._eventListeners.push(() => this.indexingService.off('progress', onProgress));
+
+    // Completion events
+    const onComplete = (result: IndexingResult) => {
+      this.context.postMessage({
+        command: 'indexRepoComplete',
+        repoId: result.repoId,
+        filesIndexed: result.filesIndexed,
+        filesEmbedded: result.filesEmbedded,
+        chunksEmbedded: result.chunksEmbedded,
+        vectorsUpserted: result.vectorsUpserted,
+        failedFiles: result.failedFiles,
+        durationMs: result.durationMs,
+      });
+      this.context.postMessage({ command: 'repoIndexComplete', count: result.filesIndexed });
+      // Refresh vector count after indexing
+      void this.handleGetRepoVectorCount(result.repoId);
+    };
+    this.indexingService.on('complete', onComplete);
+    this._eventListeners.push(() => this.indexingService.off('complete', onComplete));
+
+    // Paused events
+    const onPaused = (progress: { completed: number; total: number }) => {
+      this.context.postMessage({ command: 'indexRepoPaused', progress });
+    };
+    this.indexingService.on('paused', onPaused);
+    this._eventListeners.push(() => this.indexingService.off('paused', onPaused));
+
+    // Stopped events
+    const onStopped = (progress: { completed: number; total: number }) => {
+      this.context.postMessage({ command: 'indexRepoStopped', progress });
+    };
+    this.indexingService.on('stopped', onStopped);
+    this._eventListeners.push(() => this.indexingService.off('stopped', onStopped));
+
+    // Error events
+    const onError = (error: string) => {
+      console.error('[IndexingController] Indexing error:', error);
+      vscode.window.showWarningMessage(error);
+    };
+    this.indexingService.on('error', onError);
+    this._eventListeners.push(() => this.indexingService.off('error', onError));
+  }
+
+  /**
+   * Cleanup event listeners when the controller is disposed.
+   */
+  dispose(): void {
+    this._eventListeners.forEach(unsub => unsub());
+    this._eventListeners = [];
+  }
+
+  // ============================================================================
+  // MESSAGE HANDLER
+  // ============================================================================
+
+  async handleMessage(message: any): Promise<boolean> {
+    switch (message.command) {
+      case 'searchRepo':
+        await this.handleSearchRepo(message.query, message.topK, message.useSmartFilter, message.confidenceThreshold);
+        return true;
+
+      case 'generateRepomixFromSearch':
+        await this.handleGenerateRepomixFromSearch(message.files);
+        return true;
+
+      case 'copySearchOutput':
+        await this.handleCopySearchOutput(message.outputPath);
+        return true;
+
+      case 'copySearchResultsMarkdown':
+        await this.handleCopySearchResultsMarkdown(message.files);
+        return true;
+
+      case 'copySearchFilePaths':
+        await this.handleCopySearchFilePaths(message.files);
+        return true;
+
+      case 'indexRepo':
+        await this.handleIndexRepo();
+        return true;
+
+      case 'pauseRepoIndexing':
+        await this.handlePauseRepoIndexing();
+        return true;
+
+      case 'resumeRepoIndexing':
+        await this.handleResumeRepoIndexing();
+        return true;
+
+      case 'stopRepoIndexing':
+        await this.handleStopRepoIndexing();
+        return true;
+
+      case 'getIndexingState':
+        await this.handleGetIndexingState();
+        return true;
+
+      case 'deleteRepoIndex':
+        await this.handleDeleteRepoIndex();
+        return true;
+
+      case 'getRepoIndexCount':
+        await this.handleGetRepoIndexCount();
+        return true;
+
+      case 'getRepoVectorCount':
+        await this.handleGetRepoVectorCount();
+        return true;
+    }
+
+    return false;
+  }
+
+  async onWebviewLoaded() {
+    await this.handleGetIndexingState();
+    await this.handleGetRepoIndexCount();
+  }
+
+  // ============================================================================
+  // INDEXING HANDLERS - Thin adapters that delegate to IndexingService
+  // ============================================================================
+
+  private async handleIndexRepo() {
+    // Delegate to IndexingService - events will be forwarded via subscriptions
+    await this.indexingService.start(false);
+  }
+
+  private async handlePauseRepoIndexing() {
+    await this.indexingService.pause();
+  }
+
+  private async handleResumeRepoIndexing() {
+    await this.indexingService.resume();
+  }
+
+  private async handleStopRepoIndexing() {
+    await this.indexingService.stop();
+  }
+
+  private async handleGetIndexingState() {
+    const { state, progress } = await this.indexingService.getState();
+    
+    if (state === IndexingState.PAUSED && progress) {
+      this.context.postMessage({
+        command: 'indexingStateRestored',
+        state: 'paused',
+        progress
+      });
+    } else {
+      this.context.postMessage({
+        command: 'indexingStateRestored',
+        state: state
+      });
+    }
+  }
+
+  /**
+   * Public API to abort any active indexing and wait for it to return to IDLE.
+   * This is used during provider switching to ensure no races.
+   */
+  public async abortIndexing(): Promise<void> {
+    await this.indexingService.abort();
+  }
+
+  // ============================================================================
+  // NON-INDEXING HANDLERS - These stay in the controller
+  // ============================================================================
+
+  private async handleDeleteRepoIndex() {
+    try {
+      const cwd = getCwd();
+      const repoId = await getRepoId(cwd);
+
+      await this.databaseService.clearRepoFiles(repoId);
+
+      this.context.postMessage({
+        command: 'repoIndexDeleted'
+      });
+
+      vscode.window.showInformationMessage('Repository index cleared.');
+
+    } catch (error) {
+      console.error('Failed to delete repo index:', error);
+      vscode.window.showErrorMessage(`Failed to delete index: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async handleGetRepoVectorCount(preResolvedRepoId?: string) {
+    try {
+      const cwd = getCwd();
+      const repoId = preResolvedRepoId ?? (await getRepoId(cwd));
+
+      const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
+
+      const stats = await adapter.describeRepoStats?.({ repoId });
+      const count = stats?.vectorCount ?? 0;
+
+      this.context.postMessage({ command: 'repoVectorCount', count });
+    } catch {
+      // Don't hard-fail UI; just show 0 if stats aren't available.
+      this.context.postMessage({ command: 'repoVectorCount', count: 0 });
+    }
+  }
+
+  private async handleGetRepoIndexCount() {
+    try {
+      const cwd = getCwd();
+      const repoId = await getRepoId(cwd);
+      const count = await this.databaseService.getRepoFileCount(repoId);
+
+      this.context.postMessage({
+        command: 'repoIndexCount',
+        count
+      });
+
+    } catch (error) {
+      console.error('Failed to get repo index count:', error);
+    }
+  }
+
+  // ============================================================================
+  // SEARCH HANDLERS - These stay in the controller (not long-running)
+  // ============================================================================
 
   private async handleSearchRepo(query: string, topK?: number, useSmartFilter?: boolean, confidenceThreshold?: number) {
     console.log('[INDEXING_CONTROLLER] ===== HANDLE SEARCH REPO START =====');
-    console.log('[INDEXING_CONTROLLER] Query:', query);
-    console.log('[INDEXING_CONTROLLER] TopK:', topK);
-    console.log('[INDEXING_CONTROLLER] Smart Filter:', useSmartFilter);
-    console.log('[INDEXING_CONTROLLER] Confidence Threshold:', confidenceThreshold);
     
     try {
       const q = (query ?? '').trim();
@@ -63,59 +299,40 @@ export class IndexingController extends BaseController {
         return;
       }
 
-      console.log('[INDEXING_CONTROLLER] Getting current working directory...');
       const cwd = getCwd();
-      console.log('[INDEXING_CONTROLLER] CWD:', cwd);
-      
-      console.log('[INDEXING_CONTROLLER] Getting repo ID...');
       const repoId = await getRepoId(cwd);
-      console.log('[INDEXING_CONTROLLER] Repo ID:', repoId);
 
-      console.log('[INDEXING_CONTROLLER] Fetching Google API key...');
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-      console.log('[INDEXING_CONTROLLER] Google API key present:', !!googleKey);
-      console.log('[INDEXING_CONTROLLER] Initializing embedding service...');
+      
+      // Initialize embedding service
       try {
         const { embeddingService } = await import('../../core/indexing/embeddingService.js');
         const config = vscode.workspace.getConfiguration();
         const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
-        console.log('[INDEXING_CONTROLLER] Embedding provider:', provider);
         
         if (provider === 'gemini') {
           if (!googleKey) {
-            console.error('[INDEXING_CONTROLLER] Gemini API key missing');
             this.context.postMessage({
               command: 'repoSearchError',
               error: 'Gemini API key is required for search. Please configure it in Settings.'
             });
             return;
           }
-          console.log('[INDEXING_CONTROLLER] Switching to Gemini provider...');
           embeddingService.switchProvider({
             provider: 'gemini',
             gemini: { apiKey: googleKey }
           });
-          console.log('[INDEXING_CONTROLLER] Gemini provider configured');
         } else if (provider === 'ollama') {
           const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
           const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
           const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
-          console.log('[INDEXING_CONTROLLER] Ollama config:', { url: ollamaUrl, model: ollamaModel, dimension: ollamaDimension });
-          console.log('[INDEXING_CONTROLLER] Switching to Ollama provider...');
           embeddingService.switchProvider({
             provider: 'ollama',
-            ollama: {
-              url: ollamaUrl,
-              model: ollamaModel,
-              dimension: ollamaDimension
-            }
+            ollama: { url: ollamaUrl, model: ollamaModel, dimension: ollamaDimension }
           });
-          console.log('[INDEXING_CONTROLLER] Ollama provider configured');
         }
-        console.log(`[INDEXING_CONTROLLER] Embedding service initialized with ${provider} provider`);
       } catch (embeddingError) {
         const errorDetail = embeddingError instanceof Error ? embeddingError.message : String(embeddingError);
-        console.error('[INDEXING_CONTROLLER] Embedding service initialization error:', embeddingError);
         this.context.postMessage({
           command: 'repoSearchError',
           error: `Failed to initialize embedding service. Please check your embedding provider settings.\nDetails: ${errorDetail}`
@@ -123,17 +340,12 @@ export class IndexingController extends BaseController {
         return;
       }
       
-      // Resolve active vector DB adapter (pinecone or qdrant)
-      console.log('[INDEXING_CONTROLLER] Getting vector DB adapter...');
+      // Resolve vector DB adapter
       let adapter;
       try {
         ({ adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId));
-        console.log('[INDEXING_CONTROLLER] Vector DB adapter initialized successfully');
       } catch (e) {
         const errorDetail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-        console.error('[INDEXING_CONTROLLER] Vector DB adapter error:', e);
-        
-        // Provide more helpful error messages based on error type
         let userFriendlyError = errorDetail;
         
         if (errorDetail.toLowerCase().includes('missing pinecone api key')) {
@@ -144,34 +356,16 @@ export class IndexingController extends BaseController {
           userFriendlyError = 'Qdrant URL is not configured. Please add your Qdrant URL in the Settings tab.';
         } else if (errorDetail.toLowerCase().includes('no qdrant collection configured')) {
           userFriendlyError = 'No Qdrant collection configured. Please select a collection in the Settings tab.';
-        } else if (errorDetail.toLowerCase().includes('qdrant api key is required')) {
-          userFriendlyError = 'Qdrant API key is required for hosted instances. Please add your API key in the Settings tab.';
         }
         
         this.context.postMessage({
           command: 'repoSearchError',
-          error: `Failed to initialize vector database connection.
-
-${userFriendlyError}
-
-Please check your Vector DB settings and try again.`
+          error: `Failed to initialize vector database connection.\n\n${userFriendlyError}\n\nPlease check your Vector DB settings and try again.`
         });
         return;
       }
 
-      console.log('[INDEXING_CONTROLLER] Using LangGraph for search');
-      console.log('[INDEXING_CONTROLLER] Importing search graph...');
       const { runSearchGraph } = await import('../../search/graph.js');
-      console.log('[INDEXING_CONTROLLER] Search graph imported');
-
-      console.log('[INDEXING_CONTROLLER] Running search graph with params:', {
-        repoId,
-        repoRoot: cwd,
-        userQuery: q,
-        smartFilterEnabled: !!useSmartFilter,
-        maxResults: typeof topK === 'number' ? topK : 50,
-        confidenceThreshold: confidenceThreshold,
-      });
 
       const finalState = await runSearchGraph({
         repoId,
@@ -183,13 +377,8 @@ Please check your Vector DB settings and try again.`
         confidenceThreshold: confidenceThreshold,
       }, adapter, this.context);
 
-      console.log('[INDEXING_CONTROLLER] Search graph execution completed');
-      console.log('[INDEXING_CONTROLLER] Errors:', finalState.errors.length);
-      console.log('[INDEXING_CONTROLLER] Final hits:', finalState.finalHits?.length || 0);
-
       if (finalState.errors.length > 0) {
         const firstError = finalState.errors[0];
-        console.error('[INDEXING_CONTROLLER] LangGraph Search Error:', firstError);
         this.context.postMessage({
           command: 'repoSearchError',
           error: `AI Search failed at step "${firstError.node}".\nError: ${firstError.error}`
@@ -198,34 +387,16 @@ Please check your Vector DB settings and try again.`
       }
 
       const results = finalState.finalHits;
-      console.log('[INDEXING_CONTROLLER] Sending results to webview:', results.length);
-
-      // Post results to webview
       this.context.postMessage({ command: 'repoSearchResults', results: results });
-      console.log('[INDEXING_CONTROLLER] Results sent to webview');
 
-      // Log timings for debugging
-      console.log('[INDEXING_CONTROLLER] LangGraph Search Timings:', JSON.stringify(finalState.timings, null, 2));
-
-
-      // Log results (for now we don't need to render them in UI)
       const dedupedPaths = Array.from(
         new Set(results.map((r: any) => (r.path ?? '').trim()).filter(Boolean))
       );
 
-      console.log(
-        `[INDEXING_CONTROLLER] Search "${q}" topK=${typeof topK === 'number' ? topK : 50} matches=${results.length} uniqueFiles=${dedupedPaths.length}`
-      );
-      console.log(`[INDEXING_CONTROLLER] Unique file paths:`, dedupedPaths);
-
-      // --- GENERATE SUMMARY START ---
-      // If Smart Filter passed, generate a markdown summary for the user
+      // Generate summary if Smart Filter passed
       if (useSmartFilter && dedupedPaths.length > 0) {
-        console.log('[INDEXING_CONTROLLER] Generating markdown summary for search results...');
-        console.log('[INDEXING_CONTROLLER] Summary for', dedupedPaths.length, 'files');
         try {
           const { generateMarkdownSummary } = await import('../../agent/summaryGenerator.js');
-          // Resolve absolute paths for the generator
           const absolutePaths = dedupedPaths.map(p => path.join(cwd, p));
 
           const result = await generateMarkdownSummary(
@@ -236,28 +407,19 @@ Please check your Vector DB settings and try again.`
           );
 
           if (result.summaryPath) {
-            console.log('[INDEXING_CONTROLLER] Summary generated at:', result.summaryPath);
             this.context.postMessage({
               command: 'searchSummaryReady',
               summaryPath: result.summaryPath
             });
-          } else {
-            console.log('[INDEXING_CONTROLLER] Summary generation completed but no path returned');
           }
-
         } catch (summaryErr) {
           console.error('[INDEXING_CONTROLLER] Failed to generate summary:', summaryErr);
         }
-      } else {
-        console.log('[INDEXING_CONTROLLER] Skipping summary generation (smartFilter:', useSmartFilter, ', files:', dedupedPaths.length, ')');
       }
-      // --- GENERATE SUMMARY END ---
 
-      // Opportunistically refresh vector count after a search (cheap + useful)
-      // (If it fails, it won't break search UX.)
-      console.log('[INDEXING_CONTROLLER] Refreshing vector count...');
+      // Refresh vector count
       void this.handleGetRepoVectorCount(repoId);
-      console.log('[INDEXING_CONTROLLER] ===== HANDLE SEARCH REPO END =====');
+      
     } catch (err) {
       console.error('[INDEXING_CONTROLLER] Search error:', err);
       this.context.postMessage({
@@ -280,25 +442,17 @@ Please check your Vector DB settings and try again.`
         return;
       }
 
-      // Convert repo-relative paths into URIs
       const uris = cleaned.map((rel) => vscode.Uri.file(path.join(cwd, rel)));
-
-      console.log(`[INDEXING_CONTROLLER] Running repomix for ${cleaned.length} files`);
-      console.log(`[INDEXING_CONTROLLER] repomix --include "${cleaned.join(',')}"`);
 
       await runRepomixOnSelectedFiles(
         uris,
-        {
-          // IMPORTANT: runRepomixOnSelectedFiles will compute includePatterns from these URIs.
-          // If you later want to include glob patterns for directories, pass overrideConfig.include patterns.
-        },
-        undefined, // AbortSignal (optional)
-        this.databaseService // logs debug run if enabled
+        {},
+        undefined,
+        this.databaseService
       );
 
       vscode.window.showInformationMessage(`Repomix started for ${cleaned.length} files.`);
 
-      // Get the output path and notify the webview
       const outputPath = getRepomixOutputPath(cwd);
       this.context.postMessage({
         command: 'searchOutputReady',
@@ -332,7 +486,6 @@ Please check your Vector DB settings and try again.`
   }
 
   private async handleCopySearchResultsMarkdown(files: string[]) {
-    // De-dupe file paths (defensive - webview should already de-dupe)
     const cleaned = Array.from(
       new Set((files ?? []).map((f) => (f ?? '').trim()).filter(Boolean))
     );
@@ -348,11 +501,7 @@ Please check your Vector DB settings and try again.`
 
     const cwd = getCwd();
 
-    console.log(`[INDEXING_CONTROLLER] Copying ${cleaned.length} search results as markdown`);
-    console.log(`[INDEXING_CONTROLLER] Files:`, cleaned);
-
     try {
-      // Show progress notification for large file sets
       const showProgress = cleaned.length > 50;
       let result: { tokenCount: number };
 
@@ -371,15 +520,12 @@ Please check your Vector DB settings and try again.`
         result = await runRepomixClipboardGenerateMarkdown(this.extensionContext, cwd, cleaned);
       }
 
-      // Format token count with thousands separator
       const formattedTokenCount = result.tokenCount.toLocaleString();
       const fileWord = cleaned.length === 1 ? 'file' : 'files';
-
-      const successMessage = `✓ Copied ${cleaned.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`;
+      const successMessage = `Copied ${cleaned.length} ${fileWord} as Markdown (${formattedTokenCount} tokens)`;
 
       vscode.window.showInformationMessage(successMessage);
 
-      // Send success message to webview for UI feedback
       this.context.postMessage({
         command: 'copySuccess',
         message: successMessage,
@@ -390,7 +536,6 @@ Please check your Vector DB settings and try again.`
       console.error('[INDEXING_CONTROLLER] Failed to copy as markdown:', err);
       vscode.window.showErrorMessage(`Failed to copy as markdown: ${msg}`);
 
-      // Send error message to webview
       this.context.postMessage({
         command: 'copyError',
         error: msg,
@@ -399,7 +544,6 @@ Please check your Vector DB settings and try again.`
   }
 
   private async handleCopySearchFilePaths(files: string[]) {
-    // De-dupe file paths (defensive - webview should already de-dupe)
     const cleaned = Array.from(
       new Set((files ?? []).map((f) => (f ?? '').trim()).filter(Boolean))
     );
@@ -409,12 +553,9 @@ Please check your Vector DB settings and try again.`
       return;
     }
 
-    // Format paths with @ prefix and comma separation
-    // Example: @src/webview/components/SearchTab.tsx, @src/webview/App.tsx
-    const formattedPaths = cleaned.map(path => `@${path}`).join(', ');
+    const formattedPaths = cleaned.map(p => `@${p}`).join(', ');
 
     try {
-      // Use VS Code's clipboard API
       await vscode.env.clipboard.writeText(formattedPaths);
       vscode.window.showInformationMessage(
         `Copied ${cleaned.length} file path${cleaned.length === 1 ? '' : 's'} to clipboard.`
@@ -424,442 +565,5 @@ Please check your Vector DB settings and try again.`
       console.error('[INDEXING_CONTROLLER] Failed to copy file paths:', err);
       vscode.window.showErrorMessage(`Failed to copy file paths: ${msg}`);
     }
-  }
-
-  async handleMessage(message: any): Promise<boolean> {
-    switch (message.command) {
-      case 'searchRepo':
-        await this.handleSearchRepo(message.query, message.topK, message.useSmartFilter, message.confidenceThreshold);
-        return true;
-
-
-      case 'generateRepomixFromSearch':
-        await this.handleGenerateRepomixFromSearch(message.files);
-        return true;
-
-      case 'copySearchOutput':
-        await this.handleCopySearchOutput(message.outputPath);
-        return true;
-
-      case 'copySearchResultsMarkdown':
-        await this.handleCopySearchResultsMarkdown(message.files);
-        return true;
-
-      case 'copySearchFilePaths':
-        await this.handleCopySearchFilePaths(message.files);
-        return true;
-
-      case 'indexRepo':
-        await this.handleIndexRepo(false);
-        return true;
-
-      case 'pauseRepoIndexing':
-        await this.handlePauseRepoIndexing();
-        return true;
-
-      case 'resumeRepoIndexing':
-        await this.handleResumeRepoIndexing();
-        return true;
-
-      case 'stopRepoIndexing':
-        await this.handleStopRepoIndexing();
-        return true;
-
-      case 'deleteRepoIndex':
-        await this.handleDeleteRepoIndex();
-        return true;
-
-      case 'getRepoIndexCount':
-        await this.handleGetRepoIndexCount();
-        return true;
-
-      case 'getRepoVectorCount':
-        await this.handleGetRepoVectorCount();
-        return true;
-    }
-
-    return false;
-  }
-
-  async onWebviewLoaded() {
-    await this.handleGetRepoIndexCount();
-  }
-
-  private async handleIndexRepo(resumeFromCheckpoint: boolean = false) {
-    // Check if indexing is blocked due to dimension mismatch
-    const isBlocked = this.extensionContext.globalState.get('repomix.indexingBlocked');
-    if (isBlocked) {
-      console.log('[INDEXING_CONTROLLER] Indexing blocked due to dimension mismatch');
-      vscode.window.showWarningMessage(
-        'Indexing blocked: Embedding dimension mismatch detected. ' +
-        'Please reset your vector index from the Settings tab before indexing.'
-      );
-      this.context.postMessage({
-        command: 'indexRepoStateChange',
-        state: 'idle'
-      });
-      return;
-    }
-
-    const overallStart = Date.now();
-    console.log(`[INDEXING_CONTROLLER] Starting repository indexing process (resume: ${resumeFromCheckpoint})`);
-
-    const cwd = getCwd();
-    console.log(`[INDEXING_CONTROLLER] Working directory: ${cwd}`);
-
-    const repoIdStart = Date.now();
-    const repoId = await getRepoId(cwd);
-
-    const repoIdDuration = Date.now() - repoIdStart;
-    console.log(`[INDEXING_CONTROLLER] Repo ID generated in ${repoIdDuration}ms: ${repoId}`);
-    this.currentRepoId = repoId;
-
-    // Create AbortController for this session
-    this.currentAbortController = new AbortController();
-    this.indexingState = IndexingState.RUNNING;
-    this.context.postMessage({ command: 'indexRepoStateChange', state: 'running' });
-
-    let filesIndexed = 0;
-
-    try {
-      // Only do database indexing and secret resolution if not resuming
-      if (!resumeFromCheckpoint) {
-        // 1) Persist file paths into SQLite
-        console.log(`[INDEXING_CONTROLLER] Step 1: Indexing files to database...`);
-        const dbIndexStart = Date.now();
-        filesIndexed = await indexRepository(cwd, this.databaseService);
-        const dbIndexDuration = Date.now() - dbIndexStart;
-        console.log(`[INDEXING_CONTROLLER] Step 1 completed: ${filesIndexed} files indexed to DB in ${dbIndexDuration}ms`);
-
-        // Initialize progress tracking
-        const files = await this.databaseService.getRepoFiles(repoId);
-        await this.databaseService.initializeIndexingProgress(repoId, files);
-      } else {
-        filesIndexed = (await this.databaseService.getRepoFiles(repoId)).length;
-      }
-
-      // 2) Resolve secrets + vector DB adapter
-      console.log(`[INDEXING_CONTROLLER] Step 2: Resolving API keys and vector DB adapter...`);
-      const secretsStart = Date.now();
-      const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-      const secretsDuration = Date.now() - secretsStart;
-      console.log(`[INDEXING_CONTROLLER] Secrets resolved in ${secretsDuration}ms (Google key: ${googleKey ? '✓' : '✗'})`);
-
-      if (!googleKey) {
-        const durationMs = Date.now() - overallStart;
-        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Missing Google Gemini API key`);
-        this.context.postMessage({
-          command: 'indexRepoComplete',
-          repoId,
-          filesIndexed,
-          filesEmbedded: 0,
-          chunksEmbedded: 0,
-          vectorsUpserted: 0,
-          failedFiles: 0,
-          durationMs,
-        });
-        this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
-        this.indexingState = IndexingState.IDLE;
-        return;
-      }
-
-      // Resolve vector DB adapter
-      let adapter;
-      let adapterError: string | undefined;
-      try {
-        const result = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
-        adapter = result.adapter;
-        console.log(`[INDEXING_CONTROLLER] Vector DB adapter resolved: ${result.provider}`);
-      } catch (e) {
-        adapterError = e instanceof Error ? e.message : String(e);
-        console.log(`[INDEXING_CONTROLLER] Cannot proceed: Vector DB configuration error: ${adapterError}`);
-      }
-
-      if (!adapter) {
-        const durationMs = Date.now() - overallStart;
-        console.log(`[INDEXING_CONTROLLER] Cannot proceed: ${adapterError}`);
-        this.context.postMessage({
-          command: 'indexRepoComplete',
-          repoId,
-          filesIndexed,
-          filesEmbedded: 0,
-          chunksEmbedded: 0,
-          vectorsUpserted: 0,
-          failedFiles: 0,
-          durationMs,
-        });
-        this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
-        this.indexingState = IndexingState.IDLE;
-        return;
-      }
-
-      // Get progress status
-      const completedCount = await this.databaseService.getCompletedFilesCount(repoId);
-      const pendingFiles = await this.databaseService.getPendingFiles(repoId);
-      const totalFiles = completedCount + pendingFiles.length;
-
-      console.log(`[INDEXING_CONTROLLER] Progress: ${completedCount} completed, ${pendingFiles.length} pending, ${totalFiles} total`);
-
-      // 3) Embed + upsert to vector DB
-      console.log(`[INDEXING_CONTROLLER] Step 3: Starting embedding and vector DB upsert...`);
-      const embeddingStart = Date.now();
-      const orchestrator = new RepoEmbeddingOrchestrator(
-        this.databaseService
-      );
-
-      console.log(`[INDEXING_CONTROLLER] Created orchestrator, starting embedRepository...`);
-      const summary = await orchestrator.embedRepository(
-        repoId, cwd, googleKey, adapter,
-        {}, // pipeline config
-        (current: number, total: number, filePath: string) => {
-          const actualCurrent = completedCount + current;
-          // Log every 10th file
-          if (actualCurrent % 10 === 1 || actualCurrent === total) {
-            console.log(`[INDEXING_CONTROLLER] Progress: ${actualCurrent}/${total} files - ${filePath}`);
-          }
-          this.context.postMessage({
-            command: 'indexRepoProgress',
-            current: actualCurrent,
-            total,
-            filePath,
-          });
-        },
-        this.currentAbortController.signal
-      );
-
-      // Check if we were paused/stopped during processing
-      // Note: state can change to PAUSED or STOPPING via external handlers during async operation
-      if (this.indexingState !== IndexingState.RUNNING) {
-        const progress = {
-          completed: completedCount + summary.successfulFiles,
-          total: totalFiles
-        };
-        if (this.indexingState === IndexingState.PAUSED) {
-          console.log(`[INDEXING_CONTROLLER] Indexing paused at ${progress.completed}/${progress.total}`);
-          this.context.postMessage({
-            command: 'indexRepoPaused',
-            progress
-          });
-        } else if (this.indexingState === IndexingState.STOPPING) {
-          console.log(`[INDEXING_CONTROLLER] Indexing stopped at ${progress.completed}/${progress.total}`);
-          this.context.postMessage({
-            command: 'indexRepoStopped',
-            progress
-          });
-          this.indexingState = IndexingState.IDLE;
-          // Clean up progress
-          await this.databaseService.clearIndexingProgress(repoId);
-        }
-        return;
-      }
-
-      // Normal completion
-      const embeddingDuration = Date.now() - embeddingStart;
-      console.log(`[INDEXING_CONTROLLER] Step 3 completed: Embedding finished in ${embeddingDuration}ms`);
-
-      const durationMs = Date.now() - overallStart;
-      console.log(`[INDEXING_CONTROLLER] Total indexing completed in ${durationMs}ms`);
-
-      const vectorsUpserted = summary.totalVectors;
-      const chunksEmbedded = summary.totalVectors;
-
-      console.log(`[INDEXING_CONTROLLER] Final summary: ${filesIndexed} files indexed, ${summary.successfulFiles} embedded, ${vectorsUpserted} vectors, ${summary.failedFiles} failed`);
-
-      // Clear progress after successful completion
-      await this.databaseService.clearIndexingProgress(repoId);
-
-      this.context.postMessage({
-        command: 'indexRepoComplete',
-        repoId,
-        filesIndexed,
-        filesEmbedded: summary.successfulFiles,
-        chunksEmbedded,
-        vectorsUpserted,
-        failedFiles: summary.failedFiles,
-        durationMs,
-      });
-
-      this.context.postMessage({ command: 'repoIndexComplete', count: filesIndexed });
-      this.context.postMessage({ command: 'indexRepoStateChange', state: 'idle' });
-
-      // Refresh vector count after indexing
-      void this.handleGetRepoVectorCount(repoId);
-
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const errorName = error instanceof Error ? error.name : '';
-
-      // Check if this was an abort (pause or stop)
-      // Note: state can be changed by pause/stop handlers during async operation
-      if (errorMsg === 'Aborted' || errorName === 'AbortError') {
-        const completedCount = await this.databaseService.getCompletedFilesCount(repoId || '');
-        const status = await this.databaseService.getIndexingStatus(repoId || '');
-        const progress = {
-          completed: completedCount,
-          total: completedCount + status.pending
-        };
-
-        const currentState = this.indexingState as IndexingState;
-        if (currentState === IndexingState.PAUSED) {
-          console.log(`[INDEXING_CONTROLLER] Indexing paused at ${progress.completed}/${progress.total}`);
-          this.context.postMessage({
-            command: 'indexRepoPaused',
-            progress
-          });
-          return;
-        } else if (currentState === IndexingState.STOPPING) {
-          console.log(`[INDEXING_CONTROLLER] Indexing stopped at ${progress.completed}/${progress.total}`);
-          this.context.postMessage({
-            command: 'indexRepoStopped',
-            progress
-          });
-          this.indexingState = IndexingState.IDLE;
-          // Clean up progress on stop
-          await this.databaseService.clearIndexingProgress(repoId || '');
-          return;
-        }
-      }
-
-      // Real error
-      console.error('[INDEXING_CONTROLLER] Indexing failed:', error);
-      this.indexingState = IndexingState.IDLE;
-      this.context.postMessage({
-        command: 'indexRepoStateChange',
-        state: 'idle'
-      });
-    }
-  }
-
-  private async handlePauseRepoIndexing() {
-    if (this.indexingState !== IndexingState.RUNNING) {
-      console.log(`[INDEXING_CONTROLLER] Cannot pause: not running (state: ${this.indexingState})`);
-      return;
-    }
-
-    console.log(`[INDEXING_CONTROLLER] Pausing indexing...`);
-    this.indexingState = IndexingState.PAUSED;
-    this.context.postMessage({ command: 'indexRepoStateChange', state: 'paused' });
-
-    // Signal workers to stop after current file (graceful stop)
-    this.currentAbortController?.abort();
-  }
-
-  private async handleResumeRepoIndexing() {
-    if (this.indexingState !== IndexingState.PAUSED) {
-      console.log(`[INDEXING_CONTROLLER] Cannot resume: not paused (state: ${this.indexingState})`);
-      return;
-    }
-
-    console.log(`[INDEXING_CONTROLLER] Resuming indexing...`);
-    this.indexingState = IndexingState.RUNNING;
-    this.context.postMessage({ command: 'indexRepoStateChange', state: 'running' });
-
-    // Restart embedding phase with existing progress
-    await this.handleIndexRepo(true); // resumeFromCheckpoint = true
-  }
-
-  private async handleStopRepoIndexing() {
-    if (this.indexingState !== IndexingState.RUNNING && this.indexingState !== IndexingState.PAUSED) {
-      console.log(`[INDEXING_CONTROLLER] Cannot stop: not running or paused (state: ${this.indexingState})`);
-      return;
-    }
-
-    console.log(`[INDEXING_CONTROLLER] Stopping indexing...`);
-    this.indexingState = IndexingState.STOPPING;
-    this.context.postMessage({ command: 'indexRepoStateChange', state: 'stopping' });
-
-    // Signal workers to stop after current file (graceful stop)
-    this.currentAbortController?.abort();
-  }
-
-
-  private async handleDeleteRepoIndex() {
-    try {
-      const cwd = getCwd();
-      const repoId = await getRepoId(cwd);
-
-      await this.databaseService.clearRepoFiles(repoId);
-
-      this.context.postMessage({
-        command: 'repoIndexDeleted'
-      });
-
-      vscode.window.showInformationMessage('Repository index cleared.');
-
-    } catch (error) {
-      console.error('Failed to delete repo index:', error);
-      vscode.window.showErrorMessage(`Failed to delete index: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  // Adjusted signature to allow optional params but not required
-  private async handleGetRepoVectorCount(preResolvedRepoId?: string, _unused?: any, _unused2?: any, _unused3?: any) {
-    try {
-      const cwd = getCwd();
-      const repoId = preResolvedRepoId ?? (await getRepoId(cwd));
-
-      const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
-
-      const stats = await adapter.describeRepoStats?.({ repoId });
-      const count = stats?.vectorCount ?? 0;
-
-      this.context.postMessage({ command: 'repoVectorCount', count });
-    } catch {
-      // Don’t hard-fail UI; just show 0 if stats aren’t available.
-      this.context.postMessage({ command: 'repoVectorCount', count: 0 });
-    }
-  }
-
-
-  private async handleGetRepoIndexCount() {
-
-    try {
-      const cwd = getCwd();
-      const repoId = await getRepoId(cwd);
-      const count = await this.databaseService.getRepoFileCount(repoId);
-
-      this.context.postMessage({
-        command: 'repoIndexCount',
-        count
-      });
-
-    } catch (error) {
-      console.error('Failed to get repo index count:', error);
-    }
-  }
-
-  /**
-   * Public API to abort any active indexing and wait for it to return to IDLE.
-   * This is used during provider switching to ensure no races.
-   */
-  public async abortIndexing(): Promise<void> {
-    if ((this.indexingState as any) === 'idle') {
-      return;
-    }
-
-    console.log(`[IndexingController] abortIndexing called (current state: ${this.indexingState})`);
-
-    // Trigger stop if not already stopping
-    if ((this.indexingState as any) !== 'stopping') {
-      await this.handleStopRepoIndexing();
-    }
-
-    // Wait for state to transition back to IDLE
-    // (The handleIndexRepo loop is responsible for setting state back to IDLE)
-    return new Promise((resolve) => {
-      const startTime = Date.now();
-      const check = setInterval(() => {
-        if ((this.indexingState as any) === 'idle') {
-          clearInterval(check);
-          resolve();
-        }
-        // Safety timeout (30 seconds)
-        if (Date.now() - startTime > 30000) {
-          console.warn('[IndexingController] abortIndexing timed out waiting for IDLE state');
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-    });
   }
 }

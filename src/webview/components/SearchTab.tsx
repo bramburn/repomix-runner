@@ -465,6 +465,26 @@ export const SearchTab = () => {
       console.log('[SearchTab] Received message:', message.command);
 
       switch (message.command) {
+        case 'hydrate':
+          // Handle consolidated hydrate state
+          console.log('[SearchTab] Received hydrate state');
+          if (typeof message.repoIndexCount === 'number') {
+            setFileCount(message.repoIndexCount);
+          }
+          if (typeof message.indexingBlocked === 'boolean') {
+            setIndexingBlocked(message.indexingBlocked);
+          }
+          if (message.indexingState) {
+            setIndexingState(message.indexingState);
+            if (message.indexingState === 'running') {
+              setIsIndexing(true);
+            }
+            if (message.indexingState === 'paused' && message.indexingProgress) {
+              setPausedProgress(message.indexingProgress);
+            }
+          }
+          break;
+
         case 'repoIndexCount':
           setFileCount(message.count);
           break;
@@ -522,6 +542,20 @@ export const SearchTab = () => {
           setIsIndexing(false);
           setIndexProgress(null);
           setPausedProgress(null);
+          break;
+
+        case 'indexingStateRestored':
+          // Restore pause state from backend (e.g., after VS Code restart)
+          if (message.state === 'paused' && message.progress) {
+            setIndexingState('paused');
+            setPausedProgress(message.progress);
+          } else if (message.state === 'idle') {
+            // Only reset if not currently running
+            if (indexingState !== 'running') {
+              setIndexingState('idle');
+              setPausedProgress(null);
+            }
+          }
           break;
 
         case 'repoVectorCount':
@@ -592,6 +626,7 @@ export const SearchTab = () => {
 
     window.addEventListener('message', handleMessage);
 
+    vscode.postMessage({ command: 'getIndexingState' });
     vscode.postMessage({ command: 'getRepoIndexCount' });
     vscode.postMessage({ command: 'getRepoVectorCount' });
     vscode.postMessage({ command: 'getVectorDbProvider' });

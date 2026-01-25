@@ -144,13 +144,15 @@ export class AgentController extends BaseController {
 
         const fileCount = finalState.confirmedFiles.length;
         const outputPath = finalState.outputPath;
+        const summaryPath = finalState.summaryPath;
         const totalTokens = finalState.totalTokens || 0;
 
         if (fileCount > 0 && outputPath) {
-          // Success - notify webview with output path
+          // Success - notify webview with output path and summary path
           this.context.postMessage({
             command: 'agentRunComplete',
             outputPath: outputPath,
+            summaryPath: summaryPath,
             fileCount: fileCount,
             query: query,
             tokens: totalTokens

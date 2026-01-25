@@ -23,6 +23,7 @@ export const AgentView = () => {
   const [history, setHistory] = useState<AgentRunHistoryItem[]>([]);
   const [agentState, setAgentState] = useState<AgentState>({
     lastOutputPath: initialState.agentLastRun?.lastOutputPath,
+    lastSummaryPath: initialState.agentLastRun?.lastSummaryPath,
     lastFileCount: initialState.agentLastRun?.lastFileCount,
     lastQuery: initialState.agentLastRun?.lastQuery,
     lastTokens: initialState.agentLastRun?.lastTokens,
@@ -44,6 +45,7 @@ export const AgentView = () => {
         setIsRunning(false);
         const newState = {
           lastOutputPath: event.data.outputPath,
+          lastSummaryPath: event.data.summaryPath,
           lastFileCount: event.data.fileCount,
           lastQuery: event.data.query,
           lastTokens: event.data.tokens,
@@ -99,6 +101,11 @@ export const AgentView = () => {
     vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastOutputPath });
   };
 
+  const handleCopySummary = () => {
+    if (!agentState.lastSummaryPath) return;
+    vscode.postMessage({ command: 'copyLastAgentOutput', outputPath: agentState.lastSummaryPath });
+  };
+
   const handleRegenerateAgentRun = (runId: string) => {
     vscode.postMessage({ command: 'regenerateAgentRun', runId });
   };
@@ -127,8 +134,10 @@ export const AgentView = () => {
         isRunning={isRunning}
         onRun={handleRun}
         lastOutputPath={agentState.lastOutputPath}
+        lastSummaryPath={agentState.lastSummaryPath}
         lastFileCount={agentState.lastFileCount}
         onCopyLastOutput={handleCopyLastAgentOutput}
+        onCopySummary={handleCopySummary}
       />
 
       <AgentStatus
