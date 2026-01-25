@@ -629,6 +629,7 @@ export async function generateSummary(state: typeof AgentState.State) {
   const summaryGenerator = await import('./summaryGenerator.js');
 
   // Use structured summary if we have processed files with compression tiers
+  
   if (state.processedFiles && state.processedFiles.length > 0) {
     logger.both.info(`Agent: Using structured output with semantic folding (${state.processedFiles.length} files)...`);
     

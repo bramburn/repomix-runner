@@ -80,6 +80,19 @@ export const App = () => {
       const message = event.data;
       console.log('[quick-repomix] Message received from extension:', message.command);
       switch (message.command) {
+        case 'hydrate':
+          // Handle consolidated hydrate state
+          console.log('[quick-repomix] Received hydrate state');
+          if (message.version) {
+            setVersion(message.version);
+          }
+          if (message.bundles) {
+            setBundles(message.bundles);
+          }
+          if (message.defaultRepomix) {
+            setDefaultRepomixInfo(message.defaultRepomix);
+          }
+          break;
         case 'updateBundles':
           setBundles(message.bundles);
           break;

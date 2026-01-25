@@ -72,7 +72,8 @@ export async function generateMarkdownSummary(
         // 4. Save the summary
         const fileName = `summary-${Date.now()}.md`;
         const summaryPath = path.join(runnerDir, fileName);
-        fs.writeFileSync(summaryPath, summaryMarkdown);
+        const summaryAndContext = summaryMarkdown + '\n\n' + fullContent;
+        fs.writeFileSync(summaryPath, summaryAndContext);
 
         logger.both.info(`SummaryGenerator: Summary generated at ${summaryPath}`);
 
@@ -93,7 +94,12 @@ export async function generateMarkdownSummary(
 /**
  * Generates a structured markdown summary from processed files with tiered compression.
  * 
- * @param apiKey - Google API Key (unused, kept for interface consistency)
+ * This function:
+ * 1. Generates tiered context content from processedFiles (Full/Skeleton/Summary)
+ * 2. Calls LLM with GENERATE_SUMMARY_PROMPT to create a strategic overview
+ * 3. Writes final file as: [LLM Overview] + "\n\n" + [Tiered Context]
+ * 
+ * @param apiKey - Google API Key for LLM call
  * @param query - The user's original query
  * @param processedFiles - Files with their compression levels and content
  * @param blueprintSummary - Architectural context from blueprint
@@ -112,36 +118,57 @@ export async function generateStructuredSummary(
 
     logger.both.info(`SummaryGenerator: Generating structured summary for ${processedFiles.length} files...`);
 
+    // Log tier breakdown
+    const tierA = processedFiles.filter(f => f.compressionLevel === 'full').length;
+    const tierB = processedFiles.filter(f => f.compressionLevel === 'skeleton').length;
+    const tierC = processedFiles.filter(f => f.compressionLevel === 'summary').length;
+    logger.both.info(`SummaryGenerator: Tier breakdown - Full: ${tierA}, Skeleton: ${tierB}, Summary: ${tierC}`);
+
     try {
-        // Generate structured output
-        const { content, tokenCount } = await generateStructuredOutput(
+        // Step 1: Generate tiered context content
+        const { content: tieredContent, tokenCount } = await generateStructuredOutput(
             processedFiles,
             blueprintSummary,
             query
         );
 
-        // Ensure .repomix-runner/ directory exists
+        logger.both.info(`SummaryGenerator: Tiered content generated (${tokenCount} tokens)`);
+
+        // Step 2: Call LLM with GENERATE_SUMMARY_PROMPT to create strategic overview
+        // Truncate if extremely large to avoid context window issues
+        const safeContent = tieredContent.length > 100000 
+            ? tieredContent.substring(0, 100000) + '\n...[TRUNCATED]' 
+            : tieredContent;
+        
+        const prompt = prompts.GENERATE_SUMMARY_PROMPT(query, safeContent);
+        
+        logger.both.info(`SummaryGenerator: Calling LLM to generate strategic overview...`);
+        
+        const { content: summaryMarkdown, totalTokens } = await llmClient.generateText(
+            apiKey,
+            prompt,
+            "Generate Structured Summary"
+        );
+
+        logger.both.debug(`SummaryGenerator: LLM response type: ${typeof summaryMarkdown}, length: ${summaryMarkdown?.length}`);
+
+        // Step 3: Ensure .repomix-runner/ directory exists
         const runnerDir = path.join(workspaceRoot, '.repomix-runner');
         if (!fs.existsSync(runnerDir)) {
             fs.mkdirSync(runnerDir, { recursive: true });
         }
 
-        // Save the summary
+        // Step 4: Write final file as: [LLM Summary] + "\n\n" + [Tiered Content]
         const fileName = `summary-${Date.now()}.md`;
         const summaryPath = path.join(runnerDir, fileName);
-        fs.writeFileSync(summaryPath, content);
+        const finalContent = summaryMarkdown + '\n\n' + tieredContent;
+        fs.writeFileSync(summaryPath, finalContent);
 
-        logger.both.info(`SummaryGenerator: Structured summary generated at ${summaryPath} (${tokenCount} tokens)`);
-
-        // Log tier breakdown
-        const tierA = processedFiles.filter(f => f.compressionLevel === 'full').length;
-        const tierB = processedFiles.filter(f => f.compressionLevel === 'skeleton').length;
-        const tierC = processedFiles.filter(f => f.compressionLevel === 'summary').length;
-        logger.both.info(`SummaryGenerator: Tier breakdown - Full: ${tierA}, Skeleton: ${tierB}, Summary: ${tierC}`);
+        logger.both.info(`SummaryGenerator: Structured summary generated at ${summaryPath} (${totalTokens} LLM tokens used)`);
 
         return {
             summaryPath,
-            totalTokens: 0 // No LLM calls in this path
+            totalTokens
         };
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

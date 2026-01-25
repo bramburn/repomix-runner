@@ -38,6 +38,7 @@ import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import ignore from 'ignore';
+import { ExtensionServices } from './core/services/ExtensionServices.js';
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -95,6 +96,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const cwd = getCwd();
   const bundleManager = new BundleManager(cwd);
 
+  // Initialize ExtensionServices singleton
+  const extensionServices = ExtensionServices.initialize(
+    databaseService,
+    bundleManager,
+    context
+  );
+  console.log('[quick-repomix] ExtensionServices initialized');
+
   // ==============================================================================
   // BACKGROUND INDEXING MONITOR
   // ==============================================================================
@@ -134,8 +143,18 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log(`[BackgroundMonitor] ===== INITIALIZING BACKGROUND MONITOR =====`);
 
   try {
-    const repoRoot = getCwd();
-    console.log(`[BackgroundMonitor] Workspace root: ${repoRoot}`);
+    // Check if background indexing is enabled in settings
+    const bgConfig = vscode.workspace.getConfiguration('repomix.backgroundIndexing');
+    const backgroundIndexingEnabled = bgConfig.get<boolean>('enabled', true);
+    const debounceMs = bgConfig.get<number>('debounceMs', 2500);
+
+    if (!backgroundIndexingEnabled) {
+      console.log(`[BackgroundMonitor] Background indexing disabled in settings - skipping setup`);
+    } else {
+      console.log(`[BackgroundMonitor] Background indexing enabled (debounce: ${debounceMs}ms)`);
+
+      const repoRoot = getCwd();
+      console.log(`[BackgroundMonitor] Workspace root: ${repoRoot}`);
 
     const repoId = await getRepoId(repoRoot);
     console.log(`[BackgroundMonitor] Repository ID: ${repoId}`);
@@ -277,7 +296,7 @@ export async function activate(context: vscode.ExtensionContext) {
             undefined  // no AbortSignal (background runs until complete)
           );
         },
-        2500 // 2.5 second debounce - batches rapid file saves
+        debounceMs // Use configurable debounce from settings
       );
 
       // Create VS Code file system watcher for all files recursively
@@ -388,6 +407,7 @@ export async function activate(context: vscode.ExtensionContext) {
       console.log(`[BackgroundMonitor] To enable: Configure API keys and vector database settings in Settings`);
       logger.both.info('[BackgroundMonitor] Skipping (missing API keys or vector database configuration)');
     }
+    } // Close backgroundIndexingEnabled check
   } catch (error) {
     // Non-fatal error: log it but continue extension activation
     console.error(`[BackgroundMonitor] ✗ Failed to initialize file watcher:`);
@@ -416,7 +436,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
   console.log('[quick-repomix] Creating RepomixWebviewProvider...');
-  const provider = new RepomixWebviewProvider(context.extensionUri, bundleManager, context, databaseService);
+  const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices);
   console.log('[quick-repomix] RepomixWebviewProvider created');
 
   console.log('[quick-repomix] Registering webview view provider...');

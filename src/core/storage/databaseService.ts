@@ -254,6 +254,18 @@ export class DatabaseService {
       );
     `);
 
+    // Indexing pause checkpoint for resumable indexing
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS indexing_pause_checkpoint (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id TEXT NOT NULL UNIQUE,
+        paused_at INTEGER NOT NULL,
+        completed_count INTEGER NOT NULL,
+        total_count INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_timestamp ON agent_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON debug_runs(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
@@ -265,6 +277,7 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_repo_id ON index_history(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_repo_id ON repo_blueprints(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_expires_at ON repo_blueprints(expires_at)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_indexing_pause_checkpoint_repo_id ON indexing_pause_checkpoint(repo_id)`);
 
     // Run migrations for existing databases
     await this.runMigrations();
@@ -748,6 +761,117 @@ export class DatabaseService {
     stmt.free();
 
     await this.saveDatabase();
+  }
+
+  // ========== Pause Checkpoint Methods (Resumable Indexing) ==========
+
+  /**
+   * Save a pause checkpoint for resumable indexing.
+   * Uses UPSERT to ensure only one checkpoint per repo.
+   */
+  async savePauseCheckpoint(repoId: string, completed: number, total: number): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log(`[DatabaseService] savePauseCheckpoint: Saving checkpoint for repo "${repoId}" (${completed}/${total})`);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO indexing_pause_checkpoint (repo_id, paused_at, completed_count, total_count)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(repo_id) DO UPDATE SET
+        paused_at = excluded.paused_at,
+        completed_count = excluded.completed_count,
+        total_count = excluded.total_count
+    `);
+
+    try {
+      stmt.run([repoId, Date.now(), completed, total]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+    console.log(`[DatabaseService] savePauseCheckpoint: Complete`);
+  }
+
+  /**
+   * Get a pause checkpoint for a repository.
+   * Returns null if no checkpoint exists.
+   */
+  async getPauseCheckpoint(repoId: string): Promise<{ completed: number; total: number } | null> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT completed_count, total_count FROM indexing_pause_checkpoint WHERE repo_id = ?
+    `);
+
+    let result: { completed: number; total: number } | null = null;
+
+    try {
+      stmt.bind([repoId]);
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        result = {
+          completed: row.completed_count as number,
+          total: row.total_count as number
+        };
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return result;
+  }
+
+  /**
+   * Clear a pause checkpoint for a repository.
+   * Called after successful completion or when stopping indexing.
+   */
+  async clearPauseCheckpoint(repoId: string): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log(`[DatabaseService] clearPauseCheckpoint: Clearing checkpoint for repo "${repoId}"`);
+
+    const stmt = this.db.prepare(`
+      DELETE FROM indexing_pause_checkpoint WHERE repo_id = ?
+    `);
+
+    try {
+      stmt.run([repoId]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+    console.log(`[DatabaseService] clearPauseCheckpoint: Complete`);
+  }
+
+  /**
+   * Reset all 'processing' files back to 'pending' for a repository.
+   * Called when pausing to ensure files in-flight get re-processed on resume.
+   */
+  async resetProcessingToPending(repoId: string): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log(`[DatabaseService] resetProcessingToPending: Resetting processing files for repo "${repoId}"`);
+
+    const stmt = this.db.prepare(`
+      UPDATE repo_indexing_progress
+      SET status = 'pending', started_at = NULL
+      WHERE repo_id = ? AND status = 'processing'
+    `);
+
+    try {
+      stmt.run([repoId]);
+    } finally {
+      stmt.free();
+    }
+
+    await this.saveDatabase();
+    console.log(`[DatabaseService] resetProcessingToPending: Complete`);
   }
 
   // ========== Incremental Indexing State Methods (Background Monitoring) ==========

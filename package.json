@@ -276,8 +276,29 @@
         }
       },
       {
-        "title": "Smart Agent",
+        "title": "Background Indexing",
         "order": 8,
+        "type": "object",
+        "properties": {
+          "repomix.backgroundIndexing.enabled": {
+            "order": 1,
+            "type": "boolean",
+            "default": true,
+            "description": "🔄 \n Enable automatic background re-indexing when files change. When disabled, you must manually re-index to update the vector database."
+          },
+          "repomix.backgroundIndexing.debounceMs": {
+            "order": 2,
+            "type": "number",
+            "default": 2500,
+            "minimum": 500,
+            "maximum": 30000,
+            "description": "⏱️ \n Debounce time in milliseconds before triggering re-indexing after file changes"
+          }
+        }
+      },
+      {
+        "title": "Smart Agent",
+        "order": 9,
         "type": "object",
         "properties": {}
       }

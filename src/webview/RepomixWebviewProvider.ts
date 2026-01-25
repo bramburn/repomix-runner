@@ -1,9 +1,17 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { BundleManager } from '../core/bundles/bundleManager.js';
 import { DatabaseService } from '../core/storage/databaseService.js';
 import { WebviewMessageSchema } from './messageSchemas.js';
 import { setClientInfo } from '../core/files/remoteDetection.js';
+import { ExtensionServices } from '../core/services/ExtensionServices.js';
+import { IndexingState } from '../core/services/IndexingService.js';
+import { getCwd } from '../config/getCwd.js';
+import { getRepoId } from '../utils/repoIdentity.js';
+import { getRepomixOutputPath } from '../utils/repomix_output_detector.js';
+import { resolveBundleOutputPath } from '../core/files/outputPathResolver.js';
+import { Bundle } from '../core/bundles/types.js';
 
 // Controllers
 import { BaseController } from './controllers/BaseController.js';
@@ -16,6 +24,29 @@ import { ApplyController } from './controllers/ApplyController.js';
 import { IndexHistoryController } from './controllers/IndexHistoryController.js';
 import { ExecutionQueueManager } from './services/ExecutionQueueManager.js';
 
+/**
+ * HydrateState - Combined initial state sent to webview on load.
+ * This consolidates all initial state into a single message to avoid
+ * race conditions and UI flicker.
+ */
+interface HydrateState {
+  // Version
+  version: string;
+  
+  // Indexing state
+  indexingState: IndexingState;
+  indexingProgress?: { completed: number; total: number };
+  indexingBlocked: boolean;
+  repoIndexCount: number;
+  
+  // Bundles
+  bundles: any[];
+  defaultRepomix: {
+    outputFileExists: boolean;
+    outputFilePath: string;
+  };
+}
+
 
 export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.controlPanel';
@@ -23,13 +54,18 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   private _controllers: BaseController[] = [];
   private _queueManager?: ExecutionQueueManager;
 
+  // Derived references from ExtensionServices for convenience
+  private readonly _bundleManager: BundleManager;
+  private readonly _databaseService: DatabaseService;
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _bundleManager: BundleManager,
     private readonly _context: vscode.ExtensionContext,
-    private readonly _databaseService: DatabaseService
+    private readonly _services: ExtensionServices
   ) {
     console.log('[quick-repomix] RepomixWebviewProvider constructor called');
+    this._bundleManager = _services.bundleManager;
+    this._databaseService = _services.databaseService;
   }
 
   /**
@@ -77,7 +113,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
 
     this._queueManager = new ExecutionQueueManager(webviewContext, this._bundleManager, onRunComplete);
 
-    const indexingCtrl = new IndexingController(webviewContext, this._databaseService, this._context);
+    const indexingCtrl = new IndexingController(webviewContext, this._databaseService, this._context, this._services.indexingService);
     this._controllers = [
       new BundleController(webviewContext, this._bundleManager, this._queueManager),
       new AgentController(webviewContext, this._databaseService, this._context),
@@ -120,9 +156,17 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       // Handle global events
       if (message.command === 'webviewLoaded') {
         console.log('[quick-repomix] ===== WEBVIEW LOADED MESSAGE RECEIVED =====');
-        await this._sendVersion();
-        console.log('[quick-repomix] Version sent to webview');
+        
+        // Send consolidated hydrate state
+        const hydrateState = await this._buildHydrateState();
+        webviewView.webview.postMessage({
+          command: 'hydrate',
+          ...hydrateState
+        });
+        console.log('[quick-repomix] Hydrate state sent to webview');
 
+        // Also call onWebviewLoaded for controllers that need to set up watchers, etc.
+        // (backwards compatibility - controllers may still send individual updates)
         console.log('[quick-repomix] Calling onWebviewLoaded for all controllers...');
         await Promise.all(this._controllers.map(c => c.onWebviewLoaded()));
         console.log('[quick-repomix] All controllers initialized');
@@ -236,6 +280,77 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error) {
       console.error('Failed to get version:', error);
     }
+  }
+
+  /**
+   * Build consolidated hydrate state for the webview.
+   * This combines all initial state into a single object to avoid
+   * race conditions where the UI briefly shows incorrect state.
+   */
+  private async _buildHydrateState(): Promise<HydrateState> {
+    // Get version
+    let version = '';
+    try {
+      const packageJsonPath = vscode.Uri.joinPath(this._extensionUri, 'package.json');
+      const packageJsonData = await vscode.workspace.fs.readFile(packageJsonPath);
+      const packageJson = JSON.parse(Buffer.from(packageJsonData).toString());
+      version = packageJson.version;
+    } catch (error) {
+      console.error('Failed to get version:', error);
+    }
+
+    // Get indexing state from service
+    const { state: indexingState, progress: indexingProgress } = await this._services.indexingService.getState();
+    
+    // Get indexing blocked status
+    const indexingBlocked = !!this._context.globalState.get('repomix.indexingBlocked');
+
+    // Get repo index count
+    let repoIndexCount = 0;
+    try {
+      const cwd = getCwd();
+      const repoId = await getRepoId(cwd);
+      repoIndexCount = await this._databaseService.getRepoFileCount(repoId);
+    } catch (error) {
+      console.error('Failed to get repo index count:', error);
+    }
+
+    // Get bundles
+    const bundleMetadata = await this._bundleManager.getAllBundles();
+    const bundles = await Promise.all(
+      Object.entries(bundleMetadata.bundles).map(async ([bundleId, bundle]) => {
+        const outputFilePath = await resolveBundleOutputPath(bundle);
+        return {
+          id: bundleId,
+          ...bundle,
+          outputFilePath,
+          outputFileExists: fs.existsSync(outputFilePath),
+        };
+      })
+    );
+
+    // Get default repomix state
+    let defaultRepomix = { outputFileExists: false, outputFilePath: '' };
+    try {
+      const cwd = getCwd();
+      const outputFilePath = getRepomixOutputPath(cwd);
+      defaultRepomix = {
+        outputFilePath,
+        outputFileExists: fs.existsSync(outputFilePath),
+      };
+    } catch (error) {
+      console.error('Failed to get default repomix state:', error);
+    }
+
+    return {
+      version,
+      indexingState,
+      indexingProgress,
+      indexingBlocked,
+      repoIndexCount,
+      bundles,
+      defaultRepomix,
+    };
   }
 
   private async _handleOpenFile(filePath: string): Promise<void> {

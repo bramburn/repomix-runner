@@ -29,8 +29,14 @@ function sha256File(absPath: string): string {
 /**
  * Orchestrates embedding of all files in a repository.
  * Handles file enumeration, error handling, and progress tracking.
+ * 
+ * Includes a mutex to prevent concurrent embedding runs which could
+ * cause race conditions with the vector database.
  */
 export class RepoEmbeddingOrchestrator {
+  /** Mutex flag to prevent concurrent embedding operations */
+  private _isEmbedding: boolean = false;
+
   constructor(
     private databaseService: DatabaseService
   ) { }
@@ -61,6 +67,20 @@ export class RepoEmbeddingOrchestrator {
     totalVectors: number;
     errors: Array<{ filePath: string; error: string }>;
   }> {
+    // Mutex check - prevent concurrent embedding operations
+    if (this._isEmbedding) {
+      console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Embedding already in progress - skipping concurrent run`);
+      logger.both.warn(`[RepoEmbeddingOrchestrator] Skipping concurrent embedding run for repo: ${repoId}`);
+      return {
+        totalFiles: 0,
+        successfulFiles: 0,
+        failedFiles: 0,
+        totalVectors: 0,
+        errors: [{ filePath: '', error: 'Embedding already in progress' }]
+      };
+    }
+
+    this._isEmbedding = true;
     const orchestratorStart = Date.now();
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Starting embedding process for repo: ${repoId}`);
 
@@ -76,6 +96,7 @@ export class RepoEmbeddingOrchestrator {
     if (files.length === 0) {
       console.log(`[REPO_EMBEDDING_ORCHESTRATOR] No files found for repo: ${repoId}`);
       logger.both.warn(`[RepoEmbeddingOrchestrator] No files found for repo: ${repoId}`);
+      this._isEmbedding = false; // Release mutex
       return {
         totalFiles: 0,
         successfulFiles: 0,
@@ -207,6 +228,9 @@ export class RepoEmbeddingOrchestrator {
       `[RepoEmbeddingOrchestrator] Completed: ${successfulFiles}/${files.length} files, ${totalVectors} vectors upserted`
     );
 
+    // Release mutex
+    this._isEmbedding = false;
+
     return {
       totalFiles: files.length,
       successfulFiles,
@@ -279,6 +303,20 @@ export class RepoEmbeddingOrchestrator {
     totalVectors: number;
     errors: Array<{ filePath: string; error: string }>;
   }> {
+    // Mutex check - prevent concurrent embedding operations
+    if (this._isEmbedding) {
+      console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Embedding already in progress - skipping pending files`);
+      logger.both.warn(`[RepoEmbeddingOrchestrator] Skipping concurrent embedPendingFiles for repo: ${repoId}`);
+      return {
+        totalFiles: 0,
+        successfulFiles: 0,
+        failedFiles: 0,
+        totalVectors: 0,
+        errors: [{ filePath: '', error: 'Embedding already in progress' }]
+      };
+    }
+
+    this._isEmbedding = true;
     const orchestrationStart = Date.now();
 
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] ===== EMBED PENDING FILES START =====`);
@@ -295,6 +333,7 @@ export class RepoEmbeddingOrchestrator {
       console.log(`[REPO_EMBEDDING_ORCHESTRATOR] No pending files found - nothing to do`);
       console.log(`[REPO_EMBEDDING_ORCHESTRATOR] ===== EMBED PENDING FILES COMPLETE (skip) =====`);
       logger.both.info(`[RepoEmbeddingOrchestrator] No pending files for repo: ${repoId}`);
+      this._isEmbedding = false; // Release mutex
       return { totalFiles: 0, successfulFiles: 0, failedFiles: 0, totalVectors: 0, errors: [] };
     }
 
@@ -469,6 +508,9 @@ export class RepoEmbeddingOrchestrator {
     logger.both.info(
       `[RepoEmbeddingOrchestrator] Incremental embedding complete: ${successfulFiles}/${pending.length} files, ${totalVectors} vectors, ${orchestrationDuration}ms`
     );
+
+    // Release mutex
+    this._isEmbedding = false;
 
     return { totalFiles: pending.length, successfulFiles, failedFiles, totalVectors, errors };
   }

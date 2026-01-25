@@ -198,6 +198,19 @@ export const StopRepoIndexingSchema = z.object({
   command: z.literal('stopRepoIndexing'),
 });
 
+export const GetIndexingStateSchema = z.object({
+  command: z.literal('getIndexingState'),
+});
+
+export const IndexingStateRestoredSchema = z.object({
+  command: z.literal('indexingStateRestored'),
+  state: z.enum(['idle', 'paused']),
+  progress: z.object({
+    completed: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }).optional(),
+});
+
 export const IndexRepoCompleteSchema = z.object({
   command: z.literal('indexRepoComplete'),
   repoId: z.string(),
@@ -563,6 +576,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   PauseRepoIndexingSchema,
   ResumeRepoIndexingSchema,
   StopRepoIndexingSchema,
+  GetIndexingStateSchema,
+  IndexingStateRestoredSchema,
   DeleteRepoIndexSchema,
   GetRepoIndexCountSchema,
   SearchRepoSchema,

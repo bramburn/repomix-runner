@@ -24,6 +24,7 @@ export interface DefaultRepomixInfo {
 
 export interface AgentState {
   lastOutputPath?: string;
+  lastSummaryPath?: string;
   lastFileCount?: number;
   lastQuery?: string;
   lastTokens?: number;
