@@ -37,6 +37,7 @@ import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/file
 import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
+import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
 
@@ -750,6 +751,13 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const copySingleFileRespectingModeCommand = vscode.commands.registerCommand(
+    'repomixRunner.copySingleFileRespectingMode',
+    async (filePath: string) => {
+      return copySingleFileRespectingMode(filePath);
+    }
+  );
+
   // SCM context menu adapter - converts SourceControlResourceState to Uri and delegates
   const copyFromScmCommand = vscode.commands.registerCommand(
     'repomixRunner.copyFromScm',
@@ -795,6 +803,7 @@ export async function activate(context: vscode.ExtensionContext) {
     smartRunCommand,
     regenerateAgentRunCommand,
     copySelectedFilesToClipboardCommand,
+    copySingleFileRespectingModeCommand,
     copyFromScmCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );

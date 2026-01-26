@@ -11,6 +11,7 @@ import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.
 import type { ExtensionContext } from 'vscode';
 
 import { copyToClipboard } from '../../core/files/copyToClipboard.js';
+import { copySingleFileRespectingMode } from '../../commands/copySingleFileRespectingMode.js';
 import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
@@ -132,6 +133,10 @@ export class IndexingController extends BaseController {
 
       case 'copySearchOutput':
         await this.handleCopySearchOutput(message.outputPath);
+        return true;
+
+      case 'copySingleFileRespectingMode':
+        await this.handleCopySingleFileRespectingMode(message.path);
         return true;
 
       case 'copySearchResultsMarkdown':
@@ -360,7 +365,11 @@ export class IndexingController extends BaseController {
         
         this.context.postMessage({
           command: 'repoSearchError',
-          error: `Failed to initialize vector database connection.\n\n${userFriendlyError}\n\nPlease check your Vector DB settings and try again.`
+          error: `Failed to initialize vector database connection.
+
+${userFriendlyError}
+
+Please check your Vector DB settings and try again.`
         });
         return;
       }
@@ -466,22 +475,38 @@ export class IndexingController extends BaseController {
   }
 
   private async handleCopySearchOutput(outputPath: string) {
-    if (!outputPath || !fs.existsSync(outputPath)) {
-      vscode.window.showErrorMessage('No generated output file to copy.');
+    // Redirect to the unified handler to respect copyMode
+    await this.handleCopySingleFileRespectingMode(outputPath);
+  }
+
+  private async handleCopySingleFileRespectingMode(filePath: string) {
+    if (!filePath || !fs.existsSync(filePath)) {
+      const errorMsg = 'No file found to copy.';
+      vscode.window.showErrorMessage(errorMsg);
+      this.context.postMessage({
+        command: 'copyError',
+        error: errorMsg,
+      });
       return;
     }
 
     try {
-      const originalFilename = path.basename(outputPath);
-      const tmpDir = path.join(tempDirManager.getTempDir(), `copy_${Date.now()}`);
-      await fs.promises.mkdir(tmpDir, { recursive: true });
-      const tmpFilePath = path.join(tmpDir, originalFilename);
-      await copyToClipboard(outputPath, tmpFilePath);
-      vscode.window.showInformationMessage('Copied output file to clipboard.');
-      await tempDirManager.cleanupFile(tmpFilePath);
-    } catch (err) {
+      const copyMode = await copySingleFileRespectingMode(filePath);
+
+      this.context.postMessage({
+        command: 'copySuccess',
+        type: 'single-file',
+        copyMode, // Send copyMode for frontend to determine which button to update
+        filePath, // Send filePath to identify which button was clicked
+      });
+    } catch (err: any) {
       const msg = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`Failed to copy: ${msg}`);
+      this.context.postMessage({
+        command: 'copyError',
+        error: msg,
+        filePath, // Send filePath to identify which button was clicked
+      });
     }
   }
 

@@ -211,9 +211,12 @@ export const SearchTab = () => {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(loadedState?.lastSearchOutputPath || null);
   const [summaryPath, setSummaryPath] = useState<string | null>(loadedState?.summaryPath || null);
+  const [copyMode, setCopyMode] = useState<'content' | 'file'>('content');
 
   const [copyDecisionsLabel, setCopyDecisionsLabel] = useState('Copy Smart Filter Decisions');
   const [copyMarkdownLabel, setCopyMarkdownLabel] = useState('Copy as Markdown');
+  const [mainCopyLabel, setMainCopyLabel] = useState(copyMode === 'content' ? 'Copy Text' : 'Copy File');
+  const [summaryCopyLabel, setSummaryCopyLabel] = useState(copyMode === 'content' ? 'Copy Summary Text' : 'Copy Summary File');
 
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>(
     loadedState?.fileTypeFilter || DEFAULT_FILTERS
@@ -605,17 +608,57 @@ export const SearchTab = () => {
           setSummaryPath(message.summaryPath);
           break;
 
+        case 'updateCopyMode':
+          setCopyMode(message.mode);
+          break;
+
         case 'copySuccess':
-          // Show temporary success feedback on the copy button
-          setCopyMarkdownLabel('Copied!');
-          setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 2000);
+          // Show temporary success feedback on the specific copy button
+          if (message.type === 'single-file') {
+            const { filePath, copyMode: returnedCopyMode } = message;
+            
+            // Determine which button was clicked based on filePath
+            const isMainButton = filePath === lastSearchOutputPath;
+            const isSummaryButton = filePath === summaryPath;
+            
+            if (isMainButton) {
+              setMainCopyLabel('Copied!');
+              const originalLabel = returnedCopyMode === 'content' ? 'Copy Text' : 'Copy File';
+              setTimeout(() => setMainCopyLabel(originalLabel), 2000);
+            } else if (isSummaryButton) {
+              setSummaryCopyLabel('Copied!');
+              const originalLabel = returnedCopyMode === 'content' ? 'Copy Summary Text' : 'Copy Summary File';
+              setTimeout(() => setSummaryCopyLabel(originalLabel), 2000);
+            }
+          } else {
+            setCopyMarkdownLabel('Copied!');
+            setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 2000);
+          }
           break;
 
         case 'copyError':
-          // Show temporary error feedback on the copy button
+          // Show temporary error feedback on the specific copy button
           console.error('Copy failed:', message.error);
-          setCopyMarkdownLabel('Copy Failed');
-          setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 3000);
+          if (message.type === 'single-file') {
+            const { filePath } = message;
+            
+            // Determine which button was clicked based on filePath
+            const isMainButton = filePath === lastSearchOutputPath;
+            const isSummaryButton = filePath === summaryPath;
+            
+            if (isMainButton) {
+              setMainCopyLabel('Copy Failed');
+              const originalLabel = copyMode === 'content' ? 'Copy Text' : 'Copy File';
+              setTimeout(() => setMainCopyLabel(originalLabel), 3000);
+            } else if (isSummaryButton) {
+              setSummaryCopyLabel('Copy Failed');
+              const originalLabel = copyMode === 'content' ? 'Copy Summary Text' : 'Copy Summary File';
+              setTimeout(() => setSummaryCopyLabel(originalLabel), 3000);
+            }
+          } else {
+            setCopyMarkdownLabel('Copy Failed');
+            setTimeout(() => setCopyMarkdownLabel('Copy as Markdown'), 3000);
+          }
           break;
 
         case 'indexingBlocked':
@@ -626,20 +669,30 @@ export const SearchTab = () => {
 
     window.addEventListener('message', handleMessage);
 
+    return () => window.removeEventListener('message', handleMessage);
+  }, [fileTypeFilter, copyMode]); // Added copyMode to dependencies for label restoration logic
+
+  // Initial data fetch
+  useEffect(() => {
+    vscode.postMessage({ command: 'getCopyMode' });
     vscode.postMessage({ command: 'getIndexingState' });
     vscode.postMessage({ command: 'getRepoIndexCount' });
     vscode.postMessage({ command: 'getRepoVectorCount' });
     vscode.postMessage({ command: 'getVectorDbProvider' });
     vscode.postMessage({ command: 'getVectorDbCollectionInfo' });
     vscode.postMessage({ command: 'checkCompatibility' });
-
-    return () => window.removeEventListener('message', handleMessage);
-  }, [fileTypeFilter]);
+  }, []);
 
   // Fetch collection info when provider changes
   useEffect(() => {
     vscode.postMessage({ command: 'getVectorDbCollectionInfo' });
   }, [vectorDbProvider]);
+
+  // Update labels when copyMode changes
+  useEffect(() => {
+    setMainCopyLabel(copyMode === 'content' ? 'Copy Text' : 'Copy File');
+    setSummaryCopyLabel(copyMode === 'content' ? 'Copy Summary Text' : 'Copy Summary File');
+  }, [copyMode]);
 
   const handleIndex = () => {
     setIsIndexing(true);
@@ -690,7 +743,7 @@ export const SearchTab = () => {
 
   const handleCopySearchOutput = () => {
     if (!lastSearchOutputPath) return;
-    vscode.postMessage({ command: 'copySearchOutput', outputPath: lastSearchOutputPath });
+    vscode.postMessage({ command: 'copySingleFileRespectingMode', path: lastSearchOutputPath });
   };
 
   const handleCopySearchResultsMarkdown = () => {
@@ -1105,8 +1158,8 @@ export const SearchTab = () => {
               <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'openFile', path: summaryPath })}>
                 Open Summary
               </Button>
-              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'copySearchOutput', outputPath: summaryPath })}>
-                Copy Summary
+              <Button size="small" appearance="secondary" onClick={() => vscode.postMessage({ command: 'copySingleFileRespectingMode', path: summaryPath })}>
+                {summaryCopyLabel}
               </Button>
             </div>
           </div>
@@ -1117,7 +1170,7 @@ export const SearchTab = () => {
         </Button>
 
         <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={!lastSearchOutputPath} onClick={handleCopySearchOutput}>
-          Copy
+          {mainCopyLabel}
         </Button>
 
         <Button appearance="secondary" icon={<CopyRegular />} style={{ width: '100%' }} disabled={dedupedResults.length === 0} onClick={handleCopySearchResultsMarkdown}>

@@ -252,6 +252,11 @@ export const CopySearchOutputSchema = z.object({
   outputPath: z.string(),
 });
 
+export const CopySingleFileRespectingModeSchema = z.object({
+  command: z.literal('copySingleFileRespectingMode'),
+  path: z.string(),
+});
+
 export const CopySearchResultsMarkdownSchema = z.object({
   command: z.literal('copySearchResultsMarkdown'),
   files: z.array(z.string().min(1)).min(1),
@@ -584,6 +589,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GenerateRepomixFromSearchSchema,
   GetRepoVectorCountSchema,
   CopySearchOutputSchema,
+  CopySingleFileRespectingModeSchema,
   CopySearchResultsMarkdownSchema,
   CopySearchFilePathsSchema,
   GetCopyModeSchema,
