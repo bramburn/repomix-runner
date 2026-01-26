@@ -38,7 +38,7 @@ import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
-import { getRepoForActiveEditor, getAllChangedUris } from './git/gitUtils.js';
+import { getRepoForActiveEditor, getAllChangedUris, getChangesCounts } from './git/gitUtils.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
 
@@ -796,6 +796,12 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage('No staged, unstaged or untracked changes.');
           return;
         }
+
+        // Get counts for feedback
+        const counts = getChangesCounts(repo);
+        console.log(
+          `[Repomix] Copying ${changedUris.length} changed files: ${counts.staged} staged, ${counts.unstaged} unstaged, ${counts.untracked} untracked.`
+        );
 
         // Execute the existing copy command with all changed files
         // Pass first URI as clickedFile, all URIs as selectedFiles

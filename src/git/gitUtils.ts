@@ -85,6 +85,13 @@ export async function getRepoForActiveEditor(): Promise<Repository | undefined> 
  * @param repo - Git repository object
  * @returns Array of URIs for all changed files
  */
+/**
+ * Get all changed URIs from a Git repository.
+ * Includes staged changes (index), unstaged changes (working tree), and untracked files.
+ * 
+ * @param repo - Git repository object
+ * @returns Array of URIs for all changed files
+ */
 export function getAllChangedUris(repo: Repository): vscode.Uri[] {
   const uris = [
     ...repo.state.indexChanges.map(c => c.uri),
@@ -96,4 +103,19 @@ export function getAllChangedUris(repo: Repository): vscode.Uri[] {
   const unique = new Map<string, vscode.Uri>();
   uris.forEach(u => unique.set(u.toString(), u));
   return Array.from(unique.values());
+}
+
+/**
+ * Get count of changes by type (for UI feedback).
+
+ * 
+ * @param repo - Git repository object
+ * @returns Object with counts for staged, unstaged, and untracked changes
+ */
+export function getChangesCounts(repo: Repository) {
+  return {
+    staged: repo.state.indexChanges.length,
+    unstaged: repo.state.workingTreeChanges.length,
+    untracked: repo.state.untrackedChanges.length,
+  };
 }

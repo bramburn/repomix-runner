@@ -25,6 +25,7 @@
     "onCommand:repomixRunner.smartRun",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
+    "onCommand:repomixRunner.copyAllGitChanges",
     "onStartupFinished"
   ],
   "contributes": {
@@ -532,7 +533,7 @@
           "when": "scmProvider == git"
         }
       ],
-      "scmtitle": [
+      "scm/title": [
         {
           "command": "repomixRunner.copyAllGitChanges",
           "group": "navigation@1",
