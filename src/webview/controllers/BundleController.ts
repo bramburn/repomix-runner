@@ -13,6 +13,7 @@ import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { addFileExtension } from '../../utils/fileExtensions.js';
 import { normalizeOutputStyle } from '../../utils/normalizeOutputStyle.js';
 import { readRepomixRunnerVscodeConfig } from '../../config/configLoader.js';
+import { copySingleFileRespectingMode } from '../../commands/copySingleFileRespectingMode.js';
 
 export class BundleController extends BaseController {
   private _outputFileWatchers: Map<string, { watcher: vscode.FileSystemWatcher, path: string }> = new Map();
@@ -214,7 +215,8 @@ export class BundleController extends BaseController {
 
     try {
       const outputPath = await resolveBundleOutputPath(bundle);
-      await this._copyFile(outputPath);
+      // Use wrapper directly
+      await this.handleSafeCopy(outputPath);
     } catch (err: any) {
       vscode.window.showErrorMessage(`Failed to copy bundle output: ${err.message}`);
     }
@@ -223,26 +225,24 @@ export class BundleController extends BaseController {
   private async handleCopyDefaultRepomixOutput() {
     try {
       const outputPath = await this._resolveDefaultRepomixOutputPath();
-      await this._copyFile(outputPath);
+      // Use wrapper directly
+      await this.handleSafeCopy(outputPath);
     } catch (err: any) {
       vscode.window.showErrorMessage(`Failed to copy default output: ${err.message}`);
     }
   }
 
-  private async _copyFile(outputPath: string) {
+  // Replaced _copyFile with this simplified helper using the wrapper
+  private async handleSafeCopy(outputPath: string) {
     if (!fs.existsSync(outputPath)) {
       vscode.window.showErrorMessage(`Output file not found: ${outputPath}`);
       return;
     }
 
     try {
+      await copySingleFileRespectingMode(outputPath);
       const originalFilename = path.basename(outputPath);
-      const tmpDir = path.join(tempDirManager.getTempDir(), `copy_${Date.now()}`);
-      await fs.promises.mkdir(tmpDir, { recursive: true });
-      const tmpFilePath = path.join(tmpDir, originalFilename);
-      await copyToClipboard(outputPath, tmpFilePath);
       vscode.window.showInformationMessage(`Copied "${originalFilename}" to clipboard.`);
-      await tempDirManager.cleanupFile(tmpFilePath);
     } catch (e: any) {
       vscode.window.showErrorMessage(`Failed to copy: ${e.message}`);
     }

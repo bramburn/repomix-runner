@@ -1,17 +1,9 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { execPromisify } from '../../shared/execPromisify';
 import { generateMarkdownContent } from './markdownGenerator';
-
-/**
- * Gets the path to the repomix-clipboard binary.
- * The binary is bundled in the extension's bin directory.
- */
-function getClipboardBinaryPath(context: vscode.ExtensionContext): string {
-  const binaryName = process.platform === 'win32' ? 'repomix-clipboard.exe' : 'repomix-clipboard';
-  return vscode.Uri.joinPath(context.extensionUri, 'assets', 'bin', binaryName).fsPath;
-}
+import { copySingleFileRespectingMode } from '../../commands/copySingleFileRespectingMode';
+import { tempDirManager } from './tempDirManager';
 
 /**
  * Generates markdown by concatenating files and copies to clipboard.
@@ -40,43 +32,35 @@ export async function runRepomixClipboardGenerateMarkdown(
     throw new Error(`Invalid workspace directory: ${cwd}`);
   }
 
-  console.log('[copy2clipboard] Starting markdown generation for', relativeFiles.length, 'files');
-  console.log(`[Repomix] Generating markdown for ${relativeFiles.length} files`);
-
+  // 1. Generate Content
   const { concatenated, tokenCount } = await generateMarkdownContent(cwd, relativeFiles);
 
-  // Platform-specific clipboard behavior
-  const isWindows = process.platform === 'win32';
+  // 2. Write to a temporary file (Required for "File Mode", but also safe for "Content Mode")
+  // We use the tempDirManager to ensure it gets cleaned up correctly
+  const tempDir = await tempDirManager.createTempDir('repomix-gen');
+  const tempOutputFile = path.join(tempDir, `repomix-selection-${Date.now()}.md`);
 
-  if (isWindows) {
-    console.log('[copy2clipboard] Using Windows binary file-drop clipboard mode');
-    // Windows: Write to temp file and copy the FILE to clipboard using Rust binary
-    const tempOutputFile = path.join(cwd, `.repomix-clipboard-${Date.now()}.md`);
-    await fs.promises.writeFile(tempOutputFile, concatenated, 'utf-8');
+  await fs.promises.writeFile(tempOutputFile, concatenated, 'utf-8');
 
-    const binaryPath = getClipboardBinaryPath(context);
-    const cmd = `"${binaryPath}" "${tempOutputFile}"`;
+  try {
+    // 3. Delegate to the wrapper
+    // This will check config.runner.copyMode:
+    // - If 'content': It reads the file we just wrote and puts text on clipboard.
+    // - If 'file': It passes the file path to the OS clipboard binary/script.
+    await copySingleFileRespectingMode(tempOutputFile);
 
-    console.log('[copy2clipboard] Executing Windows binary:', binaryPath);
-    console.log(`[Repomix] Executing binary for file-drop clipboard: ${cmd}`);
-
+    console.log(`[Repomix] Successfully copied markdown to clipboard (${tokenCount} tokens)`);
+  } catch (error) {
+    console.error('[copy2clipboard] Execution failed:', error);
+    throw error;
+  } finally {
+    // Note: copySingleFileRespectingMode schedules its own cleanup for the *destination* temp file 
+    // it creates (in file mode), but we should clean up our *source* generation file.
+    // However, if the mode is 'file', the wrapper copies THIS file to another temp location.
+    // So it is safe to delete this immediate file after the operation.
     try {
-      await execPromisify(cmd, { cwd, timeout: 60000 });
-      console.log('[copy2clipboard] Windows binary executed successfully');
-      console.log(`[Repomix] Successfully copied file to clipboard (${tokenCount} tokens)`);
-      // NOTE: Do NOT delete tempOutputFile immediately - file-drop clipboard consumers need it to exist at paste time
-    } catch (error) {
-      console.error('[copy2clipboard] Windows binary execution failed:', error);
-      // Clean up temp file on error
-      try { await fs.promises.unlink(tempOutputFile); } catch { }
-      throw error;
-    }
-  } else {
-    console.log('[copy2clipboard] Using VS Code clipboard API (Mac/Unix/Linux)');
-    // Mac/Unix/Linux: Copy TEXT directly to clipboard using VS Code API
-    await vscode.env.clipboard.writeText(concatenated);
-    console.log('[copy2clipboard] Clipboard API write successful');
-    console.log(`[Repomix] Successfully copied text to clipboard (${tokenCount} tokens)`);
+      await fs.promises.unlink(tempOutputFile);
+    } catch { }
   }
 
   return { tokenCount };

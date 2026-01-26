@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { addFileExtension } from '../utils/fileExtensions.js';
 import { normalizeOutputStyle } from '../utils/normalizeOutputStyle.js';
+import { copySingleFileRespectingMode } from './copySingleFileRespectingMode.js';
 
 interface RepomixConfig {
     output?: {
@@ -39,17 +40,11 @@ export async function copyRepomixOutput() {
             return;
         }
 
-        // 4. Read the content
-        const content = await fs.promises.readFile(outputFilePath, 'utf-8');
+        // 4. Use the wrapper to copy (Handles Config Check, Temp Files, and Binary/API selection)
+        const mode = await copySingleFileRespectingMode(outputFilePath);
 
-        if (!content) {
-            vscode.window.showWarningMessage(`The Repomix output file (${path.basename(outputFilePath)}) is empty.`);
-            return;
-        }
-
-        // 5. Copy to clipboard
-        await vscode.env.clipboard.writeText(content);
-        vscode.window.showInformationMessage(`Successfully copied ${path.basename(outputFilePath)} to clipboard!`);
+        const modeLabel = mode === 'file' ? 'File Object' : 'Text Content';
+        vscode.window.showInformationMessage(`Successfully copied ${path.basename(outputFilePath)} to clipboard (${modeLabel})!`);
 
     } catch (error) {
         vscode.window.showErrorMessage(
