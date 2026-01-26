@@ -432,6 +432,11 @@
         "command": "repomixRunner.copyFromScm",
         "title": "Copy as Markdown to Clipboard",
         "category": "Repomix"
+      },
+      {
+        "command": "repomixRunner.copyAllGitChanges",
+        "title": "Copy All Changed Files to Clipboard",
+        "icon": "$(copy)"
       }
     ],
     "menus": {
@@ -524,6 +529,13 @@
         {
           "command": "repomixRunner.copyFromScm",
           "group": "navigation@99",
+          "when": "scmProvider == git"
+        }
+      ],
+      "scmtitle": [
+        {
+          "command": "repomixRunner.copyAllGitChanges",
+          "group": "navigation@1",
           "when": "scmProvider == git"
         }
       ],
