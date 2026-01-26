@@ -38,6 +38,7 @@ import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
+import { getRepoForActiveEditor, getAllChangedUris } from './git/gitUtils.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
 
@@ -775,6 +776,42 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // Command to copy all Git changes (staged, unstaged, untracked) to clipboard
+  const copyAllGitChangesCommand = vscode.commands.registerCommand(
+    'repomixRunner.copyAllGitChanges',
+    async () => {
+      try {
+        // Get the repository for the active editor
+        const repo = await getRepoForActiveEditor();
+        
+        if (!repo) {
+          vscode.window.showWarningMessage('No Git repository detected for the active editor.');
+          return;
+        }
+
+        // Get all changed URIs (staged + unstaged + untracked)
+        const changedUris = getAllChangedUris(repo);
+        
+        if (changedUris.length === 0) {
+          vscode.window.showInformationMessage('No staged, unstaged or untracked changes.');
+          return;
+        }
+
+        // Execute the existing copy command with all changed files
+        // Pass first URI as clickedFile, all URIs as selectedFiles
+        return vscode.commands.executeCommand(
+          'repomixRunner.copySelectedFilesToClipboard',
+          changedUris[0],
+          changedUris
+        );
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error('[Repomix] Failed to copy Git changes:', error);
+        vscode.window.showErrorMessage(`Failed to copy Git changes: ${errorMsg}`);
+      }
+    }
+  );
+
 
 
 
@@ -805,6 +842,7 @@ export async function activate(context: vscode.ExtensionContext) {
     copySelectedFilesToClipboardCommand,
     copySingleFileRespectingModeCommand,
     copyFromScmCommand,
+    copyAllGitChangesCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
 }
