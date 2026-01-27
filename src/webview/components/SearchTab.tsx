@@ -223,68 +223,7 @@ export const SearchTab = () => {
   // Store the raw results from the backend
   const [rawResults, setRawResults] = useState<RepoSearchResult[]>(loadedState?.results || []);
 
-  function filterByFileType(incoming: RepoSearchResult[]): RepoSearchResult[] {
-    const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
-
-    return incoming.filter((r) => {
-      if (!r.path) return false;
-      const lowerPath = r.path.toLowerCase();
-      const base = baseNameOf(lowerPath);
-      const ext = extOf(lowerPath);
-
-      if (excludedBases.has(base)) return false;
-      if (ext && excludedExts.has(ext)) return false;
-
-      if (fileTypeFilter.includeAllExtensions) return true;
-
-      if (!ext) {
-        if (includedBases.has(base)) return true;
-        if (!fileTypeFilter.includeNoExtKnown) return false;
-        return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
-      }
-
-      return includedExts.has(ext) || includedBases.has(base);
-    });
-  }
-
-  // Reactively filter results whenever rawResults OR fileTypeFilter changes
-  const results = useMemo(() => {
-    return filterByFileType(rawResults);
-  }, [rawResults, fileTypeFilter]);
-
-  // Initialize sliders with saved state or defaults
-  const [topK, setTopK] = useState(loadedState?.topK ?? 200);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(loadedState?.confidenceThreshold ?? 0.5);
-
-  // Persist state changes (merge with existing state to avoid clobbering other tabs)
-  useEffect(() => {
-
-    const prev = vscode.getState() ?? {};
-    vscode.setState({
-      ...prev,
-      fileTypeFilter,
-      query,
-      smartFilterEnabled,
-      openAccordionItems: openItems,
-      topK,
-      confidenceThreshold,
-      results: rawResults, // Persist raw results so filters work on reopen
-      lastSearchOutputPath,
-      summaryPath
-    });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, rawResults, lastSearchOutputPath, summaryPath]);
-
-  const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
-    const val = data.value as string;
-    setOpenItems((prev) => {
-      if (prev.includes(val)) {
-        return prev.filter((i) => i !== val);
-      } else {
-        return [...prev, val];
-      }
-    });
-  };
-
+  // Helper function to get active extensions based on current filter state
   const getActiveExtensions = (): {
     includedExts: Set<string>;
     includedBases: Set<string>;
@@ -397,39 +336,91 @@ export const SearchTab = () => {
     // Custom
     if (fileTypeFilter.custom) {
       fileTypeFilter.custom
-        .split(',')
-        .map((s) => s.trim())
+        .split(/[;,\s]+/)
+        .map((s) => s.trim().toLowerCase())
         .filter(Boolean)
-        .forEach((raw) => {
-          let isExclude = false;
-          let token = raw;
-
+        .forEach((token) => {
           if (token.startsWith('!')) {
-            isExclude = true;
-            token = token.substring(1).trim();
+            const rest = token.slice(1);
+            if (rest.startsWith('.')) {
+              addExcludeExt(rest);
+            } else {
+              addExcludeBase(rest);
+            }
+          } else {
+            if (token.startsWith('.')) {
+              addExt(token);
+            } else {
+              addBase(token);
+            }
           }
-          if (!token) return;
-
-          const lower = token.toLowerCase();
-
-          const looksLikeExt =
-            (lower.startsWith('.') && lower.length <= 5 && lower.indexOf('.', 1) === -1) ||
-            (!lower.startsWith('.') && lower.length <= 4 && lower.indexOf('.') === -1);
-
-          if (looksLikeExt) {
-            const ext = lower.startsWith('.') ? lower : `.${lower}`;
-            if (isExclude) addExcludeExt(ext);
-            else addExt(ext);
-            return;
-          }
-
-          const base = lower;
-          if (isExclude) addExcludeBase(base);
-          else addBase(base);
         });
     }
 
     return { includedExts, includedBases, excludedExts, excludedBases };
+  };
+
+  // Filter function that uses getActiveExtensions
+  function filterByFileType(incoming: RepoSearchResult[]): RepoSearchResult[] {
+    const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
+
+    return incoming.filter((r) => {
+      if (!r.path) return false;
+      const lowerPath = r.path.toLowerCase();
+      const base = baseNameOf(lowerPath);
+      const ext = extOf(lowerPath);
+
+      if (excludedBases.has(base)) return false;
+      if (ext && excludedExts.has(ext)) return false;
+
+      if (fileTypeFilter.includeAllExtensions) return true;
+
+      if (!ext) {
+        if (includedBases.has(base)) return true;
+        if (!fileTypeFilter.includeNoExtKnown) return false;
+        return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
+      }
+
+      return includedExts.has(ext) || includedBases.has(base);
+    });
+  }
+
+  // Reactively filter results whenever rawResults OR fileTypeFilter changes
+  const results = useMemo(() => {
+    return filterByFileType(rawResults);
+  }, [rawResults, fileTypeFilter]);
+
+  // Initialize sliders with saved state or defaults
+  const [topK, setTopK] = useState(loadedState?.topK ?? 200);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(loadedState?.confidenceThreshold ?? 0.5);
+
+  // Persist state changes (merge with existing state to avoid clobbering other tabs)
+  useEffect(() => {
+
+    const prev = vscode.getState() ?? {};
+    vscode.setState({
+      ...prev,
+      fileTypeFilter,
+      query,
+      smartFilterEnabled,
+      openAccordionItems: openItems,
+      topK,
+      confidenceThreshold,
+      results: rawResults, // Persist raw results so filters work on reopen
+      lastSearchOutputPath,
+      summaryPath
+    });
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, rawResults, lastSearchOutputPath, summaryPath]);
+
+  const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
+    const val = data.value as string;
+    setOpenItems((prev) => {
+      if (prev.includes(val)) {
+        return prev.filter((i) => i !== val);
+      } else {
+        return [...prev, val];
+      }
+    });
   };
 
   const hasAnyFileTypeSelected = useMemo(() => {
