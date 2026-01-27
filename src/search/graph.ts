@@ -5,7 +5,6 @@ import * as nodes from "./nodes.js";
 export function createSearchGraph(adapter: any, context: any) {
     const workflow = new StateGraph(SearchGraphState)
         .addNode("validateInputs", nodes.validateInputsNode)
-        .addNode("expandQuery", (state) => nodes.expandQueryNode(state, context))
         .addNode("vectorSearch", (state) => nodes.vectorSearchNode(state, adapter))
         .addNode("dedupe", nodes.dedupeNode)
         .addNode("rerank", nodes.rerankNode)
@@ -13,9 +12,8 @@ export function createSearchGraph(adapter: any, context: any) {
 
         .addEdge("__start__", "validateInputs")
         .addConditionalEdges("validateInputs", (state) => {
-            return state.errors.length > 0 ? "__end__" : "expandQuery";
+            return state.errors.length > 0 ? "__end__" : "vectorSearch";
         })
-        .addEdge("expandQuery", "vectorSearch")
         .addConditionalEdges("vectorSearch", (state) => {
             return state.errors.length > 0 ? "__end__" : "dedupe";
         })

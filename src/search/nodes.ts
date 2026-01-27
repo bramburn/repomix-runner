@@ -39,44 +39,25 @@ export async function validateInputsNode(state: SearchGraphState) {
 }
 
 export async function expandQueryNode(state: SearchGraphState, context: any) {
-    console.log('[SEARCH_GRAPH] ===== expandQueryNode START =====');
-    console.log('[SEARCH_GRAPH] User query:', state.userQuery);
-    console.log('[SEARCH_GRAPH] Smart filter enabled:', state.smartFilterEnabled);
-    const start = Date.now();
+    // DEPRECATED: Query expansion is now handled internally in vectorSearchNode
+    // This function is kept for backward compatibility but acts as a pass-through
+    console.log('[SEARCH_GRAPH] ===== expandQueryNode (DEPRECATED) =====');
+    console.log('[SEARCH_GRAPH] Query expansion moved to vectorSearchNode');
+    
     if (state.errors.length > 0) {
         console.log('[SEARCH_GRAPH] Skipping expandQueryNode due to previous errors');
         return {};
     }
 
-    let expandedQueries = [state.userQuery];
-
-    if (state.smartFilterEnabled && state.googleApiKey) {
-        console.log('[SEARCH_GRAPH] Expanding query with LLM...');
-        const queries = await getAllQueriesToSearch(state.userQuery, state.googleApiKey);
-        expandedQueries = queries.filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0);
-        console.log('[SEARCH_GRAPH] Expanded queries:', expandedQueries);
-
-        if (context) {
-            console.log('[SEARCH_GRAPH] Sending expanded queries to webview...');
-            context.postMessage({
-                command: 'searchQueryExpanded',
-                queries: expandedQueries,
-            });
-        }
-    } else {
-        console.log('[SEARCH_GRAPH] Using original query only (no expansion)');
-    }
-
-    console.log('[SEARCH_GRAPH] ===== expandQueryNode END (', Date.now() - start, 'ms) =====');
+    // Return original query as expandedQueries for compatibility
     return {
-        expandedQueries,
-        timings: { expandQuery: Date.now() - start }
+        expandedQueries: [state.userQuery],
+        timings: { expandQuery: 0 }
     };
 }
 
 export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
     console.log('[SEARCH_GRAPH] ===== vectorSearchNode START =====');
-    console.log('[SEARCH_GRAPH] Expanded queries count:', state.expandedQueries?.length || 0);
     console.log('[SEARCH_GRAPH] Max results:', state.maxResults);
     const start = Date.now();
     if (state.errors.length > 0) {
@@ -92,14 +73,30 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
         };
     }
 
-    // Step 1: Embed the queries (separate try-catch for better error handling)
+    // Step 1: Generate expanded queries (internal to vectorSearchNode)
+    console.log('[SEARCH_GRAPH] Generating query expansions...');
+    let queriesToSearch: string[];
+    
+    if (state.smartFilterEnabled && state.googleApiKey) {
+        console.log('[SEARCH_GRAPH] Expanding query with LLM...');
+        const expandedQueries = await getAllQueriesToSearch(state.userQuery, state.googleApiKey);
+        queriesToSearch = expandedQueries.filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0);
+        console.log('[SEARCH_GRAPH] Expanded queries:', queriesToSearch);
+    } else {
+        console.log('[SEARCH_GRAPH] Using original query only (no expansion)');
+        queriesToSearch = [state.userQuery];
+    }
+    
+    console.log('[SEARCH_GRAPH] Queries to embed:', queriesToSearch.length);
+
+    // Step 2: Embed the queries (separate try-catch for better error handling)
     // Search embeddings use priority=true to jump ahead of indexing queue
     let vectors: number[][];
     try {
         console.log('[SEARCH_GRAPH] Embedding queries with priority...');
         console.log('[SEARCH_GRAPH] Queue stats before:', embeddingService.getQueueStats());
         vectors = await Promise.all(
-            state.expandedQueries.map((queryText) => embeddingService.embedText(queryText, 'search', true))
+            queriesToSearch.map((queryText) => embeddingService.embedText(queryText, 'search', true))
         );
         console.log('[SEARCH_GRAPH] Embeddings generated:', vectors.length);
         console.log('[SEARCH_GRAPH] Queue stats after:', embeddingService.getQueueStats());

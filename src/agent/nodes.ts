@@ -11,6 +11,7 @@ import { DatabaseService, AgentRunHistory, RepoBlueprint } from '../core/storage
 import * as crypto from 'crypto';
 import { embeddingService } from "../core/indexing/embeddingService";
 import { VectorDbAdapter } from "../core/indexing/vectorDb/types";
+import { getAllQueriesToSearch } from "../core/indexing/queryExpansion";
 import * as llmClient from "./llmClient";
 import { getBlueprintService } from "../fingerprint/blueprintService";
 import { treeSitterService, TreeSitterService } from "../core/indexing/treeSitterService";
@@ -132,6 +133,8 @@ function chunkArray<T>(array: T[], size: number): T[][] {
 export async function analyzeObjective(state: typeof AgentState.State) {
   logger.both.info("Agent: Step 0 - Analyzing user objective...");
 
+  // This schema defines the structure of the expected output from the LLM,
+  // ensuring it includes both the objective type and relevance criteria for the task.
   const schema = z.object({
     objectiveType: z.enum(['ACTION', 'SEARCH']).describe("Whether the user wants to perform a task/modify code (ACTION) or find info/understand (SEARCH)"),
     relevanceCriteria: z.string().describe("A strict checklist of what constitutes a 'relevant file' for this specific task")
@@ -166,13 +169,13 @@ export async function analyzeObjective(state: typeof AgentState.State) {
   }
 }
 
-// Node 1: Retrieval (RAG-based)
+// Node 1: Retrieval (RAG-based with Multi-Query Expansion)
 export async function retrieval(
   state: typeof AgentState.State,
   adapter: VectorDbAdapter,
   repoId: string
 ) {
-  logger.both.info("Agent: Step 1 - Retrieving candidate files via RAG...");
+  logger.both.info("Agent: Step 1 - Retrieving candidate files via RAG with multi-query expansion...");
 
   if (!state.apiKey || !adapter) {
     logger.both.warn("Agent: Missing API key or adapter, falling back to basic indexing.");
@@ -186,38 +189,83 @@ export async function retrieval(
   }
 
   try {
-    logger.both.info("Agent: Attempting RAG retrieval with embedding service...");
+    logger.both.info("Agent: Generating search queries with semantic expansion...");
+    
+    // 1. Expand Query (Multi-Query RAG)
+    const queries = await getAllQueriesToSearch(state.userQuery, state.apiKey);
+    logger.both.info(`Agent: Expanded to ${queries.length} queries: ${JSON.stringify(queries)}`);
 
-    // 1. Core query embedding (priority=true for user-facing operations)
-    const queryVector = await embeddingService.embedText(state.userQuery, 'agent', true);
-    logger.both.info("Agent: Query embedding successful");
+    // 2. Embed all queries in parallel (using priority=true for user-facing latency)
+    logger.both.info("Agent: Embedding all query variants...");
+    const vectors = await Promise.all(
+      queries.map(q => embeddingService.embedText(q, 'agent', true))
+    );
+    logger.both.info(`Agent: Generated ${vectors.length} embeddings`);
 
-    // 2. Query Vector DB
-    logger.both.info("Agent: Querying vector database...");
-    const results = await adapter.queryVectors({
-      repoId: repoId,
-      vector: queryVector,
-      topK: 50, // Retrieve top 50 chunks
-    });
+    // 3. Query Vector DB for each vector in parallel
+    logger.both.info("Agent: Querying vector database for all variants...");
+    const resultsList = await Promise.all(
+      vectors.map(vector => 
+        adapter.queryVectors({
+          repoId: repoId,
+          vector: vector,
+          topK: 30, // Slightly reduced topK per query since we run multiple
+        })
+      )
+    );
 
-    const matches = results?.matches ?? [];
-    logger.both.info(`Agent: Vector DB returned ${matches.length} matches`);
-
-    // 3. Extract unique file paths
+    // 4. Merge and Deduplicate Results
     const filePaths = new Set<string>();
-    for (const m of matches) {
-      const filePath = m.metadata?.filePath as string;
-      if (filePath) {
-        filePaths.add(filePath);
+    let totalMatches = 0;
+    let totalScore = 0;
+    const fileScores = new Map<string, { count: number; totalScore: number }>();
+
+    for (const results of resultsList) {
+      const matches = results?.matches ?? [];
+      totalMatches += matches.length;
+      
+      for (const m of matches) {
+        const filePath = m.metadata?.filePath as string;
+        const score = m.score ?? 0;
+        totalScore += score;
+        
+        if (filePath) {
+          filePaths.add(filePath);
+          
+          // Track scoring statistics for potential ranking
+          const current = fileScores.get(filePath) || { count: 0, totalScore: 0 };
+          fileScores.set(filePath, {
+            count: current.count + 1,
+            totalScore: current.totalScore + score
+          });
+        }
       }
     }
 
     const candidates = Array.from(filePaths);
-    logger.both.info(`Agent: RAG retrieved ${candidates.length} unique candidate files.`);
+    const avgScore = totalMatches > 0 ? totalScore / totalMatches : 0;
+    
+    logger.both.info(
+      `Agent: RAG retrieved ${totalMatches} raw matches across ${queries.length} queries, ` +
+      `reduced to ${candidates.length} unique files (avg score: ${avgScore.toFixed(3)}).`
+    );
+
+    // Optional: Log top files by frequency/score for debugging
+    const sortedFiles = Array.from(fileScores.entries())
+      .sort((a, b) => b[1].count - a[1].count || b[1].totalScore - a[1].totalScore)
+      .slice(0, 5);
+    
+    if (sortedFiles.length > 0) {
+      logger.both.info(
+        `Agent: Top files by frequency: ${sortedFiles.map(([fp, stats]) => 
+          `${path.basename(fp)}(${stats.count}/${queries.length})`
+        ).join(', ')}`
+      );
+    }
 
     return { candidateFiles: candidates };
   } catch (error) {
-    logger.both.error("Agent: RAG retrieval failed, falling back to basic file listing", error);
+    logger.both.error("Agent: Multi-query RAG retrieval failed, falling back to basic file listing", error);
 
     // CRITICAL: Fallback to local FS call only - no network calls
     try {

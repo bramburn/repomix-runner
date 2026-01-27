@@ -15,10 +15,6 @@ export const SearchGraphState = Annotation.Root({
     confidenceThreshold: Annotation<number | undefined>,
 
     // Derived / intermediate
-    expandedQueries: Annotation<string[]>({
-        reducer: (x, y) => (y ? y : x),
-        default: () => [],
-    }),
     vectorHits: Annotation<RepoSearchResult[]>({
         reducer: (x, y) => (y ? y : x),
         default: () => [],

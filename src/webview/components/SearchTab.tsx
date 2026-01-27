@@ -68,7 +68,6 @@ interface SearchTabState {
   results?: RepoSearchResult[];
   lastSearchOutputPath?: string | null;
   summaryPath?: string | null;
-  expandedQueries?: string[];
 }
 
 const DEFAULT_FILTERS: FileTypeFilterState = {
@@ -203,16 +202,15 @@ export const SearchTab = () => {
   // Initialize with saved state or defaults
   const [query, setQuery] = useState(loadedState?.query || '');
   const [smartFilterEnabled, setSmartFilterEnabled] = useState(loadedState?.smartFilterEnabled ?? false);
-  const [expandedQueries, setExpandedQueries] = useState<string[]>(loadedState?.expandedQueries || []);
   const [openItems, setOpenItems] = useState<string[]>(loadedState?.openAccordionItems || ['indexing', 'filters']);
 
   const [isSearching, setIsSearching] = useState(false);
-  const [results, setResults] = useState<RepoSearchResult[]>(loadedState?.results || []);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(loadedState?.lastSearchOutputPath || null);
   const [summaryPath, setSummaryPath] = useState<string | null>(loadedState?.summaryPath || null);
+  
+  // Declare copyMode first so other labels can depend on it
   const [copyMode, setCopyMode] = useState<'content' | 'file'>('content');
-
   const [copyDecisionsLabel, setCopyDecisionsLabel] = useState('Copy Smart Filter Decisions');
   const [copyMarkdownLabel, setCopyMarkdownLabel] = useState('Copy as Markdown');
   const [mainCopyLabel, setMainCopyLabel] = useState(copyMode === 'content' ? 'Copy Text' : 'Copy File');
@@ -221,6 +219,14 @@ export const SearchTab = () => {
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilterState>(
     loadedState?.fileTypeFilter || DEFAULT_FILTERS
   );
+
+  // Store the raw results from the backend
+  const [rawResults, setRawResults] = useState<RepoSearchResult[]>(loadedState?.results || []);
+
+  // Reactively filter results whenever rawResults OR fileTypeFilter changes
+  const results = useMemo(() => {
+    return filterByFileType(rawResults);
+  }, [rawResults, fileTypeFilter]);
 
   // Initialize sliders with saved state or defaults
   const [topK, setTopK] = useState(loadedState?.topK ?? 200);
@@ -238,12 +244,11 @@ export const SearchTab = () => {
       openAccordionItems: openItems,
       topK,
       confidenceThreshold,
-      results,
+      results: rawResults, // Persist raw results so filters work on reopen
       lastSearchOutputPath,
-      summaryPath,
-      expandedQueries
+      summaryPath
     });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, results, lastSearchOutputPath, summaryPath, expandedQueries]);
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, rawResults, lastSearchOutputPath, summaryPath]);
 
   const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
     const val = data.value as string;
@@ -522,7 +527,7 @@ export const SearchTab = () => {
         case 'repoIndexDeleted':
           setFileCount(0);
           setVectorCount(0);
-          setResults([]);
+          setRawResults([]);
           setIndexProgress(null);
           setIndexStats(null);
           setIndexingState('idle');
@@ -573,20 +578,13 @@ export const SearchTab = () => {
           setCollectionInfo(message.info ? { ...message.info, provider: message.provider } : null);
           break;
 
-        case 'searchQueryExpanded':
-          console.log('[SearchTab] Query expanded. Expanded queries:', message.queries);
-          setExpandedQueries(Array.isArray(message.queries) ? message.queries : []);
-          break;
-
         case 'repoSearchResults': {
           console.log('[SearchTab] Search results received. Raw count:', message.results?.length || 0);
           setIsSearching(false);
           setSearchError(null);
-          const rawResults: RepoSearchResult[] = Array.isArray(message.results) ? message.results : [];
-          console.log('[SearchTab] Filtering results by file type...');
-          const filteredResults = filterByFileType(rawResults);
-          console.log('[SearchTab] Filtered results count:', filteredResults.length);
-          setResults(filteredResults);
+          const incoming = Array.isArray(message.results) ? message.results : [];
+          // We update the 'raw' state; the useMemo handles the UI update
+          setRawResults(incoming);
           console.log('[SearchTab] ===== SEARCH COMPLETE =====');
           break;
         }
@@ -726,9 +724,8 @@ export const SearchTab = () => {
 
     setIsSearching(true);
     setSearchError(null);
-    setResults([]);
+    setRawResults([]);
     setSummaryPath(null);
-    setExpandedQueries([]);
 
     console.log('[SearchTab] Sending searchRepo message to extension...');
     vscode.postMessage({
@@ -964,7 +961,14 @@ export const SearchTab = () => {
       {/* File Filters Accordion */}
       <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
         <AccordionItem value="filters">
-          <AccordionHeader>File Filters</AccordionHeader>
+          <AccordionHeader>
+            File Filters{' '}
+            {JSON.stringify(fileTypeFilter) !== JSON.stringify(DEFAULT_FILTERS) && (
+              <span style={{ color: 'var(--vscode-textLink-foreground)', fontSize: '12px', marginLeft: '8px' }}>
+                (Modified)
+              </span>
+            )}
+          </AccordionHeader>
           <AccordionPanel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div
@@ -1026,6 +1030,17 @@ export const SearchTab = () => {
                 <Text size={200} style={{ opacity: 0.7 }}>
                   Tip: turn on <b>Catch-all</b> if you want to avoid missing anything; otherwise use Config/Mobile for most projects. Use <b>!</b> to exclude specific types.
                 </Text>
+              </div>
+
+              {/* Reset Filters Button */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                <Button
+                  appearance="secondary"
+                  size="small"
+                  onClick={() => setFileTypeFilter(DEFAULT_FILTERS)}
+                >
+                  Reset Filters
+                </Button>
               </div>
             </div>
           </AccordionPanel>
@@ -1110,21 +1125,12 @@ export const SearchTab = () => {
           {isSearching ? 'Searching…' : 'Search'}
         </Button>
 
-        {smartFilterEnabled && (results.some(r => r.reason) || expandedQueries.length > 0) && (
+        {smartFilterEnabled && results.some(r => r.reason) && (
           <Accordion collapsible multiple openItems={openItems} onToggle={handleAccordionToggle}>
             <AccordionItem value="smart-filter-insights">
               <AccordionHeader>Smart Filter Insights</AccordionHeader>
               <AccordionPanel>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px 0' }}>
-                  {expandedQueries.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <Label size="small">Expanded Queries</Label>
-                      <Text size={200} style={{ opacity: 0.8 }}>
-                        {expandedQueries.join(' • ')}
-                      </Text>
-                    </div>
-                  )}
-
                   {results.some(r => r.reason) && (
                     <Button
                       appearance="secondary"
