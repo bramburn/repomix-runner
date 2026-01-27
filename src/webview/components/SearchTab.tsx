@@ -223,6 +223,30 @@ export const SearchTab = () => {
   // Store the raw results from the backend
   const [rawResults, setRawResults] = useState<RepoSearchResult[]>(loadedState?.results || []);
 
+  function filterByFileType(incoming: RepoSearchResult[]): RepoSearchResult[] {
+    const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
+
+    return incoming.filter((r) => {
+      if (!r.path) return false;
+      const lowerPath = r.path.toLowerCase();
+      const base = baseNameOf(lowerPath);
+      const ext = extOf(lowerPath);
+
+      if (excludedBases.has(base)) return false;
+      if (ext && excludedExts.has(ext)) return false;
+
+      if (fileTypeFilter.includeAllExtensions) return true;
+
+      if (!ext) {
+        if (includedBases.has(base)) return true;
+        if (!fileTypeFilter.includeNoExtKnown) return false;
+        return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
+      }
+
+      return includedExts.has(ext) || includedBases.has(base);
+    });
+  }
+
   // Reactively filter results whenever rawResults OR fileTypeFilter changes
   const results = useMemo(() => {
     return filterByFileType(rawResults);
@@ -442,30 +466,6 @@ export const SearchTab = () => {
   };
 
 
-
-  const filterByFileType = (incoming: RepoSearchResult[]): RepoSearchResult[] => {
-    const { includedExts, includedBases, excludedExts, excludedBases } = getActiveExtensions();
-
-    return incoming.filter((r) => {
-      if (!r.path) return false;
-      const lowerPath = r.path.toLowerCase();
-      const base = baseNameOf(lowerPath);
-      const ext = extOf(lowerPath);
-
-      if (excludedBases.has(base)) return false;
-      if (ext && excludedExts.has(ext)) return false;
-
-      if (fileTypeFilter.includeAllExtensions) return true;
-
-      if (!ext) {
-        if (includedBases.has(base)) return true;
-        if (!fileTypeFilter.includeNoExtKnown) return false;
-        return KNOWN_EXTENSIONLESS_TEXT_FILES.has(base);
-      }
-
-      return includedExts.has(ext) || includedBases.has(base);
-    });
-  };
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
