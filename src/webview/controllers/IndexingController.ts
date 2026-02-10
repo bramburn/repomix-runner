@@ -178,6 +178,14 @@ export class IndexingController extends BaseController {
       case 'getRepoVectorCount':
         await this.handleGetRepoVectorCount();
         return true;
+        
+      case 'setEnableGrouping':
+        await this.handleSetEnableGrouping(message.enabled);
+        return true;
+        
+      case 'getEnableGrouping':
+        await this.handleGetEnableGrouping();
+        return true;
     }
 
     return false;
@@ -186,6 +194,7 @@ export class IndexingController extends BaseController {
   async onWebviewLoaded() {
     await this.handleGetIndexingState();
     await this.handleGetRepoIndexCount();
+    await this.handleGetEnableGrouping(); // NEW: Load grouping setting
   }
 
   // ============================================================================
@@ -232,6 +241,16 @@ export class IndexingController extends BaseController {
    */
   public async abortIndexing(): Promise<void> {
     await this.indexingService.abort();
+  }
+
+  private async handleSetEnableGrouping(enabled: boolean) {
+    await this.extensionContext.globalState.update('repomix.search.enableGrouping', enabled);
+    this.context.postMessage({ command: 'enableGrouping', enabled });
+  }
+
+  private async handleGetEnableGrouping() {
+    const enabled = this.extensionContext.globalState.get<boolean>('repomix.search.enableGrouping', true);
+    this.context.postMessage({ command: 'enableGrouping', enabled });
   }
 
   // ============================================================================
@@ -376,6 +395,9 @@ Please check your Vector DB settings and try again.`
 
       const { runSearchGraph } = await import('../../search/graph.js');
 
+      // Get enableGrouping setting from global state
+      const enableGrouping = this.extensionContext.globalState.get<boolean>('repomix.search.enableGrouping', true);
+      
       const finalState = await runSearchGraph({
         repoId,
         repoRoot: cwd,
@@ -384,6 +406,7 @@ Please check your Vector DB settings and try again.`
         maxResults: typeof topK === 'number' ? topK : 50,
         googleApiKey: googleKey || undefined,
         confidenceThreshold: confidenceThreshold,
+        enableGrouping, // NEW: Pass grouping configuration
       }, adapter, this.context);
 
       if (finalState.errors.length > 0) {

@@ -92,16 +92,29 @@ export class PineconeService {
     indexName: string,
     repoId: string,
     vector: number[],
-    topK: number = 10
+    topK: number = 10,
+    scoreThreshold?: number
   ) {
     const client = await this.getClient(apiKey);
     const index = client.index(indexName);
 
-    const result = await index.namespace(repoId).query({
+    const queryOptions: any = {
       vector,
       topK,
       includeMetadata: true
-    });
+    };
+
+    // Apply score threshold if provided
+    if (scoreThreshold !== undefined) {
+      queryOptions.minScore = scoreThreshold;
+    }
+
+    const result = await index.namespace(repoId).query(queryOptions);
+
+    // Post-filter results if minScore is not natively supported by this Pinecone version
+    if (scoreThreshold !== undefined && result.matches) {
+      result.matches = result.matches.filter(match => (match.score ?? 0) >= scoreThreshold);
+    }
 
     return result;
   }

@@ -8,6 +8,12 @@ export type Vector = {
 
 export type VectorDbQueryResult = {
   matches: Array<{ id: string; score: number; metadata?: any }>;
+  groupedMatches?: Array<{ 
+    id: string; 
+    score: number; 
+    metadata?: any;
+    groupId: string;  // New field for group identifier
+  }>;
 };
 
 export interface IndexMetadata {
@@ -28,6 +34,9 @@ export interface VectorDbAdapter {
     repoId: string;
     vector: number[];
     topK: number;
+    scoreThreshold?: number;
+    groupBy?: string;  // NEW: Optional grouping field
+    groupSize?: number; // NEW: Number of results per group (default: 1)
   }): Promise<VectorDbQueryResult>;
 
   deleteRepo(args: { repoId: string }): Promise<void>;

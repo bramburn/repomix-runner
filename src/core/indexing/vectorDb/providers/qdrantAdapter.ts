@@ -82,36 +82,88 @@ export class QdrantAdapter implements VectorDbAdapter {
         }
     }
 
-    async queryVectors(args: { repoId: string; vector: number[]; topK: number }): Promise<VectorDbQueryResult> {
+    async queryVectors(args: { 
+        repoId: string; 
+        vector: number[]; 
+        topK: number; 
+        scoreThreshold?: number;
+        groupBy?: string;
+        groupSize?: number;
+    }): Promise<VectorDbQueryResult> {
         try {
-            const searchResult = await this.client.search(this.collection, {
-                vector: args.vector,
-                limit: args.topK,
-                filter: {
-                    must: [
-                        {
-                            key: 'repoId',
-                            match: {
-                                value: args.repoId
+            // Use searchPointGroups when groupBy is specified
+            if (args.groupBy) {
+                const searchResult = await this.client.searchPointGroups(this.collection, {
+                    vector: args.vector,
+                    limit: args.topK,
+                    group_by: args.groupBy,  // Field to group by (e.g., 'filePath')
+                    group_size: args.groupSize ?? 1,  // Results per group
+                    score_threshold: args.scoreThreshold,
+                    filter: {
+                        must: [
+                            {
+                                key: 'repoId',
+                                match: {
+                                    value: args.repoId
+                                }
                             }
-                        }
-                    ]
-                },
-                with_payload: true,
-                with_vector: false
-            });
+                        ]
+                    },
+                    with_payload: true,
+                    with_vector: false
+                });
 
-            return {
-                matches: searchResult.map(res => ({
-                    id: res.id as string,
-                    score: res.score,
-                    metadata: res.payload
-                }))
-            };
+                // Transform grouped results to flat matches format
+                const groupedMatches: Array<{ id: string; score: number; metadata?: any; groupId: string }> = [];
+                
+                for (const group of searchResult.groups) {
+                    for (const hit of group.hits) {
+                        groupedMatches.push({
+                            id: hit.id as string,
+                            score: hit.score,
+                            metadata: hit.payload,
+                            groupId: String(group.id)  // The grouping key (e.g., filePath)
+                        });
+                    }
+                }
+
+                return {
+                    matches: [], // Legacy field - keep empty when using grouping
+                    groupedMatches
+                };
+            } else {
+                // Existing behavior for non-grouped queries
+                const searchResult = await this.client.search(this.collection, {
+                    vector: args.vector,
+                    limit: args.topK,
+                    score_threshold: args.scoreThreshold,
+                    filter: {
+                        must: [
+                            {
+                                key: 'repoId',
+                                match: {
+                                    value: args.repoId
+                                }
+                            }
+                        ]
+                    },
+                    with_payload: true,
+                    with_vector: false
+                });
+
+                return {
+                    matches: searchResult.map(res => ({
+                        id: res.id as string,
+                        score: res.score,
+                        metadata: res.payload
+                    }))
+                };
+            }
         } catch (error) {
             console.error('QdrantAdapter: Failed to query vectors', {
                 collection: this.collection,
                 repoId: args.repoId,
+                groupBy: args.groupBy,
                 error: error instanceof Error ? error.message : String(error)
             });
             throw new Error(`Failed to query vectors from Qdrant: ${error instanceof Error ? error.message : String(error)}`);

@@ -155,6 +155,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   // Token Budget State
   const [tokenBudget, setTokenBudget] = useState<number>(50000);
+  
+  // Search Result Grouping State
+  const [enableGrouping, setEnableGrouping] = useState<boolean>(true);
+  
+  // Load initial grouping setting
+  useEffect(() => {
+    vscode.postMessage({ command: 'getEnableGrouping' });
+  }, []);
 
   // Compatibility status state
   const [compatibilityStatus, setCompatibilityStatus] = useState<{
@@ -238,6 +246,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     const handler = (event: MessageEvent) => {
       const message = event.data;
       switch (message.command) {
+        case 'enableGrouping':
+          setEnableGrouping(message.enabled);
+          break;
         case 'secretStatus':
           if (message.key === 'googleApiKey') setGoogleKeyExists(message.exists);
           else if (message.key === 'pineconeApiKey') setPineconeKeyExists(message.exists);
@@ -623,6 +634,35 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </Dropdown>
           <Text size={100} style={{ opacity: 0.7 }}>
             Choose which vector database Repomix uses for search (and indexing where supported).
+          </Text>
+        </div>
+      </div>
+
+      {/* Search Result Diversity Configuration */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Search Result Diversity</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="enable-grouping"
+              type="checkbox"
+              checked={enableGrouping}
+              onChange={(e) => {
+                setEnableGrouping(e.target.checked);
+                // Save to extension state
+                vscode.postMessage({ 
+                  command: 'setEnableGrouping', 
+                  enabled: e.target.checked 
+                });
+              }}
+            />
+            <Label htmlFor="enable-grouping" style={{ margin: 0 }}>
+              Enable file-level grouping (one best chunk per file)
+            </Label>
+          </div>
+          <Text size={100} style={{ opacity: 0.7 }}>
+            When enabled, search results show the single best matching chunk from each file,
+            ensuring diverse results across your codebase rather than multiple chunks from the same files.
           </Text>
         </div>
       </div>

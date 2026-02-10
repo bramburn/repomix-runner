@@ -170,6 +170,9 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
                     repoId: state.repoId,
                     vector,
                     topK: state.maxResults,
+                    scoreThreshold: state.confidenceThreshold,
+                    groupBy: state.enableGrouping ? 'filePath' : undefined,  // NEW: Group by file path when enabled
+                    groupSize: state.enableGrouping ? 1 : undefined          // NEW: One best chunk per file
                 })
             )
         );
@@ -177,7 +180,8 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
 
         const vectorHits: RepoSearchResult[] = [];
         for (const res of resList) {
-            const matches = res?.matches ?? [];
+            // Handle both legacy matches and grouped matches
+            const matches = res?.groupedMatches ?? res?.matches ?? [];
             for (const m of matches) {
                 vectorHits.push({
                     id: m.id,
@@ -252,13 +256,16 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
 
 export async function dedupeNode(state: SearchGraphState) {
     console.log('[SEARCH_GRAPH] ===== dedupeNode START =====');
-    console.log('[SEARCH_GRAPH] Vector hits to dedupe:', state.vectorHits?.length || 0);
+    console.log('[SEARCH_GRAPH] Vector hits to process:', state.vectorHits?.length || 0);
     const start = Date.now();
+    
     if (state.errors.length > 0) {
         console.log('[SEARCH_GRAPH] Skipping dedupeNode due to previous errors');
         return {};
     }
 
+    // With grouping enabled, we should already have unique files
+    // But keep deduping logic as safety net for edge cases and when grouping is disabled
     const bestByPath = new Map<string, RepoSearchResult>();
 
     for (const hit of state.vectorHits) {

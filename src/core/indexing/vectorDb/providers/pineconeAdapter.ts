@@ -14,21 +14,61 @@ export class PineconeAdapter implements VectorDbAdapter {
     await this.svc.upsertVectors(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.vectors);
   }
 
-  async queryVectors(args: { repoId: string; vector: number[]; topK: number }): Promise<VectorDbQueryResult> {
+  async queryVectors(args: { 
+    repoId: string; 
+    vector: number[]; 
+    topK: number; 
+    scoreThreshold?: number;
+    groupBy?: string;
+    groupSize?: number;
+  }): Promise<VectorDbQueryResult> {
     const response = await this.svc.queryVectors(
       this.cfg.apiKey,
       this.cfg.indexName,
       args.repoId,
       args.vector,
-      args.topK
+      args.topK,
+      args.scoreThreshold
     );
 
+    let matches = (response.matches || []).map((m) => ({
+      id: m.id,
+      score: m.score ?? 0,
+      metadata: m.metadata,
+    }));
+
+    // Client-side grouping for Pinecone (since it doesn't support native grouping)
+    if (args.groupBy && args.groupSize) {
+      const grouped = new Map<string, Array<typeof matches[0]>>();
+      
+      for (const match of matches) {
+        const groupId = match.metadata?.[args.groupBy] as string;
+        if (!groupId) continue;
+        
+        if (!grouped.has(groupId)) {
+          grouped.set(groupId, []);
+        }
+        
+        const group = grouped.get(groupId)!;
+        if (group.length < (args.groupSize || 1)) {
+          group.push(match);
+        }
+      }
+      
+      // Flatten grouped results
+      const groupedMatches = Array.from(grouped.values()).flat().map(match => ({
+        ...match,
+        groupId: match.metadata?.[args.groupBy!] as string
+      }));
+      
+      return {
+        matches: [],
+        groupedMatches
+      };
+    }
+
     return {
-      matches: (response.matches || []).map((m) => ({
-        id: m.id,
-        score: m.score ?? 0,
-        metadata: m.metadata,
-      })),
+      matches,
     };
   }
 
