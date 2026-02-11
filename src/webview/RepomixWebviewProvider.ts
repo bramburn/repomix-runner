@@ -123,7 +123,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new DebugController(webviewContext, this._databaseService),
       new ApplyController(webviewContext, this._context),
       new IndexHistoryController(webviewContext, this._databaseService),
-      new ChatController(webviewContext)
+      new ChatController(webviewContext, this._context)
     ];
     console.log('[quick-repomix] Controllers initialized:', this._controllers.length, 'controllers');
 

@@ -553,6 +553,8 @@ export const ChatSubmitSchema = z.object({
 export const ChatResponseSchema = z.object({
   command: z.literal('chatResponse'),
   text: z.string(),
+  tokensUsed: z.number().int().nonnegative().optional(),
+  costUsd: z.number().nonnegative().optional(),
 });
 
 export const WebviewMessageSchema = z.discriminatedUnion('command', [

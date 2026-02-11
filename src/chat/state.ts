@@ -15,5 +15,28 @@ export const ChatState = Annotation.Root({
     reducer: (x, y) => x.concat(y),
     default: () => [],
   }),
-});
 
+  // Total tokens used for the current chat session (displayed in UI)
+  tokensUsed: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 0,
+  }),
+
+  // Estimated USD cost for the current chat session (displayed in UI)
+  costUsd: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 0,
+  }),
+
+  // Context retrieved from the vector database
+  retrievedContext: Annotation<Array<{
+    filePath: string;
+    content: string;
+    score: number;
+    startLine?: number;
+    endLine?: number;
+  }>>({
+    reducer: (_, y) => y,
+    default: () => [],
+  }),
+});
