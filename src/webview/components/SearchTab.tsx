@@ -65,6 +65,9 @@ interface SearchTabState {
   openAccordionItems: string[];
   topK: number;
   confidenceThreshold: number;
+  dynamicMinThreshold?: number;
+  dynamicMaxThreshold?: number;
+  isRangeAdjusted?: boolean;
   results?: RepoSearchResult[];
   lastSearchOutputPath?: string | null;
   summaryPath?: string | null;
@@ -393,6 +396,32 @@ export const SearchTab = () => {
   // Initialize sliders with saved state or defaults
   const [topK, setTopK] = useState(loadedState?.topK ?? 200);
   const [confidenceThreshold, setConfidenceThreshold] = useState(loadedState?.confidenceThreshold ?? 0.5);
+  
+  // Dynamic threshold range state
+  const [dynamicMinThreshold, setDynamicMinThreshold] = useState(loadedState?.dynamicMinThreshold ?? 0.0);
+  const [dynamicMaxThreshold, setDynamicMaxThreshold] = useState(loadedState?.dynamicMaxThreshold ?? 1.0);
+  const [isRangeAdjusted, setIsRangeAdjusted] = useState(loadedState?.isRangeAdjusted ?? false);
+
+  // Dynamic range calculation logic
+  const calculateDynamicRange = (currentThreshold: number) => {
+    const expansion = 0.2; // Configurable expansion amount
+    const newMin = Math.max(0.0, currentThreshold - expansion);
+    const newMax = 1.0; // Always allow expansion to maximum
+    
+    return {
+      min: newMin,
+      max: newMax,
+      isAdjusted: currentThreshold !== 0.5 || isRangeAdjusted
+    };
+  };
+
+  // Initialize dynamic range on component mount
+  useEffect(() => {
+    const initialRange = calculateDynamicRange(confidenceThreshold);
+    setDynamicMinThreshold(initialRange.min);
+    setDynamicMaxThreshold(initialRange.max);
+    setIsRangeAdjusted(initialRange.isAdjusted);
+  }, []);
 
   // Persist state changes (merge with existing state to avoid clobbering other tabs)
   useEffect(() => {
@@ -406,11 +435,14 @@ export const SearchTab = () => {
       openAccordionItems: openItems,
       topK,
       confidenceThreshold,
+      dynamicMinThreshold,
+      dynamicMaxThreshold,
+      isRangeAdjusted,
       results: rawResults, // Persist raw results so filters work on reopen
       lastSearchOutputPath,
       summaryPath
     });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, rawResults, lastSearchOutputPath, summaryPath]);
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, dynamicMinThreshold, dynamicMaxThreshold, isRangeAdjusted, rawResults, lastSearchOutputPath, summaryPath]);
 
   const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
     const val = data.value as string;
@@ -439,6 +471,9 @@ export const SearchTab = () => {
     const out: RepoSearchResult[] = [];
 
     for (const r of results) {
+      // Dynamic client-side filtering for immediate feedback (Confidence Threshold)
+      if (r.score < confidenceThreshold) continue;
+
       const p = r.path?.trim();
       if (!p) continue;
       if (seen.has(p)) continue;
@@ -446,8 +481,9 @@ export const SearchTab = () => {
       out.push(r);
     }
 
-    return out;
-  }, [results]);
+    // Limit display to topK (Max VectorDB Results)
+    return out.slice(0, topK);
+  }, [results, topK, confidenceThreshold]);
 
   const canGenerate = useMemo(() => dedupedResults.length > 0 && !isSearching, [dedupedResults, isSearching]);
 
@@ -1076,21 +1112,49 @@ export const SearchTab = () => {
           </Label>
         </div>
 
-        {/* Smart Filter Controls */}
-        {smartFilterEnabled && (
-          <>
-            <Label size="small">
-              Confidence Threshold: {confidenceThreshold.toFixed(1)}
-            </Label>
-            <Slider
-              min={0}
-              max={1}
-              step={0.1}
-              value={confidenceThreshold}
-              onChange={(e, data) => setConfidenceThreshold(data.value ?? 0.5)}
-              style={{ width: '100%' }}
-            />
-          </>
+        {/* Dynamic Confidence Threshold Slider - Available for both smart and non-smart search */}
+        <Label size="small">
+          Confidence Threshold: {confidenceThreshold.toFixed(2)}
+          {isRangeAdjusted && (
+            <span style={{ color: 'var(--vscode-textLink-foreground)', fontSize: '11px', marginLeft: '8px' }}>
+              (Range: {dynamicMinThreshold.toFixed(2)} - {dynamicMaxThreshold.toFixed(2)})
+            </span>
+          )}
+        </Label>
+        <Slider
+          min={dynamicMinThreshold}
+          max={dynamicMaxThreshold}
+          step={0.01}  // Finer granularity for better control
+          value={confidenceThreshold}
+          onChange={(e, data) => {
+            const newValue = data.value ?? 0.5;
+            setConfidenceThreshold(newValue);
+            
+            // Recalculate dynamic range when threshold changes significantly
+            const range = calculateDynamicRange(newValue);
+            setDynamicMinThreshold(range.min);
+            setDynamicMaxThreshold(range.max);
+            setIsRangeAdjusted(range.isAdjusted);
+          }}
+          style={{ width: '100%' }}
+        />
+
+        {/* Reset Range Button */}
+        {isRangeAdjusted && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+            <Button 
+              appearance="secondary" 
+              size="small"
+              onClick={() => {
+                setConfidenceThreshold(0.5);
+                setDynamicMinThreshold(0.0);
+                setDynamicMaxThreshold(1.0);
+                setIsRangeAdjusted(false);
+              }}
+            >
+              Reset Range
+            </Button>
+          </div>
         )}
 
         {/* VectorDB Results Limit */}

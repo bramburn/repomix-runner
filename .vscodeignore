@@ -8,7 +8,11 @@ out/
 .repomix
 .repomixignore
 .gitignore
-.yarnrc
+.yarnrc#
+.qoder
+test-semantic-folding.mjs
+.repomix-runner
+verification/
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
