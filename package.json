@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "1.0.20",
+  "version": "1.0.21",
   "engines": {
     "vscode": "^1.93.0"
   },
