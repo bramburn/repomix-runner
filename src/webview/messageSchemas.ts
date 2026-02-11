@@ -545,6 +545,16 @@ export const TokenBudgetSchema = z.object({
   budget: z.number().int().positive(),
 });
 
+export const ChatSubmitSchema = z.object({
+  command: z.literal('chatSubmit'),
+  text: z.string().min(1),
+});
+
+export const ChatResponseSchema = z.object({
+  command: z.literal('chatResponse'),
+  text: z.string(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -633,6 +643,9 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   GetTokenBudgetSchema,
   SetTokenBudgetSchema,
   TokenBudgetSchema,
+  // Chat
+  ChatSubmitSchema,
+  ChatResponseSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
