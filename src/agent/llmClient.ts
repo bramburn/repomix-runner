@@ -115,7 +115,7 @@ export async function generateStructured<T>(
     schema: z.ZodType<T>,
     prompt: string,
     name: string = "Structured Generation"
-): Promise<{ parsed: T; totalTokens: number }> {
+): Promise<{ parsed: T; totalTokens: number; promptTokens: number; completionTokens: number }> {
     // Enqueue the request to respect the GEMINI_RPM limit.
     return geminiQueue.add(() =>
         withBackoff(async () => {
@@ -124,9 +124,26 @@ export async function generateStructured<T>(
 
             const response = await structuredLlm.invoke(prompt);
             const parsed = response.parsed as T;
-            const totalTokens = (response.raw as any)?.usage_metadata?.total_tokens || 0;
+            const usage =
+                (response.raw as any)?.usage_metadata ||
+                (response.raw as any)?.response_metadata?.usage_metadata ||
+                {};
+            const totalTokens = usage.total_tokens || 0;
+            let promptTokens =
+                usage.prompt_token_count ??
+                usage.prompt_tokens ??
+                usage.input_tokens ??
+                0;
+            let completionTokens =
+                usage.candidates_token_count ??
+                usage.completion_tokens ??
+                usage.output_tokens ??
+                0;
+            if (totalTokens > 0 && promptTokens === 0 && completionTokens === 0) {
+                promptTokens = totalTokens;
+            }
 
-            return { parsed, totalTokens };
+            return { parsed, totalTokens, promptTokens, completionTokens };
         }, 5, name)
     );
 }
@@ -142,7 +159,7 @@ export async function generateText(
     apiKey: string,
     prompt: string,
     name: string = "Text Generation"
-): Promise<{ content: string; totalTokens: number }> {
+): Promise<{ content: string; totalTokens: number; promptTokens: number; completionTokens: number }> {
     return geminiQueue.add(() =>
         withBackoff(async () => {
             const model = createGeminiModel(apiKey);
@@ -167,9 +184,26 @@ export async function generateText(
                 logger.both.warn(`[${name}] Unexpected content type: ${typeof response.content}. Value: ${JSON.stringify(response.content)}`);
             }
 
-            const totalTokens = (response.response_metadata as any)?.usage_metadata?.total_tokens || 0;
+            const usage =
+                (response.response_metadata as any)?.usage_metadata ||
+                (response as any)?.usage_metadata ||
+                {};
+            const totalTokens = usage.total_tokens || 0;
+            let promptTokens =
+                usage.prompt_token_count ??
+                usage.prompt_tokens ??
+                usage.input_tokens ??
+                0;
+            let completionTokens =
+                usage.candidates_token_count ??
+                usage.completion_tokens ??
+                usage.output_tokens ??
+                0;
+            if (totalTokens > 0 && promptTokens === 0 && completionTokens === 0) {
+                promptTokens = totalTokens;
+            }
 
-            return { content, totalTokens };
+            return { content, totalTokens, promptTokens, completionTokens };
         }, 5, name)
     );
 }

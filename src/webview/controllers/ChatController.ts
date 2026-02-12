@@ -25,8 +25,15 @@ export class ChatController extends BaseController {
   private async runChatGraph(input: string) {
     try {
       logger.both.info(`ChatController: Processing user input: "${input}"`);
-      
-      const graph = createChatGraph(this.extensionContext);
+
+      const onProgress = (message: string) => {
+        this.context.postMessage({
+          command: 'chatProgress',
+          text: message,
+        });
+      };
+
+      const graph = createChatGraph(this.extensionContext, onProgress);
       const result = await graph.invoke({ userQuery: input });
       
       logger.both.info(`ChatController: Graph returned response: "${result.aiResponse}"`);
@@ -35,6 +42,8 @@ export class ChatController extends BaseController {
         command: 'chatResponse',
         text: result.aiResponse,
         tokensUsed: result.tokensUsed,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
         costUsd: result.costUsd,
       });
     } catch (error) {

@@ -8,7 +8,7 @@ import { Send24Regular } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
 
 interface Message {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'progress';
   content: string;
 }
 
@@ -17,6 +17,8 @@ export const ChatTab = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [tokensUsed, setTokensUsed] = useState(0);
+  const [inputTokens, setInputTokens] = useState(0);
+  const [outputTokens, setOutputTokens] = useState(0);
   const [costUsd, setCostUsd] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endOfMsgRef = useRef<HTMLDivElement>(null);
@@ -29,10 +31,20 @@ export const ChatTab = () => {
   // Listen for chat responses from the extension
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (event.data.command === 'chatProgress') {
+        setMessages(prev => [...prev, { role: 'progress', content: event.data.text }]);
+        return;
+      }
       if (event.data.command === 'chatResponse') {
         setMessages(prev => [...prev, { role: 'assistant', content: event.data.text }]);
         if (typeof event.data.tokensUsed === 'number') {
           setTokensUsed(event.data.tokensUsed);
+        }
+        if (typeof event.data.inputTokens === 'number') {
+          setInputTokens(event.data.inputTokens);
+        }
+        if (typeof event.data.outputTokens === 'number') {
+          setOutputTokens(event.data.outputTokens);
         }
         if (typeof event.data.costUsd === 'number') {
           setCostUsd(event.data.costUsd);
@@ -72,8 +84,9 @@ export const ChatTab = () => {
     }
   };
 
-  const tokenBudget = 100000;
-  const tokenProgress = Math.min(tokensUsed / tokenBudget, 1);
+  const tokenBudget = 1_000_000;
+  const resolvedTotalTokens = tokensUsed || (inputTokens + outputTokens);
+  const tokenProgress = Math.min(resolvedTotalTokens / tokenBudget, 1);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '10px' }}>
@@ -116,18 +129,24 @@ export const ChatTab = () => {
               fontSize: '11px', 
               textAlign: msg.role === 'user' ? 'right' : 'left',
             }}>
-              {msg.role === 'user' ? 'You' : 'Assistant'}
+              {msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'Progress'}
             </Text>
             <div style={{ 
-              backgroundColor: msg.role === 'user' ? '#0078d4' : '#3c3c3c',
+              backgroundColor: msg.role === 'user'
+                ? '#0078d4'
+                : msg.role === 'progress'
+                  ? 'rgba(255, 255, 255, 0.06)'
+                  : '#3c3c3c',
               color: '#ffffff',
               padding: '10px 12px',
               borderRadius: '10px',
               borderTopRightRadius: msg.role === 'user' ? '4px' : '10px',
               borderTopLeftRadius: msg.role === 'user' ? '10px' : '4px',
-              boxShadow: '0 6px 14px rgba(0, 0, 0, 0.18)',
+              boxShadow: msg.role === 'progress' ? 'none' : '0 6px 14px rgba(0, 0, 0, 0.18)',
               wordWrap: 'break-word',
               whiteSpace: 'pre-wrap',
+              fontSize: msg.role === 'progress' ? '12px' : '14px',
+              color: msg.role === 'progress' ? 'rgba(255, 255, 255, 0.82)' : '#ffffff',
             }}>
               {msg.content}
             </div>
@@ -158,7 +177,7 @@ export const ChatTab = () => {
         border: '1px solid rgba(255, 255, 255, 0.06)',
       }}>
         <Text style={{ opacity: 0.7, fontSize: '12px', minWidth: '72px' }}>
-          {tokensUsed.toLocaleString()} tokens
+          Total in {inputTokens.toLocaleString()} · out {outputTokens.toLocaleString()}
         </Text>
         <div style={{
           position: 'relative',
@@ -174,6 +193,9 @@ export const ChatTab = () => {
             background: 'linear-gradient(90deg, #5b9bd5, #3aa0ff)',
           }} />
         </div>
+        <Text style={{ opacity: 0.7, fontSize: '12px', minWidth: '56px', textAlign: 'right' }}>
+          {resolvedTotalTokens.toLocaleString()} / 1,000,000
+        </Text>
         <Text style={{ opacity: 0.7, fontSize: '12px', minWidth: '56px', textAlign: 'right' }}>
           ${costUsd.toFixed(2)}
         </Text>

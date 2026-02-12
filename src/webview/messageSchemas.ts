@@ -554,7 +554,14 @@ export const ChatResponseSchema = z.object({
   command: z.literal('chatResponse'),
   text: z.string(),
   tokensUsed: z.number().int().nonnegative().optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
   costUsd: z.number().nonnegative().optional(),
+});
+
+export const ChatProgressSchema = z.object({
+  command: z.literal('chatProgress'),
+  text: z.string(),
 });
 
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
@@ -648,6 +655,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   // Chat
   ChatSubmitSchema,
   ChatResponseSchema,
+  ChatProgressSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
