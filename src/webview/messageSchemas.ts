@@ -550,6 +550,63 @@ export const ChatSubmitSchema = z.object({
   text: z.string().min(1),
 });
 
+export const GetThreadsSchema = z.object({
+  command: z.literal('getThreads'),
+});
+
+export const CreateThreadSchema = z.object({
+  command: z.literal('createThread'),
+});
+
+export const SetActiveThreadSchema = z.object({
+  command: z.literal('setActiveThread'),
+  threadId: z.string().min(1),
+});
+
+export const LoadThreadSchema = z.object({
+  command: z.literal('loadThread'),
+  threadId: z.string().min(1),
+});
+
+export const DeleteThreadSchema = z.object({
+  command: z.literal('deleteThread'),
+  threadId: z.string().min(1),
+});
+
+export const RenameThreadSchema = z.object({
+  command: z.literal('renameThread'),
+  threadId: z.string().min(1),
+  newName: z.string().min(1),
+});
+
+export const ExportThreadSchema = z.object({
+  command: z.literal('exportThread'),
+  threadId: z.string().min(1),
+});
+
+export const ThreadListSchema = z.object({
+  command: z.literal('threadList'),
+  activeThreadId: z.string().nullable().optional(),
+  threads: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    createdAt: z.number().int().nonnegative().optional(),
+    updatedAt: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative().optional(),
+    preview: z.string().optional(),
+    planPath: z.string().optional(),
+  })),
+});
+
+export const ThreadHistorySchema = z.object({
+  command: z.literal('threadHistory'),
+  threadId: z.string().min(1),
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string(),
+  })),
+});
+
 export const ChatResponseSchema = z.object({
   command: z.literal('chatResponse'),
   text: z.string(),
@@ -654,6 +711,15 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   TokenBudgetSchema,
   // Chat
   ChatSubmitSchema,
+  GetThreadsSchema,
+  CreateThreadSchema,
+  SetActiveThreadSchema,
+  LoadThreadSchema,
+  DeleteThreadSchema,
+  RenameThreadSchema,
+  ExportThreadSchema,
+  ThreadListSchema,
+  ThreadHistorySchema,
   ChatResponseSchema,
   ChatProgressSchema,
 ]);

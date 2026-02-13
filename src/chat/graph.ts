@@ -13,6 +13,9 @@ export function createChatGraph(
   onProgress: ProgressCallback
 ) {
   const workflow = new StateGraph(ChatState)
+    .addNode("loadPlan", (state) =>
+      nodes.loadPlanNode(state, extensionContext, onProgress)
+    )
     .addNode("generateQueries", (state) =>
       nodes.generateQueriesNode(state, extensionContext, onProgress)
     )
@@ -22,20 +25,42 @@ export function createChatGraph(
     .addNode("evaluate", (state) =>
       nodes.evaluateNode(state, extensionContext, onProgress)
     )
-    .addNode("readFile", (state) => nodes.readFileNode(state, onProgress))
+    .addNode("loadForRewrite", (state) => nodes.loadForRewriteNode(state, onProgress))
+    .addNode("editPlan", (state) =>
+      nodes.editPlanNode(state, extensionContext, onProgress)
+    )
+    .addNode("repairEdit", (state) =>
+      nodes.repairEditNode(state, extensionContext, onProgress)
+    )
     .addNode("generateResponse", (state) =>
       nodes.generateResponseNode(state, extensionContext, onProgress)
     )
-    .addEdge("__start__", "generateQueries")
+    .addEdge("__start__", "loadPlan")
+    .addEdge("loadPlan", "generateQueries")
     .addEdge("generateQueries", "vectorSearch")
     .addEdge("vectorSearch", "evaluate")
     .addConditionalEdges("evaluate", (state) => {
-      if (state.nextAction === "READ") {
-        return "readFile";
+      if (state.nextAction === "SEARCH_MORE") {
+        return "vectorSearch";
+      }
+      if (state.nextAction === "REWRITE") {
+        return "loadForRewrite";
       }
       return "generateResponse";
     })
-    .addEdge("readFile", "evaluate")
+    .addEdge("loadForRewrite", "editPlan")
+    .addConditionalEdges("editPlan", (state) => {
+      if (state.nextAction === "RETRY_EDIT") {
+        return "repairEdit";
+      }
+      return "generateResponse";
+    })
+    .addConditionalEdges("repairEdit", (state) => {
+      if (state.nextAction === "RETRY_EDIT") {
+        return "repairEdit";
+      }
+      return "generateResponse";
+    })
     .addEdge("generateResponse", "__end__");
 
   return workflow.compile();

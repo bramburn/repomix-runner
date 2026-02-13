@@ -186,41 +186,68 @@ export class RepoIndexMonitor {
 
     const flushStart = Date.now();
     console.log(`[RepoIndexMonitor] ===== FLUSH START =====`);
-    console.log(`[RepoIndexMonitor] Files to mark pending: ${paths.length}`);
-    console.log(`[RepoIndexMonitor] Files:`, paths);
+    console.log(`[RepoIndexMonitor] Raw paths queued: ${paths.length}`);
+    console.log(`[RepoIndexMonitor] Paths:`, paths);
 
     try {
+      // Expand directory-like deletions to concrete file paths from DB state.
+      // If no DB match exists (new file/create case), keep the original path.
+      const expandStart = Date.now();
+      const expandedSet = new Set<string>();
+      let expandedFromPrefixCount = 0;
+
+      for (const inputPath of paths) {
+        const matches = await this.databaseService.getRepoFilePathsByPathOrPrefix(this.repoId, inputPath);
+        if (matches.length > 0) {
+          if (matches.length > 1 || matches[0] !== inputPath) {
+            expandedFromPrefixCount++;
+          }
+          for (const match of matches) {
+            expandedSet.add(match);
+          }
+        } else {
+          expandedSet.add(inputPath);
+        }
+      }
+
+      const expandedPaths = [...expandedSet];
+      const expandDuration = Date.now() - expandStart;
+      console.log(
+        `[RepoIndexMonitor] Path expansion complete in ${expandDuration}ms ` +
+        `(raw=${paths.length}, expanded=${expandedPaths.length}, prefix-expansions=${expandedFromPrefixCount})`
+      );
+
       // Step 1: Persist pending state to database
       console.log(`[RepoIndexMonitor] Step 1: Marking files as pending in database...`);
       const dbStart = Date.now();
-      await this.databaseService.markRepoFilesPending(this.repoId, paths);
+      await this.databaseService.markRepoFilesPending(this.repoId, expandedPaths);
       const dbDuration = Date.now() - dbStart;
       console.log(`[RepoIndexMonitor] Step 1 complete: Database updated in ${dbDuration}ms`);
 
       // Record flush event to index history
       const flushTimestamp = Date.now();
       await this.databaseService.addIndexHistoryBatch(
-        paths.map(p => ({
+        expandedPaths.map(p => ({
           timestamp: flushTimestamp,
           repoId: this.repoId,
           filePath: p,
           eventType: 'flush' as const,
           status: 'pending' as const,
-          details: JSON.stringify({ batchSize: paths.length })
+          details: JSON.stringify({ batchSize: expandedPaths.length })
         }))
       );
 
       // Step 2: Trigger incremental embedding callback
       console.log(`[RepoIndexMonitor] Step 2: Triggering incremental embedding callback...`);
       const embedStart = Date.now();
-      await this.onFlush(paths);
+      await this.onFlush(expandedPaths);
       const embedDuration = Date.now() - embedStart;
       console.log(`[RepoIndexMonitor] Step 2 complete: Embedding callback finished in ${embedDuration}ms`);
 
       const totalDuration = Date.now() - flushStart;
       console.log(`[RepoIndexMonitor] ===== FLUSH COMPLETE =====`);
       console.log(`[RepoIndexMonitor] Total time: ${totalDuration}ms`);
-      console.log(`[RepoIndexMonitor] Files processed: ${paths.length}`);
+      console.log(`[RepoIndexMonitor] Files processed: ${expandedPaths.length}`);
     } catch (error) {
       const flushDuration = Date.now() - flushStart;
       console.error(`[RepoIndexMonitor] ===== FLUSH FAILED =====`);

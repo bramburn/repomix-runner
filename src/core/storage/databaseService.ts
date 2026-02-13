@@ -1000,6 +1000,57 @@ export class DatabaseService {
   }
 
   /**
+   * Resolve a path to concrete indexed file paths using exact-or-prefix matching.
+   *
+   * This supports directory deletion events where VS Code may report only the
+   * directory path. For a path like "src/utils", this returns:
+   * - exact match: "src/utils" (if it exists as a file in state)
+   * - descendants: "src/utils/*"
+   *
+   * Matching is path-boundary safe, so "src/utils2/*" is not included.
+   */
+  async getRepoFilePathsByPathOrPrefix(repoId: string, filePath: string): Promise<string[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const normalized = filePath
+      .split(path.sep).join('/')
+      .replace(/\/+$/, '');
+
+    if (!normalized) {
+      return [];
+    }
+
+    // Escape SQL LIKE wildcard characters in literal path segments.
+    const escapedForLike = normalized.replace(/[\\%_]/g, '\\$&');
+    const prefixPattern = `${escapedForLike}/%`;
+
+    const stmt = this.db.prepare(`
+      SELECT file_path
+      FROM repo_file_state
+      WHERE repo_id = ?
+        AND (
+          file_path = ?
+          OR file_path LIKE ? ESCAPE '\\'
+        )
+      ORDER BY file_path ASC
+    `);
+
+    const out: string[] = [];
+    try {
+      stmt.bind([repoId, normalized, prefixPattern]);
+      while (stmt.step()) {
+        const row = stmt.getAsObject() as any;
+        out.push(String(row.file_path));
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return out;
+  }
+
+  /**
    * Mark a file as successfully indexed with its content hash.
    *
    * Called after incremental embedding successfully processes a file.

@@ -7,6 +7,10 @@ export const ChatState = Annotation.Root({
   // --- Input ---
   // The user's input message
   userQuery: Annotation<string>(),
+  threadId: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => "",
+  }),
 
   // --- Intermediate State ---
   // 1. Generated Search Queries
@@ -31,21 +35,57 @@ export const ChatState = Annotation.Root({
     default: () => [],
   }),
 
-  // 3. Full File Contents (Read via Tool)
-  fileContents: Annotation<Record<string, string>>({
-    reducer: (curr, next) => ({ ...curr, ...next }),
+  // 3. Current persisted plan content for this thread
+  planContent: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => "",
+  }),
+
+  // 4. Full file contents loaded only for rewrite phase
+  targetFileContents: Annotation<Record<string, string>>({
+    reducer: (_, y) => y,
     default: () => ({}),
   }),
 
-  // 4. Decision/Plan (What to do next)
-  nextAction: Annotation<"READ" | "ANSWER">({
+  // 5. Decision/Plan (What to do next)
+  nextAction: Annotation<"SEARCH_MORE" | "REWRITE" | "RETRY_EDIT" | "ANSWER">({
     reducer: (_, y) => y,
     default: () => "ANSWER",
   }),
 
-  filesToRead: Annotation<string[]>({
+  filesToLoad: Annotation<string[]>({
     reducer: (_, y) => y,
     default: () => [],
+  }),
+
+  planUpdated: Annotation<boolean>({
+    reducer: (_, y) => y,
+    default: () => false,
+  }),
+
+  planPath: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => "",
+  }),
+
+  planIsNew: Annotation<boolean>({
+    reducer: (_, y) => y,
+    default: () => false,
+  }),
+
+  lastToolError: Annotation<string | null>({
+    reducer: (_, y) => y,
+    default: () => null,
+  }),
+
+  lastToolCall: Annotation<Array<{ targetText: string; replacementText: string }> | null>({
+    reducer: (_, y) => y,
+    default: () => null,
+  }),
+
+  retryCount: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 0,
   }),
 
   // Loop Safety
