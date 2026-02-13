@@ -22,6 +22,7 @@
     "onCommand:repomixRunner.runOnOpenFiles",
     "onCommand:repomixRunner.openSettings",
     "onCommand:repomixRunner.openOutput",
+    "onCommand:repomixRunner.testCompression",
     "onCommand:repomixRunner.smartRun",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
@@ -417,6 +418,12 @@
         "title": "Repomix: Output",
         "description": "Open Repomix Runner output channel",
         "icon": "$(output)"
+      },
+      {
+        "command": "repomixRunner.testCompression",
+        "title": "Repomix: Test Compression",
+        "description": "Compress the active JS/TS file using AST skeleton extraction",
+        "icon": "$(symbol-class)"
       },
       {
         "command": "repomixRunner.removeFileFromBundle",

@@ -14,7 +14,7 @@ import { VectorDbAdapter } from "../core/indexing/vectorDb/types";
 import { getAllQueriesToSearch } from "../core/indexing/queryExpansion";
 import * as llmClient from "./llmClient";
 import { getBlueprintService } from "../fingerprint/blueprintService";
-import { treeSitterService, TreeSitterService } from "../core/indexing/treeSitterService";
+import { compressFile } from '../core/compression/index.js';
 import { encode } from 'gpt-tokenizer';
 import { GitService } from "../git/GitService";
 
@@ -920,31 +920,23 @@ export async function optimizeContext(state: typeof AgentState.State) {
   }
 
   // Process Tier B (Skeletons)
-  // Initialize tree-sitter service
-  try {
-    // WASM files are copied to dist/tree-sitter-wasm/ during build
-    // __dirname at runtime is the dist/ folder
-    treeSitterService.setWasmDirectory(
-      path.join(__dirname, 'tree-sitter-wasm')
-    );
-    await treeSitterService.initialize();
-  } catch (error) {
-    logger.both.warn("Agent: Failed to initialize tree-sitter, Tier B files will use full content", error);
-  }
-
   for (const file of tierB) {
-    const language = TreeSitterService.detectLanguage(file.path);
     let processedContent = file.content;
     let actualTokens = file.tokens;
-    
-    if (language && TreeSitterService.isLanguageSupported(language)) {
-      try {
-        const skeleton = await treeSitterService.generateSkeleton(file.content, language);
-        processedContent = skeleton;
-        actualTokens = estimateTokens(skeleton);
-      } catch (error) {
-        logger.both.warn(`Agent: Failed to generate skeleton for ${file.path}, using full content`, error);
+
+    try {
+      const compressed = await compressFile(file.path, file.content, {
+        keepNames: [],
+      });
+
+      if (compressed) {
+        processedContent = compressed;
+        actualTokens = estimateTokens(compressed);
+      } else {
+        logger.both.warn(`Agent: Compression failed/unsupported for ${file.path}, using full content`);
       }
+    } catch (error) {
+      logger.both.warn(`Agent: Failed to compress ${file.path}, using full content`, error);
     }
     
     processedFiles.push({

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { runRepomix } from './commands/runRepomix.js';
 import { openSettings } from './commands/openSettings.js';
 import { openOutput } from './commands/openOutput.js';
+import { testCompression } from './commands/testCompression.js';
 import { runRepomixOnOpenFiles } from './commands/runRepomixOnOpenFiles.js';
 import { getCwd } from './config/getCwd.js';
 import { tempDirManager } from './core/files/tempDirManager.js';
@@ -579,6 +580,10 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   const openOutputCommand = vscode.commands.registerCommand('repomixRunner.openOutput', openOutput);
+  const testCompressionCommand = vscode.commands.registerCommand(
+    'repomixRunner.testCompression',
+    testCompression
+  );
 
   const runRepomixOnSelectedFilesCommand = vscode.commands.registerCommand(
     'repomixRunner.runOnSelectedFiles',
@@ -875,6 +880,7 @@ export async function activate(context: vscode.ExtensionContext) {
     runRepomixCommand,
     openSettingsCommand,
     openOutputCommand,
+    testCompressionCommand,
     runRepomixOnOpenFilesCommand,
     runRepomixOnSelectedFilesCommand,
     runBundleCommand,
