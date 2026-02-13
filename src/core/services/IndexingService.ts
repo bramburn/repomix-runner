@@ -6,6 +6,7 @@ import { getRepoId } from '../../utils/repoIdentity.js';
 import { indexRepository } from '../indexing/repoIndexer.js';
 import { RepoEmbeddingOrchestrator } from '../indexing/repoEmbeddingOrchestrator.js';
 import { getVectorDbAdapterForRepo } from '../indexing/vectorDb/factory.js';
+import { GitService } from '../../git/GitService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 
@@ -88,6 +89,8 @@ export class IndexingService extends EventEmitter {
 
     const cwd = getCwd();
     const repoId = await getRepoId(cwd);
+    const gitService = new GitService();
+    const branchName = await gitService.getCurrentBranch(cwd);
     this._currentRepoId = repoId;
 
     // Create AbortController for this session
@@ -105,7 +108,7 @@ export class IndexingService extends EventEmitter {
 
         // Initialize progress tracking
         const files = await this.databaseService.getRepoFiles(repoId);
-        await this.databaseService.initializeIndexingProgress(repoId, files);
+        await this.databaseService.initializeIndexingProgress(repoId, files, branchName);
       } else {
         filesIndexed = (await this.databaseService.getRepoFiles(repoId)).length;
       }
@@ -156,15 +159,19 @@ export class IndexingService extends EventEmitter {
       }
 
       // Get progress status
-      const completedCount = await this.databaseService.getCompletedFilesCount(repoId);
-      const pendingFiles = await this.databaseService.getPendingFiles(repoId);
+      const completedCount = await this.databaseService.getCompletedFilesCount(repoId, branchName);
+      const pendingFiles = await this.databaseService.getPendingFiles(repoId, branchName);
       const totalFiles = completedCount + pendingFiles.length;
 
       // 3) Embed + upsert to vector DB
       const orchestrator = new RepoEmbeddingOrchestrator(this.databaseService);
 
       const summary = await orchestrator.embedRepository(
-        repoId, cwd, googleKey, adapter,
+        repoId,
+        branchName,
+        cwd,
+        googleKey,
+        adapter,
         {}, // pipeline config
         (current: number, total: number, filePath: string) => {
           const actualCurrent = completedCount + current;
@@ -190,7 +197,7 @@ export class IndexingService extends EventEmitter {
           console.log(`[IndexingService] Indexing stopped at ${progress.completed}/${progress.total}`);
           this.emit('stopped', progress);
           this.setState(IndexingState.IDLE);
-          await this.databaseService.clearIndexingProgress(repoId);
+          await this.databaseService.clearIndexingProgress(repoId, branchName);
         }
         return;
       }
@@ -198,7 +205,7 @@ export class IndexingService extends EventEmitter {
       // Normal completion
       const durationMs = Date.now() - overallStart;
 
-      await this.databaseService.clearIndexingProgress(repoId);
+      await this.databaseService.clearIndexingProgress(repoId, branchName);
       await this.databaseService.clearPauseCheckpoint(repoId);
 
       this.emit('complete', {
@@ -219,8 +226,8 @@ export class IndexingService extends EventEmitter {
 
       // Check if this was an abort (pause or stop)
       if (errorMsg === 'Aborted' || errorName === 'AbortError') {
-        const completedCount = await this.databaseService.getCompletedFilesCount(repoId || '');
-        const status = await this.databaseService.getIndexingStatus(repoId || '');
+        const completedCount = await this.databaseService.getCompletedFilesCount(repoId || '', branchName);
+        const status = await this.databaseService.getIndexingStatus(repoId || '', branchName);
         const progress = {
           completed: completedCount,
           total: completedCount + status.pending
@@ -234,7 +241,7 @@ export class IndexingService extends EventEmitter {
           console.log(`[IndexingService] Indexing stopped at ${progress.completed}/${progress.total}`);
           this.emit('stopped', progress);
           this.setState(IndexingState.IDLE);
-          await this.databaseService.clearIndexingProgress(repoId || '');
+          await this.databaseService.clearIndexingProgress(repoId || '', branchName);
           return;
         }
       }
@@ -260,8 +267,10 @@ export class IndexingService extends EventEmitter {
 
     // Save checkpoint before aborting
     if (this._currentRepoId) {
-      const completedCount = await this.databaseService.getCompletedFilesCount(this._currentRepoId);
-      const status = await this.databaseService.getIndexingStatus(this._currentRepoId);
+      const cwd = getCwd();
+      const branchName = await new GitService().getCurrentBranch(cwd);
+      const completedCount = await this.databaseService.getCompletedFilesCount(this._currentRepoId, branchName);
+      const status = await this.databaseService.getIndexingStatus(this._currentRepoId, branchName);
       const totalCount = completedCount + status.pending;
 
       await this.databaseService.resetProcessingToPending(this._currentRepoId);

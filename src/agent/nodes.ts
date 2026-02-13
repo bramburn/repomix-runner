@@ -16,6 +16,7 @@ import * as llmClient from "./llmClient";
 import { getBlueprintService } from "../fingerprint/blueprintService";
 import { treeSitterService, TreeSitterService } from "../core/indexing/treeSitterService";
 import { encode } from 'gpt-tokenizer';
+import { GitService } from "../git/GitService";
 
 // ============================================================================
 // Caching Layer for LLM Responses
@@ -204,12 +205,15 @@ export async function retrieval(
 
     // 3. Query Vector DB for each vector in parallel
     logger.both.info("Agent: Querying vector database for all variants...");
+    const gitService = new GitService();
+    const branchName = await gitService.getCurrentBranch(state.workspaceRoot);
     const resultsList = await Promise.all(
       vectors.map(vector => 
         adapter.queryVectors({
           repoId: repoId,
           vector: vector,
           topK: 30, // Slightly reduced topK per query since we run multiple
+          branchName,
         })
       )
     );

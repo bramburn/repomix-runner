@@ -2,6 +2,7 @@ import initSqlJs, { Database } from 'sql.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { DEFAULT_BRANCH_NAME } from '../../git/GitService.js';
 
 export interface AgentRunHistory {
   id: string;
@@ -196,13 +197,14 @@ export class DatabaseService {
       CREATE TABLE IF NOT EXISTS repo_indexing_progress (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         repo_id TEXT NOT NULL,
+        branch_name TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH_NAME}',
         file_path TEXT NOT NULL,
         status TEXT NOT NULL,
         started_at INTEGER,
         completed_at INTEGER,
         error_message TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(repo_id, file_path)
+        UNIQUE(repo_id, branch_name, file_path)
       )
     `);
 
@@ -210,13 +212,17 @@ export class DatabaseService {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS repo_file_state (
         repo_id TEXT NOT NULL,
+        branch_name TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH_NAME}',
         file_path TEXT NOT NULL,
         status TEXT NOT NULL,
         last_indexed_hash TEXT,
         last_indexed_at INTEGER,
+        commit_sha TEXT,
+        is_merged INTEGER,
+        last_synced_at INTEGER,
         updated_at INTEGER NOT NULL,
         error TEXT,
-        PRIMARY KEY (repo_id, file_path)
+        PRIMARY KEY (repo_id, branch_name, file_path)
       );
     `);
 
@@ -271,8 +277,9 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_files_repo_id ON repo_files(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id ON repo_indexing_progress(repo_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id_branch ON repo_indexing_progress(repo_id, branch_name)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_status ON repo_indexing_progress(status)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_status ON repo_file_state(repo_id, status)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_branch_status ON repo_file_state(repo_id, branch_name, status)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_timestamp ON index_history(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_repo_id ON index_history(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_repo_id ON repo_blueprints(repo_id)`);
@@ -303,9 +310,179 @@ export class DatabaseService {
       if (!hasRepoNameColumn) {
         this.db.run(`ALTER TABLE debug_runs ADD COLUMN repo_name TEXT`);
       }
+
+      await this.migrateRepoIndexingProgressToBranchAware();
+      await this.migrateRepoFileStateToBranchAware();
     } catch (error) {
       // Migration errors are non-fatal - the table might not exist yet
       console.debug('Migration check completed:', error);
+    }
+  }
+
+  private getTableColumns(tableName: string): string[] {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`PRAGMA table_info(${tableName})`);
+    const columns: string[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as { name?: string };
+      if (row.name) columns.push(row.name);
+    }
+    stmt.free();
+    return columns;
+  }
+
+  private hasUniqueIndexWithBranch(tableName: string): boolean {
+    if (!this.db) return false;
+    const stmt = this.db.prepare(`PRAGMA index_list(${tableName})`);
+    const indexes: Array<{ name: string; unique: number }> = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as any;
+      indexes.push({ name: String(row.name), unique: Number(row.unique) });
+    }
+    stmt.free();
+
+    for (const index of indexes) {
+      if (!index.unique) continue;
+      const idxInfo = this.db.prepare(`PRAGMA index_info(${index.name})`);
+      const cols: string[] = [];
+      while (idxInfo.step()) {
+        const row = idxInfo.getAsObject() as any;
+        cols.push(String(row.name));
+      }
+      idxInfo.free();
+      if (
+        cols.length === 3 &&
+        cols[0] === 'repo_id' &&
+        cols[1] === 'branch_name' &&
+        cols[2] === 'file_path'
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async migrateRepoIndexingProgressToBranchAware(): Promise<void> {
+    if (!this.db) return;
+    const columns = this.getTableColumns('repo_indexing_progress');
+    if (columns.length === 0) return;
+
+    const hasBranchColumn = columns.includes('branch_name');
+    const hasBranchUniqueIndex = this.hasUniqueIndexWithBranch('repo_indexing_progress');
+    if (hasBranchColumn && hasBranchUniqueIndex) {
+      return;
+    }
+
+    this.db.run('BEGIN TRANSACTION');
+    try {
+      this.db.run(`
+        ALTER TABLE repo_indexing_progress RENAME TO repo_indexing_progress_legacy;
+      `);
+      this.db.run(`
+        CREATE TABLE repo_indexing_progress (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          repo_id TEXT NOT NULL,
+          branch_name TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH_NAME}',
+          file_path TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at INTEGER,
+          completed_at INTEGER,
+          error_message TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(repo_id, branch_name, file_path)
+        )
+      `);
+      this.db.run(`
+        INSERT INTO repo_indexing_progress (
+          repo_id, branch_name, file_path, status, started_at, completed_at, error_message, created_at
+        )
+        SELECT
+          repo_id,
+          ${hasBranchColumn ? 'COALESCE(branch_name, \'' + DEFAULT_BRANCH_NAME + '\')' : '\'' + DEFAULT_BRANCH_NAME + '\''},
+          file_path,
+          status,
+          started_at,
+          completed_at,
+          error_message,
+          created_at
+        FROM repo_indexing_progress_legacy
+      `);
+      this.db.run(`DROP TABLE repo_indexing_progress_legacy`);
+      this.db.run('COMMIT');
+    } catch (error) {
+      this.db.run('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private async migrateRepoFileStateToBranchAware(): Promise<void> {
+    if (!this.db) return;
+    const columns = this.getTableColumns('repo_file_state');
+    if (columns.length === 0) return;
+
+    const hasBranchColumn = columns.includes('branch_name');
+    const hasCommitSha = columns.includes('commit_sha');
+    const hasIsMerged = columns.includes('is_merged');
+    const hasLastSyncedAt = columns.includes('last_synced_at');
+
+    const requiresRebuild = !hasBranchColumn;
+    if (requiresRebuild) {
+      this.db.run('BEGIN TRANSACTION');
+      try {
+        this.db.run(`ALTER TABLE repo_file_state RENAME TO repo_file_state_legacy`);
+        this.db.run(`
+          CREATE TABLE repo_file_state (
+            repo_id TEXT NOT NULL,
+            branch_name TEXT NOT NULL DEFAULT '${DEFAULT_BRANCH_NAME}',
+            file_path TEXT NOT NULL,
+            status TEXT NOT NULL,
+            last_indexed_hash TEXT,
+            last_indexed_at INTEGER,
+            commit_sha TEXT,
+            is_merged INTEGER,
+            last_synced_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            error TEXT,
+            PRIMARY KEY (repo_id, branch_name, file_path)
+          );
+        `);
+        this.db.run(`
+          INSERT INTO repo_file_state (
+            repo_id, branch_name, file_path, status, last_indexed_hash, last_indexed_at,
+            commit_sha, is_merged, last_synced_at, updated_at, error
+          )
+          SELECT
+            repo_id,
+            '${DEFAULT_BRANCH_NAME}',
+            file_path,
+            status,
+            last_indexed_hash,
+            last_indexed_at,
+            NULL,
+            NULL,
+            updated_at,
+            updated_at,
+            error
+          FROM repo_file_state_legacy
+        `);
+        this.db.run(`DROP TABLE repo_file_state_legacy`);
+        this.db.run('COMMIT');
+      } catch (error) {
+        this.db.run('ROLLBACK');
+        throw error;
+      }
+      return;
+    }
+
+    if (!hasCommitSha) {
+      this.db.run(`ALTER TABLE repo_file_state ADD COLUMN commit_sha TEXT`);
+    }
+    if (!hasIsMerged) {
+      this.db.run(`ALTER TABLE repo_file_state ADD COLUMN is_merged INTEGER`);
+    }
+    if (!hasLastSyncedAt) {
+      this.db.run(`ALTER TABLE repo_file_state ADD COLUMN last_synced_at INTEGER`);
+      this.db.run(`UPDATE repo_file_state SET last_synced_at = updated_at WHERE last_synced_at IS NULL`);
     }
   }
 
@@ -579,7 +756,7 @@ export class DatabaseService {
    * Initialize indexing progress for a repository by marking all files as pending.
    * Clears any existing progress for the repo.
    */
-  async initializeIndexingProgress(repoId: string, filePaths: string[]): Promise<void> {
+  async initializeIndexingProgress(repoId: string, filePaths: string[], branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -588,19 +765,19 @@ export class DatabaseService {
 
       // Clear existing progress for this repo
       const deleteStmt = this.db.prepare(`
-        DELETE FROM repo_indexing_progress WHERE repo_id = ?
+        DELETE FROM repo_indexing_progress WHERE repo_id = ? AND branch_name = ?
       `);
-      deleteStmt.run([repoId]);
+      deleteStmt.run([repoId, branchName]);
       deleteStmt.free();
 
       // Insert all files as pending
       const insertStmt = this.db.prepare(`
-        INSERT INTO repo_indexing_progress (repo_id, file_path, status)
-        VALUES (?, ?, 'pending')
+        INSERT INTO repo_indexing_progress (repo_id, branch_name, file_path, status)
+        VALUES (?, ?, ?, 'pending')
       `);
 
       for (const filePath of filePaths) {
-        insertStmt.run([repoId, filePath]);
+        insertStmt.run([repoId, branchName, filePath]);
       }
       insertStmt.free();
 
@@ -615,17 +792,17 @@ export class DatabaseService {
   /**
    * Mark a file as currently being processed.
    */
-  async markFileProcessing(repoId: string, filePath: string): Promise<void> {
+  async markFileProcessing(repoId: string, filePath: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       UPDATE repo_indexing_progress
       SET status = 'processing', started_at = ?
-      WHERE repo_id = ? AND file_path = ?
+      WHERE repo_id = ? AND branch_name = ? AND file_path = ?
     `);
 
-    stmt.run([Date.now(), repoId, filePath]);
+    stmt.run([Date.now(), repoId, branchName, filePath]);
     stmt.free();
 
     await this.saveDatabase();
@@ -634,17 +811,17 @@ export class DatabaseService {
   /**
    * Mark a file as successfully completed.
    */
-  async markFileCompleted(repoId: string, filePath: string): Promise<void> {
+  async markFileCompleted(repoId: string, filePath: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       UPDATE repo_indexing_progress
       SET status = 'completed', completed_at = ?
-      WHERE repo_id = ? AND file_path = ?
+      WHERE repo_id = ? AND branch_name = ? AND file_path = ?
     `);
 
-    stmt.run([Date.now(), repoId, filePath]);
+    stmt.run([Date.now(), repoId, branchName, filePath]);
     stmt.free();
 
     await this.saveDatabase();
@@ -653,17 +830,17 @@ export class DatabaseService {
   /**
    * Mark a file as failed with an error message.
    */
-  async markFileFailed(repoId: string, filePath: string, error: string): Promise<void> {
+  async markFileFailed(repoId: string, filePath: string, error: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       UPDATE repo_indexing_progress
       SET status = 'failed', completed_at = ?, error_message = ?
-      WHERE repo_id = ? AND file_path = ?
+      WHERE repo_id = ? AND branch_name = ? AND file_path = ?
     `);
 
-    stmt.run([Date.now(), error, repoId, filePath]);
+    stmt.run([Date.now(), error, repoId, branchName, filePath]);
     stmt.free();
 
     await this.saveDatabase();
@@ -672,17 +849,17 @@ export class DatabaseService {
   /**
    * Get all files that are pending or processing (not yet completed).
    */
-  async getPendingFiles(repoId: string): Promise<string[]> {
+  async getPendingFiles(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<string[]> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       SELECT file_path FROM repo_indexing_progress
-      WHERE repo_id = ? AND status IN ('pending', 'processing')
+      WHERE repo_id = ? AND branch_name = ? AND status IN ('pending', 'processing')
       ORDER BY file_path
     `);
 
-    stmt.bind([repoId]);
+    stmt.bind([repoId, branchName]);
     const files: string[] = [];
     while (stmt.step()) {
       const row = stmt.getAsObject();
@@ -696,16 +873,16 @@ export class DatabaseService {
   /**
    * Get the count of successfully completed files.
    */
-  async getCompletedFilesCount(repoId: string): Promise<number> {
+  async getCompletedFilesCount(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<number> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       SELECT COUNT(*) AS count FROM repo_indexing_progress
-      WHERE repo_id = ? AND status = 'completed'
+      WHERE repo_id = ? AND branch_name = ? AND status = 'completed'
     `);
 
-    stmt.bind([repoId]);
+    stmt.bind([repoId, branchName]);
     let count = 0;
     if (stmt.step()) {
       count = stmt.getAsObject().count as number;
@@ -718,7 +895,7 @@ export class DatabaseService {
   /**
    * Get the indexing status summary for a repository.
    */
-  async getIndexingStatus(repoId: string): Promise<{ pending: number; completed: number; failed: number }> {
+  async getIndexingStatus(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<{ pending: number; completed: number; failed: number }> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -728,10 +905,10 @@ export class DatabaseService {
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
       FROM repo_indexing_progress
-      WHERE repo_id = ?
+      WHERE repo_id = ? AND branch_name = ?
     `);
 
-    stmt.bind([repoId]);
+    stmt.bind([repoId, branchName]);
     let result = { pending: 0, completed: 0, failed: 0 };
     if (stmt.step()) {
       const row = stmt.getAsObject();
@@ -749,15 +926,15 @@ export class DatabaseService {
   /**
    * Clear indexing progress for a repository (after completion or when starting fresh).
    */
-  async clearIndexingProgress(repoId: string): Promise<void> {
+  async clearIndexingProgress(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      DELETE FROM repo_indexing_progress WHERE repo_id = ?
+      DELETE FROM repo_indexing_progress WHERE repo_id = ? AND branch_name = ?
     `);
 
-    stmt.run([repoId]);
+    stmt.run([repoId, branchName]);
     stmt.free();
 
     await this.saveDatabase();
@@ -909,7 +1086,7 @@ export class DatabaseService {
    *   'src/utils/helpers.ts'
    * ]);
    */
-  async markRepoFilesPending(repoId: string, filePaths: string[]): Promise<void> {
+  async markRepoFilesPending(repoId: string, filePaths: string[], branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -928,15 +1105,15 @@ export class DatabaseService {
       // Prepare UPSERT statement
       // ON CONFLICT handles cases where the file already has a state record
       const stmt = this.db.prepare(`
-        INSERT INTO repo_file_state (repo_id, file_path, status, updated_at)
-        VALUES (?, ?, 'pending', ?)
-        ON CONFLICT(repo_id, file_path)
-        DO UPDATE SET status='pending', updated_at=excluded.updated_at, error=NULL
+        INSERT INTO repo_file_state (repo_id, branch_name, file_path, status, updated_at, last_synced_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)
+        ON CONFLICT(repo_id, branch_name, file_path)
+        DO UPDATE SET status='pending', updated_at=excluded.updated_at, last_synced_at=excluded.last_synced_at, error=NULL
       `);
 
       // Batch insert all files
       for (const p of filePaths) {
-        stmt.run([repoId, p, now]);
+        stmt.run([repoId, branchName, p, now, now]);
       }
       stmt.free();
 
@@ -965,7 +1142,7 @@ export class DatabaseService {
    * const pendingFiles = await databaseService.getPendingRepoFiles(repoId);
    * // Returns: ['src/index.ts', 'src/utils/helpers.ts']
    */
-  async getPendingRepoFiles(repoId: string): Promise<string[]> {
+  async getPendingRepoFiles(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<string[]> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -974,13 +1151,13 @@ export class DatabaseService {
     const stmt = this.db.prepare(`
       SELECT file_path
       FROM repo_file_state
-      WHERE repo_id = ? AND status = 'pending'
+      WHERE repo_id = ? AND branch_name = ? AND status = 'pending'
       ORDER BY updated_at ASC
     `);
 
     const out: string[] = [];
     try {
-      stmt.bind([repoId]);
+      stmt.bind([repoId, branchName]);
       while (stmt.step()) {
         const row = stmt.getAsObject() as any;
         out.push(String(row.file_path));
@@ -1009,7 +1186,7 @@ export class DatabaseService {
    *
    * Matching is path-boundary safe, so "src/utils2/*" is not included.
    */
-  async getRepoFilePathsByPathOrPrefix(repoId: string, filePath: string): Promise<string[]> {
+  async getRepoFilePathsByPathOrPrefix(repoId: string, filePath: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<string[]> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -1028,7 +1205,7 @@ export class DatabaseService {
     const stmt = this.db.prepare(`
       SELECT file_path
       FROM repo_file_state
-      WHERE repo_id = ?
+      WHERE repo_id = ? AND branch_name = ?
         AND (
           file_path = ?
           OR file_path LIKE ? ESCAPE '\\'
@@ -1038,7 +1215,7 @@ export class DatabaseService {
 
     const out: string[] = [];
     try {
-      stmt.bind([repoId, normalized, prefixPattern]);
+      stmt.bind([repoId, branchName, normalized, prefixPattern]);
       while (stmt.step()) {
         const row = stmt.getAsObject() as any;
         out.push(String(row.file_path));
@@ -1067,7 +1244,13 @@ export class DatabaseService {
    * @example
    * await databaseService.markRepoFileIndexed(repoId, 'src/index.ts', sha256Hash);
    */
-  async markRepoFileIndexed(repoId: string, filePath: string, lastIndexedHash: string): Promise<void> {
+  async markRepoFileIndexed(
+    repoId: string,
+    filePath: string,
+    lastIndexedHash: string,
+    branchName: string = DEFAULT_BRANCH_NAME,
+    commitSha?: string
+  ): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -1080,16 +1263,19 @@ export class DatabaseService {
     console.log(`[DatabaseService]   Hash: ${hashPreview}`);
 
     const stmt = this.db.prepare(`
-      INSERT INTO repo_file_state (repo_id, file_path, status, last_indexed_hash, last_indexed_at, updated_at)
-      VALUES (?, ?, 'indexed', ?, ?, ?)
-      ON CONFLICT(repo_id, file_path)
+      INSERT INTO repo_file_state (
+        repo_id, branch_name, file_path, status, last_indexed_hash, last_indexed_at, commit_sha, last_synced_at, updated_at
+      )
+      VALUES (?, ?, ?, 'indexed', ?, ?, ?, ?, ?)
+      ON CONFLICT(repo_id, branch_name, file_path)
       DO UPDATE SET status='indexed', last_indexed_hash=excluded.last_indexed_hash,
-                    last_indexed_at=excluded.last_indexed_at, updated_at=excluded.updated_at,
+                    last_indexed_at=excluded.last_indexed_at, commit_sha=excluded.commit_sha,
+                    last_synced_at=excluded.last_synced_at, updated_at=excluded.updated_at,
                     error=NULL
     `);
 
     try {
-      stmt.run([repoId, filePath, lastIndexedHash, now, now]);
+      stmt.run([repoId, branchName, filePath, lastIndexedHash, now, commitSha ?? null, now, now]);
     } finally {
       stmt.free();
     }
@@ -1114,7 +1300,7 @@ export class DatabaseService {
    * // File watcher detected deletion
    * await databaseService.markRepoFileDeleted(repoId, 'src/old-file.ts');
    */
-  async markRepoFileDeleted(repoId: string, filePath: string): Promise<void> {
+  async markRepoFileDeleted(repoId: string, filePath: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<void> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -1125,14 +1311,14 @@ export class DatabaseService {
     console.log(`[DatabaseService]   File: ${filePath}`);
 
     const stmt = this.db.prepare(`
-      INSERT INTO repo_file_state (repo_id, file_path, status, updated_at)
-      VALUES (?, ?, 'deleted', ?)
-      ON CONFLICT(repo_id, file_path)
-      DO UPDATE SET status='deleted', updated_at=excluded.updated_at
+      INSERT INTO repo_file_state (repo_id, branch_name, file_path, status, last_synced_at, updated_at)
+      VALUES (?, ?, ?, 'deleted', ?, ?)
+      ON CONFLICT(repo_id, branch_name, file_path)
+      DO UPDATE SET status='deleted', last_synced_at=excluded.last_synced_at, updated_at=excluded.updated_at
     `);
 
     try {
-      stmt.run([repoId, filePath, now]);
+      stmt.run([repoId, branchName, filePath, now, now]);
     } finally {
       stmt.free();
     }
@@ -1150,19 +1336,19 @@ export class DatabaseService {
    * @param repoId - Repository identifier
    * @returns Map of file paths to their last known state (status and hash)
    */
-  async getAllRepoFileStates(repoId: string): Promise<Map<string, { status: string; lastIndexedHash?: string }>> {
+  async getAllRepoFileStates(repoId: string, branchName: string = DEFAULT_BRANCH_NAME): Promise<Map<string, { status: string; lastIndexedHash?: string }>> {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
       SELECT file_path, status, last_indexed_hash
       FROM repo_file_state
-      WHERE repo_id = ?
+      WHERE repo_id = ? AND branch_name = ?
     `);
 
     const states = new Map<string, { status: string; lastIndexedHash?: string }>();
     try {
-      stmt.bind([repoId]);
+      stmt.bind([repoId, branchName]);
       while (stmt.step()) {
         const row = stmt.getAsObject() as any;
         states.set(String(row.file_path), {
@@ -1575,6 +1761,49 @@ export class DatabaseService {
     }
 
     await this.saveDatabase();
+  }
+
+  async getTrackedBranches(repoId: string): Promise<string[]> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT branch_name FROM repo_file_state WHERE repo_id = ?
+      UNION
+      SELECT branch_name FROM repo_indexing_progress WHERE repo_id = ?
+      ORDER BY branch_name ASC
+    `);
+
+    const branches: string[] = [];
+    try {
+      stmt.bind([repoId, repoId]);
+      while (stmt.step()) {
+        const row = stmt.getAsObject() as any;
+        if (row.branch_name) {
+          branches.push(String(row.branch_name));
+        }
+      }
+    } finally {
+      stmt.free();
+    }
+
+    return branches;
+  }
+
+  async clearBranchData(repoId: string, branchName: string): Promise<void> {
+    if (!this.isInitialized) await this.initialize();
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      this.db.run('BEGIN TRANSACTION');
+      this.db.run(`DELETE FROM repo_file_state WHERE repo_id = ? AND branch_name = ?`, [repoId, branchName]);
+      this.db.run(`DELETE FROM repo_indexing_progress WHERE repo_id = ? AND branch_name = ?`, [repoId, branchName]);
+      this.db.run('COMMIT');
+      await this.saveDatabase();
+    } catch (error) {
+      this.db.run('ROLLBACK');
+      throw error;
+    }
   }
 
   dispose(): void {

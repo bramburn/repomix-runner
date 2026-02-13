@@ -14,6 +14,7 @@ export const SearchGraphState = Annotation.Root({
     googleApiKey: Annotation<string | undefined>,
     confidenceThreshold: Annotation<number | undefined>,
     enableGrouping: Annotation<boolean | undefined>, // NEW: Whether to use file-level grouping
+    branchName: Annotation<string | undefined>,
 
     // Derived / intermediate
     vectorHits: Annotation<RepoSearchResult[]>({

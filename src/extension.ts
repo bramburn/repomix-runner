@@ -39,8 +39,10 @@ import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
 import { getRepoForActiveEditor, getAllChangedUris, getChangesCounts } from './git/gitUtils.js';
+import { GitService } from './git/GitService.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
+import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -139,8 +141,6 @@ export async function activate(context: vscode.ExtensionContext) {
   // ==============================================================================
 
   const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
-  const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
-  const STATE_SELECTED_PINECONE_INDEX = 'repomix.pinecone.selectedIndexByRepo';
 
   console.log(`[BackgroundMonitor] ===== INITIALIZING BACKGROUND MONITOR =====`);
 
@@ -157,9 +157,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const repoRoot = getCwd();
       console.log(`[BackgroundMonitor] Workspace root: ${repoRoot}`);
+      const gitService = new GitService();
+      let currentBranch = await gitService.getCurrentBranch(repoRoot);
+      await context.globalState.update('repomix.currentBranch', currentBranch);
 
     const repoId = await getRepoId(repoRoot);
     console.log(`[BackgroundMonitor] Repository ID: ${repoId}`);
+    console.log(`[BackgroundMonitor] Current branch: ${currentBranch}`);
 
     // Get Google API key from secure storage
     console.log(`[BackgroundMonitor] Fetching API keys from secure storage...`);
@@ -283,6 +287,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const monitor = new RepoIndexMonitor(
         repoRoot,
         repoId,
+        async () => currentBranch,
         databaseService,
         async (paths) => {
           // This callback is invoked after the debounce period
@@ -290,6 +295,7 @@ export async function activate(context: vscode.ExtensionContext) {
           console.log(`[BackgroundMonitor] Callback triggered for ${paths.length} changed files`);
           await embeddingOrchestrator.embedPendingFiles(
             repoId,
+            currentBranch,
             repoRoot,
             googleApiKey,
             adapter, // [CHANGE] Pass adapter instead of pineconeApiKey + indexName
@@ -358,6 +364,35 @@ export async function activate(context: vscode.ExtensionContext) {
       // Register watcher and monitor for cleanup on deactivation
       context.subscriptions.push(watcher, { dispose: () => monitor.dispose() });
 
+      // Keep branch context in sync with Git checkouts.
+      const branchListener = await gitService.onBranchChange(repoRoot, async (newBranch) => {
+        currentBranch = newBranch;
+        await context.globalState.update('repomix.currentBranch', currentBranch);
+        console.log(`[BackgroundMonitor] Branch changed to "${currentBranch}", synchronizing...`);
+        try {
+          const syncResult = await embeddingOrchestrator.synchronizeRepoFiles(
+            repoId,
+            currentBranch,
+            repoRoot,
+            shouldIgnore
+          );
+          const totalChanges = syncResult.added.length + syncResult.modified.length + syncResult.deleted.length;
+          if (totalChanges > 0) {
+            await embeddingOrchestrator.embedPendingFiles(
+              repoId,
+              currentBranch,
+              repoRoot,
+              googleApiKey,
+              adapter!,
+              { maxConcurrentFiles: 2 }
+            );
+          }
+        } catch (error) {
+          console.error(`[BackgroundMonitor] Failed branch transition sync:`, error);
+        }
+      });
+      context.subscriptions.push(branchListener);
+
       console.log(`[BackgroundMonitor] ===== BACKGROUND MONITOR INITIALIZED =====`);
       console.log(`[BackgroundMonitor] Watcher active for all files ("**/*")`);
       console.log(`[BackgroundMonitor] Debounce: 2.5 seconds`);
@@ -377,6 +412,7 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
           const syncResult = await embeddingOrchestrator.synchronizeRepoFiles(
             repoId,
+            currentBranch,
             repoRoot,
             shouldIgnore
           );
@@ -387,6 +423,7 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(`[BackgroundMonitor] Startup sync found ${totalChanges} changes, triggering re-embedding`);
             await embeddingOrchestrator.embedPendingFiles(
               repoId,
+              currentBranch,
               repoRoot,
               googleApiKey,
               adapter!,
@@ -399,6 +436,16 @@ export async function activate(context: vscode.ExtensionContext) {
           console.error(`[BackgroundMonitor] Startup sync failed:`, error);
         }
       }, 5000); // Wait 5 seconds after startup to not block other activities
+
+      // Stale branch cleanup once after activation with startup delay.
+      setTimeout(async () => {
+        try {
+          const maintenanceService = new BranchMaintenanceService(databaseService, gitService);
+          await maintenanceService.cleanupStaleBranches(repoId, repoRoot, adapter!);
+        } catch (error) {
+          console.error(`[BackgroundMonitor] Branch cleanup failed:`, error);
+        }
+      }, 30000);
       // ========================================================================
 
     } else {

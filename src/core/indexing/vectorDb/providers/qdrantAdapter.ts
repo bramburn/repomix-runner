@@ -3,9 +3,9 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import { v5 as uuidv5 } from 'uuid';
 
 // Deterministic ID generation for vectors - matches embedding pipeline pattern
-function generateVectorId(repoId: string, filePath: string, chunkIndex: number, text: string): string {
+function generateVectorId(repoId: string, branchName: string | undefined, filePath: string, chunkIndex: number, text: string): string {
     const NAMESPACE = '9b9f8f7e-6e5d-4c3b-a2a1-f0e9d8c7b6a5'; // Fixed UUID namespace
-    const name = `${repoId}:${filePath}:${chunkIndex}:${text.substring(0, 100)}`;
+    const name = `${repoId}:${branchName ?? ''}:${filePath}:${chunkIndex}:${text.substring(0, 100)}`;
     return uuidv5(name, NAMESPACE);
 }
 
@@ -51,6 +51,7 @@ export class QdrantAdapter implements VectorDbAdapter {
             // Generate deterministic ID if not already a valid UUID
             const id = v.id && v.id.length === 36 ? v.id : generateVectorId(
                 args.repoId,
+                v.metadata.branch_name,
                 v.metadata.filePath,
                 v.metadata.chunkIndex,
                 v.metadata.textHash || ''
@@ -89,8 +90,26 @@ export class QdrantAdapter implements VectorDbAdapter {
         scoreThreshold?: number;
         groupBy?: string;
         groupSize?: number;
+        branchName?: string;
     }): Promise<VectorDbQueryResult> {
         try {
+            const mustFilters: any[] = [
+                {
+                    key: 'repoId',
+                    match: {
+                        value: args.repoId
+                    }
+                }
+            ];
+            if (args.branchName) {
+                mustFilters.push({
+                    key: 'branch_name',
+                    match: {
+                        value: args.branchName
+                    }
+                });
+            }
+
             // Use searchPointGroups when groupBy is specified
             if (args.groupBy) {
                 const searchResult = await this.client.searchPointGroups(this.collection, {
@@ -100,14 +119,7 @@ export class QdrantAdapter implements VectorDbAdapter {
                     group_size: args.groupSize ?? 1,  // Results per group
                     score_threshold: args.scoreThreshold,
                     filter: {
-                        must: [
-                            {
-                                key: 'repoId',
-                                match: {
-                                    value: args.repoId
-                                }
-                            }
-                        ]
+                        must: mustFilters
                     },
                     with_payload: true,
                     with_vector: false
@@ -138,14 +150,7 @@ export class QdrantAdapter implements VectorDbAdapter {
                     limit: args.topK,
                     score_threshold: args.scoreThreshold,
                     filter: {
-                        must: [
-                            {
-                                key: 'repoId',
-                                match: {
-                                    value: args.repoId
-                                }
-                            }
-                        ]
+                        must: mustFilters
                     },
                     with_payload: true,
                     with_vector: false
@@ -195,7 +200,49 @@ export class QdrantAdapter implements VectorDbAdapter {
         }
     }
 
-    async deleteVectorsForFile(args: { repoId: string; filePath: string }): Promise<void> {
+    async deleteVectorsForFile(args: { repoId: string; filePath: string; branchName?: string }): Promise<void> {
+        try {
+            const mustFilters: any[] = [
+                {
+                    key: 'repoId',
+                    match: {
+                        value: args.repoId
+                    }
+                },
+                {
+                    key: 'filePath',
+                    match: {
+                        value: args.filePath
+                    }
+                }
+            ];
+            if (args.branchName) {
+                mustFilters.push({
+                    key: 'branch_name',
+                    match: {
+                        value: args.branchName
+                    }
+                });
+            }
+
+            await this.client.delete(this.collection, {
+                wait: true,
+                filter: {
+                    must: mustFilters
+                }
+            });
+        } catch (error) {
+            console.error('QdrantAdapter: Failed to delete file vectors', {
+                collection: this.collection,
+                repoId: args.repoId,
+                filePath: args.filePath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw new Error(`Failed to delete file vectors from Qdrant: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    async deleteVectorsForBranch(args: { repoId: string; branchName: string }): Promise<void> {
         try {
             await this.client.delete(this.collection, {
                 wait: true,
@@ -208,22 +255,16 @@ export class QdrantAdapter implements VectorDbAdapter {
                             }
                         },
                         {
-                            key: 'filePath',
+                            key: 'branch_name',
                             match: {
-                                value: args.filePath
+                                value: args.branchName
                             }
                         }
                     ]
                 }
             });
         } catch (error) {
-            console.error('QdrantAdapter: Failed to delete file vectors', {
-                collection: this.collection,
-                repoId: args.repoId,
-                filePath: args.filePath,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            throw new Error(`Failed to delete file vectors from Qdrant: ${error instanceof Error ? error.message : String(error)}`);
+            throw new Error(`Failed to delete branch vectors from Qdrant: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

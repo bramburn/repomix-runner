@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import ignore from 'ignore';
+import { GitService } from '../git/GitService.js';
 
 export async function validateInputsNode(state: SearchGraphState) {
     console.log('[SEARCH_GRAPH] ===== validateInputsNode START =====');
@@ -72,6 +73,9 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
             timings: { vectorSearch: Date.now() - start }
         };
     }
+
+    const gitService = new GitService();
+    const currentBranch = state.branchName || await gitService.getCurrentBranch(state.repoRoot);
 
     // Step 1: Generate expanded queries (internal to vectorSearchNode)
     console.log('[SEARCH_GRAPH] Generating query expansions...');
@@ -160,6 +164,7 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
         console.log('[SEARCH_GRAPH] Querying vector database...');
         console.log('[SEARCH_GRAPH] Vector DB details:', {
             repoId: state.repoId,
+            branchName: currentBranch,
             topK: state.maxResults,
             vectorDimension: vectors[0]?.length || 0
         });
@@ -172,7 +177,8 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
                     topK: state.maxResults,
                     scoreThreshold: state.confidenceThreshold,
                     groupBy: state.enableGrouping ? 'filePath' : undefined,  // NEW: Group by file path when enabled
-                    groupSize: state.enableGrouping ? 1 : undefined          // NEW: One best chunk per file
+                    groupSize: state.enableGrouping ? 1 : undefined,         // NEW: One best chunk per file
+                    branchName: currentBranch
                 })
             )
         );
@@ -196,6 +202,7 @@ export async function vectorSearchNode(state: SearchGraphState, adapter: any) {
         console.log('[SEARCH_GRAPH] ===== vectorSearchNode END (', Date.now() - start, 'ms) =====');
         return {
             vectorHits,
+            branchName: currentBranch,
             timings: { vectorSearch: Date.now() - start }
         };
     } catch (vectorDbError) {

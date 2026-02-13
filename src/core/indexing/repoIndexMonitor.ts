@@ -75,6 +75,12 @@ export class RepoIndexMonitor {
     private readonly repoId: string,
 
     /**
+     * Function that resolves the currently active branch.
+     * This allows pending state writes to be partitioned by branch.
+     */
+    private readonly getCurrentBranch: () => Promise<string>,
+
+    /**
      * Database service for persisting pending file state.
      * Allows pending state to survive extension restarts.
      */
@@ -130,13 +136,16 @@ export class RepoIndexMonitor {
       console.log(`[RepoIndexMonitor] Queued file for re-embedding: ${relativePath} (pending: ${this.pending.size})`);
       
       // Record to index history (fire-and-forget to avoid blocking)
-      this.databaseService.addIndexHistoryEvent({
+      void this.getCurrentBranch().then((branchName) =>
+        this.databaseService.addIndexHistoryEvent({
         timestamp: Date.now(),
         repoId: this.repoId,
         filePath: relativePath,
         eventType: 'queued',
-        status: 'pending'
-      }).catch(err => console.error(`[RepoIndexMonitor] Failed to record history event:`, err));
+        status: 'pending',
+        details: JSON.stringify({ branchName })
+      })
+      ).catch(err => console.error(`[RepoIndexMonitor] Failed to record history event:`, err));
     }
   }
 
@@ -190,6 +199,8 @@ export class RepoIndexMonitor {
     console.log(`[RepoIndexMonitor] Paths:`, paths);
 
     try {
+      const branchName = await this.getCurrentBranch();
+
       // Expand directory-like deletions to concrete file paths from DB state.
       // If no DB match exists (new file/create case), keep the original path.
       const expandStart = Date.now();
@@ -197,7 +208,7 @@ export class RepoIndexMonitor {
       let expandedFromPrefixCount = 0;
 
       for (const inputPath of paths) {
-        const matches = await this.databaseService.getRepoFilePathsByPathOrPrefix(this.repoId, inputPath);
+        const matches = await this.databaseService.getRepoFilePathsByPathOrPrefix(this.repoId, inputPath, branchName);
         if (matches.length > 0) {
           if (matches.length > 1 || matches[0] !== inputPath) {
             expandedFromPrefixCount++;
@@ -220,7 +231,7 @@ export class RepoIndexMonitor {
       // Step 1: Persist pending state to database
       console.log(`[RepoIndexMonitor] Step 1: Marking files as pending in database...`);
       const dbStart = Date.now();
-      await this.databaseService.markRepoFilesPending(this.repoId, expandedPaths);
+      await this.databaseService.markRepoFilesPending(this.repoId, expandedPaths, branchName);
       const dbDuration = Date.now() - dbStart;
       console.log(`[RepoIndexMonitor] Step 1 complete: Database updated in ${dbDuration}ms`);
 
@@ -233,7 +244,7 @@ export class RepoIndexMonitor {
           filePath: p,
           eventType: 'flush' as const,
           status: 'pending' as const,
-          details: JSON.stringify({ batchSize: expandedPaths.length })
+          details: JSON.stringify({ batchSize: expandedPaths.length, branchName })
         }))
       );
 

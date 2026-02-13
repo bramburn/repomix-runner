@@ -16,11 +16,12 @@ import * as crypto from 'crypto';
  */
 export function generateVectorId(
   repoId: string,
+  branchName: string,
   filePath: string,
   chunkIndex: number,
   chunkText?: string
 ): string {
-  let id = `${repoId}:${filePath}:${chunkIndex}`;
+  let id = `${repoId}:${branchName}:${filePath}:${chunkIndex}`;
 
   if (chunkText) {
     const hash = crypto.createHash('sha256').update(chunkText).digest('hex');
@@ -37,25 +38,26 @@ export function generateVectorId(
  */
 export function parseVectorId(vectorId: string): {
   repoId: string;
+  branchName: string;
   filePath: string;
   chunkIndex: number;
   shortHash?: string;
 } {
   const parts = vectorId.split(':');
-  if (parts.length < 3) {
+  if (parts.length < 4) {
     throw new Error(`Invalid vector ID format: ${vectorId}`);
   }
 
-  // Handle filePath which may contain colons
   const repoId = parts[0];
+  const branchName = parts[1];
   const chunkIndex = parseInt(parts[parts.length - 2], 10);
   const shortHash = parts.length > 3 ? parts[parts.length - 1] : undefined;
 
-  // Reconstruct filePath from remaining parts
-  const filePathParts = parts.slice(1, parts.length - 2);
+  // Reconstruct filePath from remaining parts.
+  const filePathParts = parts.slice(2, parts.length - 2);
   const filePath = filePathParts.join(':');
 
-  return { repoId, filePath, chunkIndex, shortHash };
+  return { repoId, branchName, filePath, chunkIndex, shortHash };
 }
 
 /**
@@ -64,4 +66,3 @@ export function parseVectorId(vectorId: string): {
 export function computeTextHash(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
-

@@ -16,6 +16,7 @@ import { tempDirManager } from '../../core/files/tempDirManager.js';
 import { getRepomixOutputPath } from '../../utils/repomix_output_detector.js';
 import { runRepomixClipboardGenerateMarkdown } from '../../core/files/runRepomixClipboardGenerateMarkdown.js';
 import { IndexingService, IndexingState, IndexingProgress, IndexingResult } from '../../core/services/IndexingService.js';
+import { GitService } from '../../git/GitService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 
@@ -195,6 +196,12 @@ export class IndexingController extends BaseController {
     await this.handleGetIndexingState();
     await this.handleGetRepoIndexCount();
     await this.handleGetEnableGrouping(); // NEW: Load grouping setting
+    try {
+      const branchName = await new GitService().getCurrentBranch(getCwd());
+      this.context.postMessage({ command: 'currentBranchContext', branchName });
+    } catch {
+      // no-op
+    }
   }
 
   // ============================================================================
@@ -325,6 +332,7 @@ export class IndexingController extends BaseController {
 
       const cwd = getCwd();
       const repoId = await getRepoId(cwd);
+      const currentBranch = await new GitService().getCurrentBranch(cwd);
 
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
       
@@ -401,6 +409,7 @@ Please check your Vector DB settings and try again.`
       const finalState = await runSearchGraph({
         repoId,
         repoRoot: cwd,
+        branchName: currentBranch,
         userQuery: q,
         smartFilterEnabled: !!useSmartFilter,
         maxResults: typeof topK === 'number' ? topK : 50,
@@ -420,6 +429,7 @@ Please check your Vector DB settings and try again.`
 
       const results = finalState.finalHits;
       this.context.postMessage({ command: 'repoSearchResults', results: results });
+      this.context.postMessage({ command: 'currentBranchContext', branchName: finalState.branchName || currentBranch });
 
       const dedupedPaths = Array.from(
         new Set(results.map((r: any) => (r.path ?? '').trim()).filter(Boolean))

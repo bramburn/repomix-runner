@@ -54,6 +54,7 @@ export class RepoEmbeddingOrchestrator {
    */
   async embedRepository(
     repoId: string,
+    branchName: string,
     repoRoot: string,
     googleApiKey: string,
     adapter: VectorDbAdapter,
@@ -126,6 +127,7 @@ export class RepoEmbeddingOrchestrator {
         files,
         repoRoot,
         repoId,
+        branchName,
         googleApiKey,
         adapter,
         config,
@@ -166,6 +168,7 @@ export class RepoEmbeddingOrchestrator {
           const vectorCount = await embedAndUpsertFile(
             absolutePath,
             repoId,
+            branchName,
             repoRoot,
             googleApiKey,
             adapter,
@@ -290,6 +293,7 @@ export class RepoEmbeddingOrchestrator {
    */
   async embedPendingFiles(
     repoId: string,
+    branchName: string,
     repoRoot: string,
     googleApiKey: string,
     adapter: VectorDbAdapter,
@@ -327,7 +331,7 @@ export class RepoEmbeddingOrchestrator {
     // Step 1: Fetch all files marked as pending in the database
     // These are files that the background watcher detected as changed
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Step 1: Fetching pending files from database...`);
-    const pending = await this.databaseService.getPendingRepoFiles(repoId);
+    const pending = await this.databaseService.getPendingRepoFiles(repoId, branchName);
 
     if (pending.length === 0) {
       console.log(`[REPO_EMBEDDING_ORCHESTRATOR] No pending files found - nothing to do`);
@@ -383,7 +387,8 @@ export class RepoEmbeddingOrchestrator {
           try {
             await adapter.deleteVectorsForFile({
               repoId,
-              filePath
+              filePath,
+              branchName
             });
             console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Deleted vectors for missing file: ${filePath}`);
           } catch (deleteErr) {
@@ -391,7 +396,7 @@ export class RepoEmbeddingOrchestrator {
             // Continue anyway to mark as deleted in DB
           }
 
-          await this.databaseService.markRepoFileDeleted(repoId, filePath);
+          await this.databaseService.markRepoFileDeleted(repoId, filePath, branchName);
           successfulFiles++; // Count as "processed successfully" (cleaned up)
           continue; // Skip to next file
         }
@@ -402,7 +407,8 @@ export class RepoEmbeddingOrchestrator {
         const deleteStart = Date.now();
         await adapter.deleteVectorsForFile({
           repoId,
-          filePath
+          filePath,
+          branchName
         });
         const deleteDuration = Date.now() - deleteStart;
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Old vectors deleted (${deleteDuration}ms)`);
@@ -413,6 +419,7 @@ export class RepoEmbeddingOrchestrator {
         const vectorCount = await embedAndUpsertFile(
           absolutePath,
           repoId,
+          branchName,
           repoRoot,
           googleApiKey,
           adapter,
@@ -435,12 +442,12 @@ export class RepoEmbeddingOrchestrator {
         if (!isRegularFile(absolutePath)) {
           console.warn(`[REPO_EMBEDDING_ORCHESTRATOR] Path is not a regular file, skipping hash: ${filePath}`);
           // Mark as processed with empty hash to avoid reprocessing
-          await this.databaseService.markRepoFileIndexed(repoId, filePath, '');
+          await this.databaseService.markRepoFileIndexed(repoId, filePath, '', branchName);
           continue;
         }
         const contentHash = sha256File(absolutePath);
         const hashPreview = contentHash.substring(0, 8) + '...';
-        await this.databaseService.markRepoFileIndexed(repoId, filePath, contentHash);
+        await this.databaseService.markRepoFileIndexed(repoId, filePath, contentHash, branchName);
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Marked as indexed (hash: ${hashPreview})`);
 
         // Record embedding completion to index history
@@ -450,7 +457,7 @@ export class RepoEmbeddingOrchestrator {
           filePath,
           eventType: 'embedding_complete',
           status: 'indexed',
-          details: JSON.stringify({ vectors: vectorCount, durationMs: fileTime })
+          details: JSON.stringify({ vectors: vectorCount, durationMs: fileTime, branchName })
         });
 
       } catch (error) {
@@ -474,7 +481,7 @@ export class RepoEmbeddingOrchestrator {
           filePath,
           eventType: 'embedding_failed',
           status: 'failed',
-          details: JSON.stringify({ error: errorMsg })
+          details: JSON.stringify({ error: errorMsg, branchName })
         });
       }
     }
@@ -533,6 +540,7 @@ export class RepoEmbeddingOrchestrator {
     files: string[],
     repoRoot: string,
     repoId: string,
+    branchName: string,
     googleApiKey: string,
     adapter: VectorDbAdapter,
     config: EmbeddingPipelineConfig,
@@ -569,6 +577,7 @@ export class RepoEmbeddingOrchestrator {
           const vectorCount = await embedAndUpsertFile(
             absolutePath,
             repoId,
+            branchName,
             repoRoot,
             googleApiKey,
             adapter,
@@ -615,13 +624,14 @@ export class RepoEmbeddingOrchestrator {
    */
   async synchronizeRepoFiles(
     repoId: string,
+    branchName: string,
     repoRoot: string,
     shouldIgnore: (rel: string) => boolean
   ): Promise<{ added: string[]; modified: string[]; deleted: string[] }> {
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Synchronizing repo: ${repoId}`);
 
     // 1. Get current state from database
-    const dbStates = await this.databaseService.getAllRepoFileStates(repoId);
+    const dbStates = await this.databaseService.getAllRepoFileStates(repoId, branchName);
     console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Found ${dbStates.size} files in DB state`);
 
     // 2. Scan filesystem (recursive)
@@ -699,18 +709,17 @@ export class RepoEmbeddingOrchestrator {
 
     // 4. Update database
     if (added.length > 0 || modified.length > 0) {
-      await this.databaseService.markRepoFilesPending(repoId, [...added, ...modified]);
+      await this.databaseService.markRepoFilesPending(repoId, [...added, ...modified], branchName);
     }
 
     if (deleted.length > 0) {
       for (const filePath of deleted) {
         // For deleted files, we don't just mark as deleted, 
         // we mark as pending so embedPendingFiles can clean up vectors
-        await this.databaseService.markRepoFilesPending(repoId, [filePath]);
+        await this.databaseService.markRepoFilesPending(repoId, [filePath], branchName);
       }
     }
 
     return { added, modified, deleted };
   }
 }
-

@@ -186,6 +186,7 @@ async function processConcurrently<T, R>(
 export async function embedAndUpsertFile(
   filePath: string,
   repoId: string,
+  branchName: string,
   repoRoot: string,
   googleApiKey: string,
   adapter: VectorDbAdapter,
@@ -321,9 +322,10 @@ export async function embedAndUpsertFile(
           for (let i = 0; i < batch.length; i++) {
             const chunk = batch[i];
             const embedding = embeddings[i];
-            const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
+            const vectorId = generateVectorId(repoId, branchName, relativeFilePath, chunk.chunkIndex, chunk.text);
             const metadata = {
               repoId,
+              branch_name: branchName,
               filePath: relativeFilePath,
               chunkIndex: chunk.chunkIndex,
               startLine: chunk.startLine,
@@ -371,9 +373,10 @@ export async function embedAndUpsertFile(
         for (let i = 0; i < batch.length; i++) {
           const chunk = batch[i];
           const embedding = embeddings[i];
-          const vectorId = generateVectorId(repoId, relativeFilePath, chunk.chunkIndex, chunk.text);
+          const vectorId = generateVectorId(repoId, branchName, relativeFilePath, chunk.chunkIndex, chunk.text);
           const metadata = {
             repoId,
+            branch_name: branchName,
             filePath: relativeFilePath,
             chunkIndex: chunk.chunkIndex,
             startLine: chunk.startLine,

@@ -93,7 +93,8 @@ export class PineconeService {
     repoId: string,
     vector: number[],
     topK: number = 10,
-    scoreThreshold?: number
+    scoreThreshold?: number,
+    branchName?: string
   ) {
     const client = await this.getClient(apiKey);
     const index = client.index(indexName);
@@ -107,6 +108,12 @@ export class PineconeService {
     // Apply score threshold if provided
     if (scoreThreshold !== undefined) {
       queryOptions.minScore = scoreThreshold;
+    }
+
+    if (branchName) {
+      queryOptions.filter = {
+        branch_name: { '$eq': branchName }
+      };
     }
 
     const result = await index.namespace(repoId).query(queryOptions);
@@ -185,7 +192,8 @@ export class PineconeService {
     apiKey: string,
     indexName: string,
     repoId: string,
-    filePath: string
+    filePath: string,
+    branchName?: string
   ): Promise<void> {
     const deleteStart = Date.now();
 
@@ -202,7 +210,8 @@ export class PineconeService {
       console.log(`[PineconeService] Attempting metadata-based deletion...`);
       await index.namespace(repoId).deleteMany({
         filter: {
-          filePath: { "$eq": filePath }
+          filePath: { "$eq": filePath },
+          ...(branchName ? { branch_name: { '$eq': branchName } } : {})
         }
       });
 
@@ -214,7 +223,7 @@ export class PineconeService {
       console.log(`[PineconeService]   Error from metadata filter:`, (error as any)?.message);
 
       try {
-        await this.deleteVectorsForFileByIdPrefix(apiKey, indexName, repoId, filePath);
+        await this.deleteVectorsForFileByIdPrefix(apiKey, indexName, repoId, filePath, branchName);
         const deleteDuration = Date.now() - deleteStart;
         console.log(`[PineconeService] deleteVectorsForFile: Complete via ID-based fallback (${deleteDuration}ms)`);
       } catch (fallbackError) {
@@ -243,7 +252,8 @@ export class PineconeService {
     apiKey: string,
     indexName: string,
     repoId: string,
-    filePath: string
+    filePath: string,
+    branchName?: string
   ): Promise<void> {
     const client = await this.getClient(apiKey);
     const index = client.index(indexName);
@@ -251,7 +261,9 @@ export class PineconeService {
 
     // Construct the ID prefix: {repoId}:{filePath}:
     // This will match all chunks for this file
-    const idPrefix = `${repoId}:${filePath}:`;
+    const idPrefix = branchName
+      ? `${repoId}:${branchName}:${filePath}:`
+      : `${repoId}:${filePath}:`;
 
     console.log(`[PineconeService] Listing vectors with ID prefix: ${idPrefix}`);
 
@@ -292,6 +304,54 @@ export class PineconeService {
     } catch (error) {
       console.error(`[PineconeService] Error during ID-based deletion:`, error);
       throw new Error(`Failed to delete vectors by ID prefix: ${(error as any)?.message}`);
+    }
+  }
+
+  async deleteVectorsForBranch(
+    apiKey: string,
+    indexName: string,
+    repoId: string,
+    branchName: string
+  ): Promise<void> {
+    const client = await this.getClient(apiKey);
+    const index = client.index(indexName);
+    try {
+      await index.namespace(repoId).deleteMany({
+        filter: {
+          branch_name: { '$eq': branchName }
+        }
+      });
+    } catch {
+      await this.deleteVectorsByIdPrefix(indexName, apiKey, repoId, `${repoId}:${branchName}:`);
+    }
+  }
+
+  private async deleteVectorsByIdPrefix(
+    indexName: string,
+    apiKey: string,
+    repoId: string,
+    idPrefix: string
+  ): Promise<void> {
+    const client = await this.getClient(apiKey);
+    const index = client.index(indexName);
+    const namespace = index.namespace(repoId);
+
+    const vectorIds: string[] = [];
+    let paginationToken: string | undefined;
+    do {
+      const listResponse = await namespace.listPaginated({
+        prefix: idPrefix,
+        paginationToken,
+        limit: 100
+      });
+      if (listResponse.vectors) {
+        vectorIds.push(...listResponse.vectors.map(v => v.id).filter((id): id is string => typeof id === 'string'));
+      }
+      paginationToken = listResponse.pagination?.next;
+    } while (paginationToken);
+
+    for (let i = 0; i < vectorIds.length; i += 100) {
+      await namespace.deleteMany(vectorIds.slice(i, i + 100));
     }
   }
 }

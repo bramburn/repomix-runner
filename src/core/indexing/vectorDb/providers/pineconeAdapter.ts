@@ -21,6 +21,7 @@ export class PineconeAdapter implements VectorDbAdapter {
     scoreThreshold?: number;
     groupBy?: string;
     groupSize?: number;
+    branchName?: string;
   }): Promise<VectorDbQueryResult> {
     const response = await this.svc.queryVectors(
       this.cfg.apiKey,
@@ -28,7 +29,8 @@ export class PineconeAdapter implements VectorDbAdapter {
       args.repoId,
       args.vector,
       args.topK,
-      args.scoreThreshold
+      args.scoreThreshold,
+      args.branchName
     );
 
     let matches = (response.matches || []).map((m) => ({
@@ -76,8 +78,12 @@ export class PineconeAdapter implements VectorDbAdapter {
     await this.svc.deleteRepo(this.cfg.apiKey, this.cfg.indexName, args.repoId);
   }
 
-  async deleteVectorsForFile(args: { repoId: string; filePath: string }) {
-    await this.svc.deleteVectorsForFile(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.filePath);
+  async deleteVectorsForFile(args: { repoId: string; filePath: string; branchName?: string }) {
+    await this.svc.deleteVectorsForFile(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.filePath, args.branchName);
+  }
+
+  async deleteVectorsForBranch(args: { repoId: string; branchName: string }) {
+    await this.svc.deleteVectorsForBranch(this.cfg.apiKey, this.cfg.indexName, args.repoId, args.branchName);
   }
 
   async describeRepoStats(args: { repoId: string }) {

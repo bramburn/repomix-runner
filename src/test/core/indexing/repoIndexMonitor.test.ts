@@ -18,7 +18,7 @@ suite('RepoIndexMonitor', () => {
     const addIndexHistoryEvent = sandbox.stub().resolves();
     const addIndexHistoryBatch = sandbox.stub().resolves();
     const getRepoFilePathsByPathOrPrefix = sandbox.stub()
-      .withArgs('repo-1', 'src/utils')
+      .withArgs('repo-1', 'src/utils', 'main')
       .resolves(['src/utils/a.ts', 'src/utils/b.ts']);
 
     const dbService = {
@@ -29,7 +29,7 @@ suite('RepoIndexMonitor', () => {
     } as any;
 
     const onFlush = sandbox.stub().resolves();
-    const monitor = new RepoIndexMonitor('/repo', 'repo-1', dbService, onFlush, 2500);
+    const monitor = new RepoIndexMonitor('/repo', 'repo-1', async () => 'main', dbService, onFlush, 2500);
 
     monitor.queue('src/utils');
     await monitor.flush();
@@ -37,6 +37,7 @@ suite('RepoIndexMonitor', () => {
 
     assert.strictEqual(markRepoFilesPending.calledOnce, true);
     assert.deepStrictEqual(markRepoFilesPending.firstCall.args[1], ['src/utils/a.ts', 'src/utils/b.ts']);
+    assert.strictEqual(markRepoFilesPending.firstCall.args[2], 'main');
     assert.strictEqual(onFlush.calledOnce, true);
     assert.deepStrictEqual(onFlush.firstCall.args[0], ['src/utils/a.ts', 'src/utils/b.ts']);
   });
@@ -55,7 +56,7 @@ suite('RepoIndexMonitor', () => {
     } as any;
 
     const onFlush = sandbox.stub().resolves();
-    const monitor = new RepoIndexMonitor('/repo', 'repo-1', dbService, onFlush, 2500);
+    const monitor = new RepoIndexMonitor('/repo', 'repo-1', async () => 'main', dbService, onFlush, 2500);
 
     monitor.queue('src/new-file.ts');
     await monitor.flush();
@@ -63,6 +64,7 @@ suite('RepoIndexMonitor', () => {
 
     assert.strictEqual(markRepoFilesPending.calledOnce, true);
     assert.deepStrictEqual(markRepoFilesPending.firstCall.args[1], ['src/new-file.ts']);
+    assert.strictEqual(markRepoFilesPending.firstCall.args[2], 'main');
   });
 
   test('flush should de-duplicate overlapping expanded paths', async () => {
@@ -71,11 +73,11 @@ suite('RepoIndexMonitor', () => {
     const addIndexHistoryBatch = sandbox.stub().resolves();
     const getRepoFilePathsByPathOrPrefix = sandbox.stub();
 
-    getRepoFilePathsByPathOrPrefix.withArgs('repo-1', 'src/utils').resolves([
+    getRepoFilePathsByPathOrPrefix.withArgs('repo-1', 'src/utils', 'main').resolves([
       'src/utils/a.ts',
       'src/utils/b.ts'
     ]);
-    getRepoFilePathsByPathOrPrefix.withArgs('repo-1', 'src/utils/a.ts').resolves(['src/utils/a.ts']);
+    getRepoFilePathsByPathOrPrefix.withArgs('repo-1', 'src/utils/a.ts', 'main').resolves(['src/utils/a.ts']);
 
     const dbService = {
       markRepoFilesPending,
@@ -85,7 +87,7 @@ suite('RepoIndexMonitor', () => {
     } as any;
 
     const onFlush = sandbox.stub().resolves();
-    const monitor = new RepoIndexMonitor('/repo', 'repo-1', dbService, onFlush, 2500);
+    const monitor = new RepoIndexMonitor('/repo', 'repo-1', async () => 'main', dbService, onFlush, 2500);
 
     monitor.queue('src/utils');
     monitor.queue('src/utils/a.ts');
@@ -94,5 +96,6 @@ suite('RepoIndexMonitor', () => {
 
     assert.strictEqual(markRepoFilesPending.calledOnce, true);
     assert.deepStrictEqual(markRepoFilesPending.firstCall.args[1], ['src/utils/a.ts', 'src/utils/b.ts']);
+    assert.strictEqual(markRepoFilesPending.firstCall.args[2], 'main');
   });
 });

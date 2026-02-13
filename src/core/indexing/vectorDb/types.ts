@@ -37,11 +37,14 @@ export interface VectorDbAdapter {
     scoreThreshold?: number;
     groupBy?: string;  // NEW: Optional grouping field
     groupSize?: number; // NEW: Number of results per group (default: 1)
+    branchName?: string;
   }): Promise<VectorDbQueryResult>;
 
   deleteRepo(args: { repoId: string }): Promise<void>;
 
-  deleteVectorsForFile(args: { repoId: string; filePath: string }): Promise<void>;
+  deleteVectorsForFile(args: { repoId: string; filePath: string; branchName?: string }): Promise<void>;
+
+  deleteVectorsForBranch?(args: { repoId: string; branchName: string }): Promise<void>;
 
   describeRepoStats?(args: { repoId: string }): Promise<{ vectorCount?: number } | null>;
 
@@ -49,4 +52,3 @@ export interface VectorDbAdapter {
 
   deleteIndex(args: { repoId: string }): Promise<void>;
 }
-

@@ -11,6 +11,7 @@ import { getRepoId } from "../utils/repoIdentity.js";
 import * as llmClient from "../agent/llmClient.js";
 import { PlanService } from "../services/planService.js";
 import type { ProgressCallback } from "./graph";
+import { GitService } from "../git/GitService.js";
 
 const SECRET_GOOGLE_GEMINI = "repomix.agent.googleApiKey";
 const GEMINI_2_5_FLASH_INPUT_PER_M = 0.3;
@@ -212,6 +213,8 @@ export async function vectorSearchNode(
 
   try {
     const { adapter } = await getVectorDbAdapterForRepo(extensionContext, repoId);
+    const gitService = new GitService();
+    const branchName = await gitService.getCurrentBranch(workspaceFolder);
 
     const allResults = await Promise.all(
       normalizedQueries.map(async (query) => {
@@ -221,6 +224,7 @@ export async function vectorSearchNode(
           vector,
           topK: 5,
           groupBy: "filePath",
+          branchName,
         });
       })
     );

@@ -71,6 +71,7 @@ interface SearchTabState {
   results?: RepoSearchResult[];
   lastSearchOutputPath?: string | null;
   summaryPath?: string | null;
+  currentBranch?: string;
 }
 
 const DEFAULT_FILTERS: FileTypeFilterState = {
@@ -211,6 +212,7 @@ export const SearchTab = () => {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [lastSearchOutputPath, setLastSearchOutputPath] = useState<string | null>(loadedState?.lastSearchOutputPath || null);
   const [summaryPath, setSummaryPath] = useState<string | null>(loadedState?.summaryPath || null);
+  const [currentBranch, setCurrentBranch] = useState<string>(loadedState?.currentBranch || 'default_branch');
   
   // Declare copyMode first so other labels can depend on it
   const [copyMode, setCopyMode] = useState<'content' | 'file'>('content');
@@ -440,9 +442,10 @@ export const SearchTab = () => {
       isRangeAdjusted,
       results: rawResults, // Persist raw results so filters work on reopen
       lastSearchOutputPath,
-      summaryPath
+      summaryPath,
+      currentBranch
     });
-  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, dynamicMinThreshold, dynamicMaxThreshold, isRangeAdjusted, rawResults, lastSearchOutputPath, summaryPath]);
+  }, [fileTypeFilter, query, smartFilterEnabled, openItems, topK, confidenceThreshold, dynamicMinThreshold, dynamicMaxThreshold, isRangeAdjusted, rawResults, lastSearchOutputPath, summaryPath, currentBranch]);
 
   const handleAccordionToggle: AccordionToggleEventHandler<string> = (event, data) => {
     const val = data.value as string;
@@ -631,6 +634,12 @@ export const SearchTab = () => {
         case 'searchSummaryReady':
           console.log('[SearchTab] Search summary ready:', message.summaryPath);
           setSummaryPath(message.summaryPath);
+          break;
+
+        case 'currentBranchContext':
+          if (typeof message.branchName === 'string' && message.branchName.trim().length > 0) {
+            setCurrentBranch(message.branchName);
+          }
           break;
 
         case 'updateCopyMode':
@@ -1075,6 +1084,9 @@ export const SearchTab = () => {
       </Accordion>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
+        <Text size={200} style={{ opacity: 0.8 }}>
+          Current Branch: <strong>{currentBranch}</strong>
+        </Text>
         <Textarea
           value={query}
           onChange={(e, data) => setQuery(data.value)}
