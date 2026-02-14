@@ -38,6 +38,7 @@ import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/file
 import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
 
 import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
+import { copySelectedFilesAsCompressed } from './commands/copySelectedFilesAsCompressed.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
 import { getRepoForActiveEditor, getAllChangedUris, getChangesCounts } from './git/gitUtils.js';
 import { GitService } from './git/GitService.js';
@@ -804,6 +805,13 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const copySelectedFilesAsCompressedCommand = vscode.commands.registerCommand(
+    "repomixRunner.copySelectedFilesAsCompressed",
+    async (clickedFile: vscode.Uri, selectedFiles?: vscode.Uri[]) => {
+      return copySelectedFilesAsCompressed(context, clickedFile, selectedFiles);
+    }
+  );
+
   const copySingleFileRespectingModeCommand = vscode.commands.registerCommand(
     'repomixRunner.copySingleFileRespectingMode',
     async (filePath: string) => {
@@ -899,6 +907,7 @@ export async function activate(context: vscode.ExtensionContext) {
     smartRunCommand,
     regenerateAgentRunCommand,
     copySelectedFilesToClipboardCommand,
+    copySelectedFilesAsCompressedCommand,
     copySingleFileRespectingModeCommand,
     copyFromScmCommand,
     copyAllGitChangesCommand,

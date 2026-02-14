@@ -24,6 +24,7 @@
     "onCommand:repomixRunner.openOutput",
     "onCommand:repomixRunner.testCompression",
     "onCommand:repomixRunner.smartRun",
+    "onCommand:repomixRunner.copySelectedFilesAsCompressed",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
     "onCommand:repomixRunner.copyAllGitChanges",
@@ -336,6 +337,11 @@
         "category": "Repomix"
       },
       {
+        "command": "repomixRunner.copySelectedFilesAsCompressed",
+        "title": "Copy as Compressed Repomix to Clipboard",
+        "category": "Repomix"
+      },
+      {
         "command": "repomixRunner.editBundle",
         "title": "Repomix: Edit Bundle",
         "icon": "$(edit)"
@@ -509,6 +515,11 @@
       "explorer/context": [
         {
           "command": "repomixRunner.copySelectedFilesToClipboard",
+          "when": "explorerResourceIsFolder || !explorerResourceIsFolder",
+          "group": "2_workspace"
+        },
+        {
+          "command": "repomixRunner.copySelectedFilesAsCompressed",
           "when": "explorerResourceIsFolder || !explorerResourceIsFolder",
           "group": "2_workspace"
         },

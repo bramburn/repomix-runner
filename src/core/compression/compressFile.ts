@@ -3,10 +3,10 @@ import type { CaptureLike, CompressionOptions, ParsedChunk } from './types.js';
 
 const CHUNK_SEPARATOR = '\n⋮----\n';
 
-function detectLanguage(filePath: string): 'typescript' | 'javascript' | null {
+function detectLanguage(filePath: string): 'typescript' | 'javascript' | 'dart' | 'python' | 'csharp' | 'rust' | null {
   const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
 
-  const languageByExtension: Record<string, 'typescript' | 'javascript'> = {
+  const languageByExtension: Record<string, 'typescript' | 'javascript' | 'dart' | 'python' | 'csharp' | 'rust'> = {
     ts: 'typescript',
     tsx: 'typescript',
     mts: 'typescript',
@@ -15,6 +15,10 @@ function detectLanguage(filePath: string): 'typescript' | 'javascript' | null {
     jsx: 'javascript',
     mjs: 'javascript',
     cjs: 'javascript',
+    dart: 'dart',
+    py: 'python',
+    cs: 'csharp',
+    rs: 'rust',
   };
 
   return languageByExtension[extension] ?? null;

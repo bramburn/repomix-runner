@@ -1,7 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { queryTypescript } from './queries/queryTypescript.js';
+import { queryDart } from './queries/queryDart.js';
+import { queryPython } from './queries/queryPython.js';
+import { queryCsharp } from './queries/queryCsharp.js';
+import { queryRust } from './queries/queryRust.js';
 import { TypeScriptParseStrategy } from './strategies/TypeScriptParseStrategy.js';
+import { DartParseStrategy } from './strategies/DartParseStrategy.js';
+import { PythonParseStrategy } from './strategies/PythonParseStrategy.js';
+import { CsharpParseStrategy } from './strategies/CsharpParseStrategy.js';
+import { RustParseStrategy } from './strategies/RustParseStrategy.js';
 import type { LanguageConfig, ParseStrategy } from './types.js';
 
 type ParserInstance = any;
@@ -10,6 +18,10 @@ type LanguageInstance = any;
 type TreeSitterModule = any;
 
 const TYPE_SCRIPT_STRATEGY = new TypeScriptParseStrategy();
+const DART_STRATEGY = new DartParseStrategy();
+const PYTHON_STRATEGY = new PythonParseStrategy();
+const CSHARP_STRATEGY = new CsharpParseStrategy();
+const RUST_STRATEGY = new RustParseStrategy();
 
 export class LanguageParser {
   private static instance: LanguageParser | null = null;
@@ -33,6 +45,21 @@ export class LanguageParser {
       wasmFile: 'typescript.wasm',
       query: queryTypescript,
       strategy: TYPE_SCRIPT_STRATEGY,
+    },
+    dart: {
+      wasmFile: 'dart.wasm',
+      query: queryDart,
+      strategy: DART_STRATEGY,
+    },
+    python: {
+      wasmFile: 'python.wasm',
+      query: queryPython,
+      strategy: PYTHON_STRATEGY,
+    },
+    csharp: {
+      wasmFile: 'csharp.wasm',
+      query: queryCsharp,
+      strategy: CSHARP_STRATEGY,
     },
   };
 
