@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getCwd } from '../config/getCwd';
-import { readRepomixRunnerVscodeConfig } from '../config/configLoader';
-import { generateCompressedMarkdownContent } from '../core/files/compressedMarkdownGenerator';
+import { getCwd } from '../config/getCwd.js';
+import { readRepomixRunnerVscodeConfig } from '../config/configLoader.js';
+import { generateCompressedMarkdownContent } from '../core/files/compressedMarkdownGenerator.js';
 import { tempDirManager } from '../core/files/tempDirManager.js';
 import { copyToClipboard } from '../core/files/copyToClipboard.js';
 
