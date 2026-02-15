@@ -651,7 +651,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "sql.js": "^1.13.0",
-    "web-tree-sitter": "^0.26.3",
+    "web-tree-sitter": "^0.26.5",
     "zod": "^3.25.76"
   },
   "__metadata": {

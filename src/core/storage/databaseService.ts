@@ -331,6 +331,17 @@ export class DatabaseService {
     return columns;
   }
 
+  private tableExists(tableName: string): boolean {
+    if (!this.db) return false;
+    const stmt = this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`);
+    try {
+      stmt.bind([tableName]);
+      return stmt.step();
+    } finally {
+      stmt.free();
+    }
+  }
+
   private hasUniqueIndexWithBranch(tableName: string): boolean {
     if (!this.db) return false;
     const stmt = this.db.prepare(`PRAGMA index_list(${tableName})`);
@@ -375,8 +386,9 @@ export class DatabaseService {
 
     this.db.run('BEGIN TRANSACTION');
     try {
+      const legacyTable = `repo_indexing_progress_legacy_${Date.now()}`;
       this.db.run(`
-        ALTER TABLE repo_indexing_progress RENAME TO repo_indexing_progress_legacy;
+        ALTER TABLE repo_indexing_progress RENAME TO ${legacyTable};
       `);
       this.db.run(`
         CREATE TABLE repo_indexing_progress (
@@ -405,9 +417,9 @@ export class DatabaseService {
           completed_at,
           error_message,
           created_at
-        FROM repo_indexing_progress_legacy
+        FROM ${legacyTable}
       `);
-      this.db.run(`DROP TABLE repo_indexing_progress_legacy`);
+      this.db.run(`DROP TABLE ${legacyTable}`);
       this.db.run('COMMIT');
     } catch (error) {
       this.db.run('ROLLBACK');
@@ -429,7 +441,8 @@ export class DatabaseService {
     if (requiresRebuild) {
       this.db.run('BEGIN TRANSACTION');
       try {
-        this.db.run(`ALTER TABLE repo_file_state RENAME TO repo_file_state_legacy`);
+        const legacyTable = `repo_file_state_legacy_${Date.now()}`;
+        this.db.run(`ALTER TABLE repo_file_state RENAME TO ${legacyTable}`);
         this.db.run(`
           CREATE TABLE repo_file_state (
             repo_id TEXT NOT NULL,
@@ -463,9 +476,9 @@ export class DatabaseService {
             updated_at,
             updated_at,
             error
-          FROM repo_file_state_legacy
+          FROM ${legacyTable}
         `);
-        this.db.run(`DROP TABLE repo_file_state_legacy`);
+        this.db.run(`DROP TABLE ${legacyTable}`);
         this.db.run('COMMIT');
       } catch (error) {
         this.db.run('ROLLBACK');
@@ -1767,27 +1780,61 @@ export class DatabaseService {
     if (!this.isInitialized) await this.initialize();
     if (!this.db) throw new Error('Database not initialized');
 
-    const stmt = this.db.prepare(`
-      SELECT branch_name FROM repo_file_state WHERE repo_id = ?
-      UNION
-      SELECT branch_name FROM repo_indexing_progress WHERE repo_id = ?
-      ORDER BY branch_name ASC
-    `);
+    const branches = new Set<string>();
+    const fileStateColumns = this.getTableColumns('repo_file_state');
+    const progressColumns = this.getTableColumns('repo_indexing_progress');
 
-    const branches: string[] = [];
-    try {
-      stmt.bind([repoId, repoId]);
-      while (stmt.step()) {
-        const row = stmt.getAsObject() as any;
-        if (row.branch_name) {
-          branches.push(String(row.branch_name));
+    if (fileStateColumns.includes('branch_name')) {
+      const stmt = this.db.prepare(`SELECT DISTINCT branch_name FROM repo_file_state WHERE repo_id = ?`);
+      try {
+        stmt.bind([repoId]);
+        while (stmt.step()) {
+          const row = stmt.getAsObject() as any;
+          if (row.branch_name) {
+            branches.add(String(row.branch_name));
+          }
         }
+      } finally {
+        stmt.free();
       }
-    } finally {
-      stmt.free();
+    } else if (this.tableExists('repo_file_state')) {
+      const stmt = this.db.prepare(`SELECT 1 as has_rows FROM repo_file_state WHERE repo_id = ? LIMIT 1`);
+      try {
+        stmt.bind([repoId]);
+        if (stmt.step()) {
+          branches.add(DEFAULT_BRANCH_NAME);
+        }
+      } finally {
+        stmt.free();
+      }
     }
 
-    return branches;
+    if (progressColumns.includes('branch_name')) {
+      const stmt = this.db.prepare(`SELECT DISTINCT branch_name FROM repo_indexing_progress WHERE repo_id = ?`);
+      try {
+        stmt.bind([repoId]);
+        while (stmt.step()) {
+          const row = stmt.getAsObject() as any;
+          if (row.branch_name) {
+            branches.add(String(row.branch_name));
+          }
+        }
+      } finally {
+        stmt.free();
+      }
+    } else if (this.tableExists('repo_indexing_progress')) {
+      const stmt = this.db.prepare(`SELECT 1 as has_rows FROM repo_indexing_progress WHERE repo_id = ? LIMIT 1`);
+      try {
+        stmt.bind([repoId]);
+        if (stmt.step()) {
+          branches.add(DEFAULT_BRANCH_NAME);
+        }
+      } finally {
+        stmt.free();
+      }
+    }
+
+    return Array.from(branches).sort((a, b) => a.localeCompare(b));
   }
 
   async clearBranchData(repoId: string, branchName: string): Promise<void> {

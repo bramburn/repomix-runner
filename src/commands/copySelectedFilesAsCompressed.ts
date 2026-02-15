@@ -105,34 +105,37 @@ export async function copySelectedFilesAsCompressed(
 
     console.log(`[Repomix] Copying ${relativeFiles.length} files as compressed Markdown (mode: ${copyMode})`);
 
-    let result: { tokenCount: number } | undefined;
-
-    await vscode.window.withProgress(
+    // Generate compressed content and get token count
+    const { concatenated, tokenCount } = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title: `Repomix: Copying ${relativeFiles.length} files (compressed)...`
       },
       async () => {
         // Generate compressed content regardless of copy mode
-        const { concatenated, tokenCount } = await generateCompressedMarkdownContent(cwd, relativeFiles);
+        const result = await generateCompressedMarkdownContent(cwd, relativeFiles);
         
         if (copyMode === 'content') {
-          await vscode.env.clipboard.writeText(concatenated);
-          result = { tokenCount };
+          await vscode.env.clipboard.writeText(result.concatenated);
         } else {
           // For file mode, we need to write compressed content to temp file and use Rust binary
-          result = await copyCompressedToFileMode(context, cwd, concatenated, tokenCount);
+          await copyCompressedToFileMode(context, cwd, result.concatenated, result.tokenCount);
         }
+        
+        return result;
       }
     );
 
     const fileWord = relativeFiles.length === 1 ? "file" : "files";
     const modeSuffix = copyMode === 'content' ? "content " : "";
-    const formattedTokenCount = result?.tokenCount ? ` (${result.tokenCount.toLocaleString()} tokens)` : "";
+    const formattedTokenCount = ` (${tokenCount.toLocaleString()} tokens)`;
 
-    vscode.window.showInformationMessage(
-      `✓ Copied ${relativeFiles.length} ${fileWord} ${modeSuffix}as compressed Markdown to clipboard${formattedTokenCount}`
+    const message = vscode.window.showInformationMessage(
+      `✓ Copied Compressed ${relativeFiles.length} ${formattedTokenCount} ${fileWord} ${modeSuffix} to clipboard`
     );
+    setTimeout(() => {
+      message.then(() => {});
+    }, 5000); 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[Repomix] Failed to copy selected files:", err);

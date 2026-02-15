@@ -39,8 +39,9 @@ export async function generateCompressedMarkdownContent(
       // Attempt compression - falls back to full content if unsupported
       const compressed = await compressFile(relativeFile, content);
       const outputContent = compressed ?? content;
-      
-      entries.push(`<file path="${relativeFile}">${outputContent}</file>`);
+      const isCompressed = compressed !== null;
+
+      entries.push(`<file path="${relativeFile}" compressed="${isCompressed}">${outputContent}</file>`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       entries.push(`## ${relativeFile}\n\n> Error reading file: ${errorMsg}`);
