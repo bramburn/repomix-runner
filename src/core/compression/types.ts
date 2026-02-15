@@ -31,6 +31,12 @@ export interface ParsedChunk {
   text: string;
 }
 
+export interface BodyReplacement {
+  bodyStartIndex: number;
+  bodyEndIndex: number;
+  replacementText: string;
+}
+
 export interface CompressionOptions {
   keepNames?: string[];
 }
@@ -45,6 +51,11 @@ export interface ParseStrategy {
     context: ParseContext,
     options?: CompressionOptions
   ): ParsedChunk | null;
+  getBodyReplacement(
+    capture: CaptureLike,
+    context: ParseContext,
+    options?: CompressionOptions
+  ): BodyReplacement | null;
 }
 
 export interface LanguageConfig {

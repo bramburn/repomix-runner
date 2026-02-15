@@ -61,6 +61,11 @@ export class LanguageParser {
       query: queryCsharp,
       strategy: CSHARP_STRATEGY,
     },
+    rust: {
+      wasmFile: 'rust.wasm',
+      query: queryRust,
+      strategy: RUST_STRATEGY,
+    },
   };
 
   static getInstance(): LanguageParser {
@@ -105,11 +110,13 @@ export class LanguageParser {
     const config = this.configs[normalized];
     const wasmPath = this.resolveWasmPath(config.wasmFile);
     if (!wasmPath) {
+      console.warn(`[Repomix] Could not resolve WASM path for ${normalized}: ${config.wasmFile}`);
       return null;
     }
 
     const parserLanguage = await this.loadLanguage(normalized, wasmPath);
     if (!parserLanguage) {
+      console.warn(`[Repomix] Could not load language ${normalized} from ${wasmPath}`);
       return null;
     }
 
@@ -140,11 +147,13 @@ export class LanguageParser {
     const config = this.configs[normalized];
     const wasmPath = this.resolveWasmPath(config.wasmFile);
     if (!wasmPath) {
+      console.warn(`[Repomix] Could not resolve WASM path for query ${normalized}: ${config.wasmFile}`);
       return null;
     }
 
     const parserLanguage = await this.loadLanguage(normalized, wasmPath);
     if (!parserLanguage) {
+      console.warn(`[Repomix] Could not load language for query ${normalized} from ${wasmPath}`);
       return null;
     }
 

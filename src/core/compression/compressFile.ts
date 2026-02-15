@@ -1,7 +1,5 @@
 import { LanguageParser } from './LanguageParser.js';
-import type { CaptureLike, CompressionOptions, ParsedChunk } from './types.js';
-
-const CHUNK_SEPARATOR = '\n⋮----\n';
+import type { CaptureLike, CompressionOptions, BodyReplacement } from './types.js';
 
 function detectLanguage(filePath: string): 'typescript' | 'javascript' | 'dart' | 'python' | 'csharp' | 'rust' | null {
   const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
@@ -22,53 +20,6 @@ function detectLanguage(filePath: string): 'typescript' | 'javascript' | 'dart' 
   };
 
   return languageByExtension[extension] ?? null;
-}
-
-function dedupeChunks(chunks: ParsedChunk[]): ParsedChunk[] {
-  const seen = new Set<string>();
-  const deduped: ParsedChunk[] = [];
-
-  for (const chunk of chunks) {
-    const key = `${chunk.startIndex}:${chunk.endIndex}:${chunk.text}`;
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    deduped.push(chunk);
-  }
-
-  return deduped;
-}
-
-function mergeAdjacentChunks(chunks: ParsedChunk[], sourceCode: string): ParsedChunk[] {
-  if (!chunks.length) {
-    return chunks;
-  }
-
-  const sorted = [...chunks].sort((a, b) => a.startIndex - b.startIndex);
-  const merged: ParsedChunk[] = [sorted[0]];
-
-  for (let i = 1; i < sorted.length; i += 1) {
-    const current = sorted[i];
-    const previous = merged[merged.length - 1];
-    const gapText = sourceCode.slice(previous.endIndex, current.startIndex);
-    const isAdjacent =
-      current.startIndex <= previous.endIndex ||
-      (gapText.trim() === '' && gapText.length <= 4);
-
-    if (!isAdjacent) {
-      merged.push(current);
-      continue;
-    }
-
-    previous.endIndex = Math.max(previous.endIndex, current.endIndex);
-    if (previous.text !== current.text) {
-      previous.text = `${previous.text}\n${current.text}`;
-    }
-  }
-
-  return merged;
 }
 
 export async function compressFile(
@@ -94,37 +45,38 @@ export async function compressFile(
 
     const tree = parser.parse(fileContent);
     const rawCaptures = query.captures(tree.rootNode) as CaptureLike[];
-    rawCaptures.sort((a, b) => a.node.startIndex - b.node.startIndex);
 
-    const chunks: ParsedChunk[] = [];
-    const processedRanges: Array<{ start: number; end: number }> = [];
-
-    for (const capture of rawCaptures) {
-      const isNested = processedRanges.some(
-        range => capture.node.startIndex >= range.start && capture.node.endIndex <= range.end
-      );
-
-      if (isNested) {
-        continue;
-      }
-
-      const parsed = strategy.parseCapture(capture, { sourceCode: fileContent }, options);
-      if (!parsed) {
-        continue;
-      }
-
-      chunks.push(parsed);
-      processedRanges.push({ start: parsed.startIndex, end: parsed.endIndex });
-    }
-
-    const deduped = dedupeChunks(chunks);
-    const merged = mergeAdjacentChunks(deduped, fileContent);
-
-    if (merged.length === 0) {
+    if (rawCaptures.length === 0) {
       return null;
     }
 
-    return merged.map(chunk => chunk.text).join(CHUNK_SEPARATOR);
+    // Process in reverse order to preserve indices when replacing
+    rawCaptures.sort((a, b) => b.node.startIndex - a.node.startIndex);
+
+    let result = fileContent;
+    let hasReplacements = false;
+
+    for (const capture of rawCaptures) {
+      const replacement = strategy.getBodyReplacement(capture, { sourceCode: fileContent }, options);
+      if (!replacement) {
+        continue;
+      }
+
+      // Verify the indices are still valid
+      if (replacement.bodyStartIndex < 0 || replacement.bodyEndIndex > result.length) {
+        continue;
+      }
+
+      result =
+        result.slice(0, replacement.bodyStartIndex) +
+        replacement.replacementText +
+        result.slice(replacement.bodyEndIndex);
+      hasReplacements = true;
+    }
+
+    // If we found captures but none had bodies to replace (e.g., imports, exports only),
+    // return the original content rather than null to avoid triggering fallback to full code
+    return result;
   } catch (error) {
     console.error('Compression failed:', error);
     return null;

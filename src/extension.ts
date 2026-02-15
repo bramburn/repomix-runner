@@ -51,6 +51,17 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] ===== EXTENSION ACTIVATION START =====');
   console.log('[quick-repomix] Extension context obtained');
 
+  // Initialize WASM path for compression engine
+  console.log('[Repomix] Initializing WASM path for compression engine...');
+  try {
+    const { LanguageParser } = await import('./core/compression/LanguageParser.js');
+    const wasmPath = path.join(context.extensionPath, 'dist', 'tree-sitter-wasm');
+    LanguageParser.getInstance().setWasmDirectory(wasmPath);
+    console.log('[Repomix] WASM path initialized:', wasmPath);
+  } catch (error) {
+    console.error('[Repomix] Failed to initialize WASM path:', error);
+  }
+
   // Initialize database service
   console.log('[quick-repomix] Initializing database service...');
   const databaseService = new DatabaseService(context);

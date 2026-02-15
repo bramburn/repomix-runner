@@ -607,7 +607,10 @@
     "clean": "rimraf dist out",
     "build:rust": "node scripts/build-rust.mjs",
     "setup:treesitter": "node scripts/setup-treesitter.mjs",
-    "package:local": "node scripts/package-local.mjs"
+    "package:local": "node scripts/package-local.mjs",
+    "test:compression": "ts-node src/test-compression.ts",
+    "test:compression:js": "npm run compile && node dist/test-compression.js",
+    "diagnose:compression": "node scripts/diagnose-compression.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -630,6 +633,7 @@
     "playwright": "^1.57.0",
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
   "dependencies": {

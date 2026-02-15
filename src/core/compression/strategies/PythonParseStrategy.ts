@@ -6,6 +6,7 @@ import {
   type ParseContext,
   type ParsedChunk,
   type SyntaxNodeLike,
+  type BodyReplacement,
 } from '../types.js';
 
 export class PythonParseStrategy extends BaseParseStrategy {
@@ -54,8 +55,89 @@ export class PythonParseStrategy extends BaseParseStrategy {
       }
 
       default:
+        // Return original text for unrecognized types
+        return this.buildChunk(type, capture.node.startIndex, capture.node.endIndex, nodeText.trim());
+    }
+  }
+
+  getBodyReplacement(
+    capture: CaptureLike,
+    context: ParseContext,
+    options?: CompressionOptions
+  ): BodyReplacement | null {
+    let captureType = capture.name as string;
+    const node = capture.node;
+    const nodeText = this.getNodeText(node, context.sourceCode);
+
+    // Resolve 'decorated' capture to actual underlying type
+    if (captureType === 'definition.decorated') {
+      const underlyingType = this.resolveDecoratedType(node);
+      if (underlyingType) {
+        captureType = underlyingType;
+      } else {
+        return null;
+      }
+    }
+
+    const type = captureType as CaptureType;
+
+    // Handle keepNames option - return null to keep full content
+    if (options?.keepNames && options.keepNames.length > 0) {
+      const nodeName = this.extractNodeName(node);
+      if (nodeName && options.keepNames.includes(nodeName)) {
+        return null;
+      }
+    }
+
+    switch (type) {
+      case CaptureType.Import:
+        // Imports have no body
+        return null;
+
+      case CaptureType.Function:
+      case CaptureType.Method: {
+        // Find the body (block) node
+        const block = this.findBlockNode(node);
+        if (!block) {
+          return null;
+        }
+        return {
+          bodyStartIndex: block.startIndex,
+          bodyEndIndex: block.endIndex,
+          replacementText: '...',
+        };
+      }
+
+      default:
         return null;
     }
+  }
+
+  private findBlockNode(node: SyntaxNodeLike): SyntaxNodeLike | null {
+    // For decorated definitions, look inside the inner definition
+    if (node.type === 'decorated_definition') {
+      const inner = node.children.find(c => c.type === 'function_definition' || c.type === 'class_definition');
+      if (inner) {
+        return this.findBlockNode(inner);
+      }
+    }
+
+    // Look for block child
+    if (node.childForFieldName) {
+      const block = node.childForFieldName('body');
+      if (block) {
+        return block;
+      }
+    }
+
+    // Fallback: find first block-type child
+    for (const child of node.children) {
+      if (child.type === 'block') {
+        return child;
+      }
+    }
+
+    return null;
   }
 
   /**

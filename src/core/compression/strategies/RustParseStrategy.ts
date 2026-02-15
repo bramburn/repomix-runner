@@ -6,6 +6,7 @@ import {
   type ParseContext,
   type ParsedChunk,
   type SyntaxNodeLike,
+  type BodyReplacement,
 } from '../types.js';
 
 export class RustParseStrategy extends BaseParseStrategy {
@@ -58,19 +59,93 @@ export class RustParseStrategy extends BaseParseStrategy {
       }
 
       default:
-        // Handle modules (mod foo { ... })
-        if (capture.name === 'definition.module') {
-          // If it has a body (braces), skeletonize it. If it's "mod foo;", keep it.
-          if (nodeText.includes('{')) {
-            const skeleton = this.createClassSkeleton(nodeText);
-            return skeleton 
-              ? this.buildChunk(CaptureType.Class, capture.node.startIndex, capture.node.endIndex, skeleton)
-              : null;
+        // Return original text for unrecognized types
+        return this.buildChunk(captureType, capture.node.startIndex, capture.node.endIndex, nodeText);
+    }
+  }
+
+  getBodyReplacement(
+    capture: CaptureLike,
+    context: ParseContext,
+    options?: CompressionOptions
+  ): BodyReplacement | null {
+    const captureType = capture.name as CaptureType;
+    const node = capture.node;
+    const nodeText = this.getNodeText(node, context.sourceCode);
+
+    // Handle keepNames option - return null to keep full content
+    if (options?.keepNames && options.keepNames.length > 0) {
+      const nodeName = this.extractNodeName(node);
+      if (nodeName && options.keepNames.includes(nodeName)) {
+        return null;
+      }
+    }
+
+    switch (captureType) {
+      case CaptureType.Import:
+      case CaptureType.Type:
+      case CaptureType.Enum:
+      case CaptureType.FunctionVariable:
+        // These have no body to compress
+        return null;
+
+      case CaptureType.Function:
+      case CaptureType.Method: {
+        const bodyRange = this.findBodyRange(node, nodeText);
+        if (!bodyRange) {
+          return null;
+        }
+        return {
+          bodyStartIndex: node.startIndex + bodyRange.start,
+          bodyEndIndex: node.startIndex + bodyRange.end,
+          replacementText: '{ ... }',
+        };
+      }
+
+      default:
+        // Try to find a body for unknown types like modules
+        if (nodeText.includes('{')) {
+          const bodyRange = this.findBodyRange(node, nodeText);
+          if (!bodyRange) {
+            return null;
           }
-          return this.buildChunk(CaptureType.Import, capture.node.startIndex, capture.node.endIndex, nodeText);
+          return {
+            bodyStartIndex: node.startIndex + bodyRange.start,
+            bodyEndIndex: node.startIndex + bodyRange.end,
+            replacementText: '{ ... }',
+          };
         }
         return null;
     }
+  }
+
+  private findBodyRange(node: SyntaxNodeLike, nodeText: string): { start: number; end: number } | null {
+    // Find the first opening brace
+    const braceStart = nodeText.indexOf('{');
+    if (braceStart < 0) {
+      return null;
+    }
+
+    // Find the matching closing brace
+    let braceCount = 0;
+    let braceEnd = -1;
+    for (let i = braceStart; i < nodeText.length; i++) {
+      if (nodeText[i] === '{') {
+        braceCount++;
+      } else if (nodeText[i] === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          braceEnd = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (braceEnd < 0) {
+      return null;
+    }
+
+    return { start: braceStart, end: braceEnd };
   }
 
   private extractNodeName(node: SyntaxNodeLike): string | null {

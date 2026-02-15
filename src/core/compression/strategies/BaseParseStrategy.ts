@@ -1,4 +1,5 @@
 import type {
+  BodyReplacement,
   CaptureLike,
   CompressionOptions,
   ParseContext,
@@ -13,6 +14,12 @@ export abstract class BaseParseStrategy implements ParseStrategy {
     context: ParseContext,
     options?: CompressionOptions
   ): ParsedChunk | null;
+
+  abstract getBodyReplacement(
+    capture: CaptureLike,
+    context: ParseContext,
+    options?: CompressionOptions
+  ): BodyReplacement | null;
 
   protected getNodeText(node: SyntaxNodeLike, sourceCode: string): string {
     return sourceCode.slice(node.startIndex, node.endIndex);
