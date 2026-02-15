@@ -1,3 +1,8 @@
+declare module '*.svg' {
+  const content: string;
+  export default content;
+}
+
 declare module 'glob-gitignore' {
     import { Ignore } from 'ignore';
 

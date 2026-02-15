@@ -23,6 +23,7 @@ import {
 import { editBundle } from './commands/editBundle.js';
 import { goToConfigFile } from './commands/goToConfigFile.js';
 import { RepomixWebviewProvider } from './webview/RepomixWebviewProvider.js';
+import { AiChatWebviewProvider } from './webview/AiChatWebviewProvider.js';
 import { createSmartRepomixGraph } from './agent/graph.js';
 import { logger } from './shared/logger.js';
 import { DatabaseService } from './core/storage/databaseService.js';
@@ -501,12 +502,20 @@ export async function activate(context: vscode.ExtensionContext) {
   const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices);
   console.log('[quick-repomix] RepomixWebviewProvider created');
 
-  console.log('[quick-repomix] Registering webview view provider...');
+  console.log('[quick-repomix] Creating AiChatWebviewProvider...');
+  const aiChatProvider = new AiChatWebviewProvider(context.extensionUri);
+  console.log('[quick-repomix] AiChatWebviewProvider created');
+
+  console.log('[quick-repomix] Registering webview view providers...');
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
     provider
   );
-  console.log('[quick-repomix] Webview view provider registered successfully');
+  const aiChatViewSubscription = vscode.window.registerWebviewViewProvider(
+    AiChatWebviewProvider.viewType,
+    aiChatProvider
+  );
+  console.log('[quick-repomix] Webview view providers registered successfully');
 
   const addSelectedFilesToNewBundleCommand = vscode.commands.registerCommand(
     'repomixRunner.addSelectedFilesToNewBundle',
@@ -909,6 +918,7 @@ export async function activate(context: vscode.ExtensionContext) {
     createBundleCommand,
     decorationProviderSubscription,
     webviewViewSubscription,
+    aiChatViewSubscription,
     bundleTreeView,
     addSelectedFilesToActiveBundleCommand,
     addSelectedFilesToNewBundleCommand,

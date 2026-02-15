@@ -27,6 +27,7 @@
     "onCommand:repomixRunner.copySelectedFilesAsCompressed",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
+    "onView:repomixRunner.aiChatMain",
     "onCommand:repomixRunner.copyAllGitChanges",
     "onStartupFinished"
   ],
@@ -327,6 +328,12 @@
           "type": "webview",
           "id": "repomixRunner.controlPanel",
           "name": "Repomix Runner Control Panel"
+        },
+        {
+          "type": "webview",
+          "id": "repomixRunner.aiChatMain",
+          "name": "AI Developer Chat",
+          "icon": "assets/comment.svg"
         }
       ]
     },
