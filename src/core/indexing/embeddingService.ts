@@ -1,14 +1,21 @@
 import { IEmbeddingProvider } from './embeddings/types';
 import { GeminiProvider } from './embeddings/GeminiProvider';
 import { OllamaProvider } from './embeddings/OllamaProvider';
+import { LMStudioProvider } from './embeddings/LMStudioProvider';
 
 export interface EmbeddingProviderConfig {
-    provider: 'gemini' | 'ollama';
+    provider: 'gemini' | 'ollama' | 'lmstudio';
     gemini?: {
         apiKey: string;
     };
     ollama?: {
         url: string;
+        model: string;
+        dimension: number;
+    };
+    lmstudio?: {
+        baseUrl: string;
+        apiKey: string;
         model: string;
         dimension: number;
     };
@@ -54,6 +61,12 @@ export class EmbeddingService {
             throw new Error('Ollama config is missing for embedding provider.');
         }
         this.provider = new OllamaProvider(config.ollama);
+        break;
+      case 'lmstudio':
+        if (!config.lmstudio) {
+            throw new Error('LM Studio config is missing for embedding provider.');
+        }
+        this.provider = new LMStudioProvider(config.lmstudio);
         break;
       default:
         const exhaustiveCheck: never = config.provider;

@@ -107,6 +107,15 @@ export class ConfigController extends BaseController {
       case 'testOllamaDimension':
         await this.handleTestOllamaDimension(message.url, message.model);
         return true;
+      case 'fetchLMStudioModels':
+        await this.handleFetchLMStudioModels(message.baseUrl, message.apiKey);
+        return true;
+      case 'testLMStudioDimension':
+        await this.handleTestLMStudioDimension(message.baseUrl, message.apiKey, message.model);
+        return true;
+      case 'getLMStudioConfig':
+        await this.handleGetLMStudioConfig();
+        return true;
 
       // --- Dimension Compatibility ---
       case 'checkCompatibility':
@@ -549,13 +558,23 @@ export class ConfigController extends BaseController {
       const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
       const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
       const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
+      
+      // LM Studio config
+      const lmstudioBaseUrl = config.get<string>('repomix.lmstudio.baseUrl') || 'http://localhost:1234/v1';
+      const lmstudioApiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
+      const lmstudioModel = config.get<string>('repomix.lmstudio.model') || '';
+      const lmstudioDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
 
       this.context.postMessage({
         command: 'embeddingConfig',
         provider,
         ollamaUrl,
         ollamaModel,
-        ollamaDimension
+        ollamaDimension,
+        lmstudioBaseUrl,
+        lmstudioApiKey,
+        lmstudioModel,
+        lmstudioDimension
       });
     } catch (error) {
       console.error('Failed to get embedding config:', error);
@@ -657,19 +676,32 @@ export class ConfigController extends BaseController {
    */
   private async handleSetEmbeddingConfig(message: any) {
     try {
-      const { provider, ollamaUrl, ollamaModel, ollamaDimension } = message;
+      const { provider, ollamaUrl, ollamaModel, ollamaDimension, lmstudioBaseUrl, lmstudioApiKey, lmstudioModel, lmstudioDimension } = message;
 
-      console.log(`[ConfigController] Setting embedding config:`, { provider, ollamaUrl, ollamaModel, ollamaDimension });
+      console.log(`[ConfigController] Setting embedding config:`, { provider, ollamaUrl, ollamaModel, ollamaDimension, lmstudioBaseUrl, lmstudioModel, lmstudioDimension });
 
       // Get current dimension to detect changes
       const config = vscode.workspace.getConfiguration();
       const currentProvider = config.get<string>('repomix.embedding.provider') || 'gemini';
-      const currentDimension = currentProvider === 'gemini' 
-        ? 768 
-        : config.get<number>('repomix.ollama.dimension') || 768;
+      let currentDimension = 768;
+      
+      if (currentProvider === 'gemini') {
+        currentDimension = 768;
+      } else if (currentProvider === 'ollama') {
+        currentDimension = config.get<number>('repomix.ollama.dimension') || 768;
+      } else if (currentProvider === 'lmstudio') {
+        currentDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
+      }
 
       // Determine new dimension
-      const newDimension = provider === 'gemini' ? 768 : ollamaDimension;
+      let newDimension = 768;
+      if (provider === 'gemini') {
+        newDimension = 768;
+      } else if (provider === 'ollama') {
+        newDimension = ollamaDimension;
+      } else if (provider === 'lmstudio') {
+        newDimension = lmstudioDimension;
+      }
 
       // Check if dimension is changing
       const dimensionChanged = currentDimension !== newDimension;
@@ -711,6 +743,11 @@ export class ConfigController extends BaseController {
         await config.update('repomix.ollama.url', ollamaUrl, vscode.ConfigurationTarget.Global);
         await config.update('repomix.ollama.model', ollamaModel, vscode.ConfigurationTarget.Global);
         await config.update('repomix.ollama.dimension', ollamaDimension, vscode.ConfigurationTarget.Global);
+      } else if (provider === 'lmstudio') {
+        await config.update('repomix.lmstudio.baseUrl', lmstudioBaseUrl, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.lmstudio.apiKey', lmstudioApiKey, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.lmstudio.model', lmstudioModel, vscode.ConfigurationTarget.Global);
+        await config.update('repomix.lmstudio.dimension', lmstudioDimension, vscode.ConfigurationTarget.Global);
       }
 
       console.log('[ConfigController] Embedding configuration saved');
@@ -734,6 +771,16 @@ export class ConfigController extends BaseController {
             url: ollamaUrl,
             model: ollamaModel,
             dimension: ollamaDimension
+          }
+        });
+      } else if (provider === 'lmstudio') {
+        embeddingService.switchProvider({
+          provider: 'lmstudio',
+          lmstudio: {
+            baseUrl: lmstudioBaseUrl,
+            apiKey: lmstudioApiKey,
+            model: lmstudioModel,
+            dimension: lmstudioDimension
           }
         });
       }
@@ -764,6 +811,169 @@ export class ConfigController extends BaseController {
     }
   }
 
+  // --- LM Studio Methods ---
+
+  private async handleGetLMStudioConfig() {
+    try {
+      const config = vscode.workspace.getConfiguration();
+      const baseUrl = config.get<string>('repomix.lmstudio.baseUrl') || 'http://localhost:1234/v1';
+      const apiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
+      const model = config.get<string>('repomix.lmstudio.model') || '';
+      const dimension = config.get<number>('repomix.lmstudio.dimension') || 768;
+
+      this.context.postMessage({
+        command: 'lmstudioConfig',
+        baseUrl,
+        apiKey,
+        model,
+        dimension
+      });
+    } catch (error) {
+      console.error('Failed to get LM Studio config:', error);
+    }
+  }
+
+  /**
+   * Fetch available models from LM Studio server
+   */
+  private async handleFetchLMStudioModels(baseUrl?: string, apiKey?: string) {
+    try {
+      let lmstudioBaseUrl = baseUrl;
+      let lmstudioApiKey = apiKey;
+      
+      if (!lmstudioBaseUrl) {
+        const config = vscode.workspace.getConfiguration();
+        lmstudioBaseUrl = config.get<string>('repomix.lmstudio.baseUrl') || 'http://localhost:1234/v1';
+      }
+      
+      if (lmstudioApiKey === undefined) {
+        const config = vscode.workspace.getConfiguration();
+        lmstudioApiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
+      }
+
+      console.log(`[ConfigController] Fetching LM Studio models from ${lmstudioBaseUrl}`);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (lmstudioApiKey && lmstudioApiKey.trim() !== '') {
+        headers['Authorization'] = `Bearer ${lmstudioApiKey}`;
+      }
+
+      const response = await fetch(`${lmstudioBaseUrl}/models`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`[ConfigController] LM Studio models fetch failed: ${response.status}`, errorBody);
+        throw new Error(`LM Studio API request failed: ${response.statusText} (${response.status})`);
+      }
+
+      const data = await response.json();
+      
+      // Handle different response formats
+      let models: Array<{ id: string }> = [];
+      
+      if (data.data && Array.isArray(data.data)) {
+        // OpenAI-style response: { data: [{ id: "model-name", ... }] }
+        models = data.data.map((model: any) => ({ id: model.id }));
+      } else if (Array.isArray(data)) {
+        // Array of model names
+        models = data.map((model: string) => ({ id: model }));
+      }
+
+      console.log(`[ConfigController] Found ${models.length} LM Studio models`);
+
+      this.context.postMessage({
+        command: 'lmstudioModelsResult',
+        models: models,
+      });
+
+      if (models.length === 0) {
+        vscode.window.showWarningMessage('No models found in LM Studio. Make sure you have loaded embedding models.');
+      }
+    } catch (error: unknown) {
+      console.error('[ConfigController] Failed to fetch LM Studio models:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.context.postMessage({
+        command: 'lmstudioModelsResult',
+        models: [],
+        error: errorMessage
+      });
+      vscode.window.showErrorMessage(`Failed to fetch LM Studio models: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Test embedding dimension by making a sample embedding request
+   */
+  private async handleTestLMStudioDimension(baseUrl: string, apiKey: string, model: string) {
+    try {
+      console.log(`[ConfigController] Testing LM Studio dimension for model: ${model}`);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (apiKey && apiKey.trim() !== '') {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      const response = await fetch(`${baseUrl}/embeddings`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: model,
+          input: 'test text for dimension detection',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`[ConfigController] LM Studio dimension test failed: ${response.status}`, errorBody);
+        throw new Error(`LM Studio API request failed: ${response.statusText} (${response.status})`);
+      }
+
+      const data = await response.json();
+      
+      // Handle different response formats
+      let embedding: number[] | undefined;
+      
+      if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+        // OpenAI-style response: { data: [{ embedding: [...] }] }
+        embedding = data.data[0].embedding;
+      } else if (data.embedding) {
+        // Direct embedding response
+        embedding = data.embedding;
+      }
+
+      if (!embedding || !Array.isArray(embedding)) {
+        throw new Error('Invalid response from LM Studio API: missing or invalid embedding');
+      }
+
+      const dimension = embedding.length;
+      console.log(`[ConfigController] LM Studio dimension test successful: ${dimension}`);
+
+      this.context.postMessage({
+        command: 'lmstudioDimensionResult',
+        dimension: dimension
+      });
+
+      vscode.window.showInformationMessage(`Detected dimension: ${dimension}`);
+    } catch (error: unknown) {
+      console.error('[ConfigController] Failed to test LM Studio dimension:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.context.postMessage({
+        command: 'lmstudioDimensionResult',
+        error: errorMessage
+      });
+      vscode.window.showErrorMessage(`Failed to test dimension: ${errorMessage}`);
+    }
+  }
+
   // --- Dimension Compatibility Methods ---
 
   private async handleCheckCompatibility() {
@@ -780,9 +990,15 @@ export class ConfigController extends BaseController {
       // Get desired embedding dimension
       const config = vscode.workspace.getConfiguration();
       const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
-      const embeddingDimension = provider === 'gemini'
-        ? 768
-        : config.get<number>('repomix.ollama.dimension') || 768;
+      let embeddingDimension = 768;
+      
+      if (provider === 'gemini') {
+        embeddingDimension = 768;
+      } else if (provider === 'ollama') {
+        embeddingDimension = config.get<number>('repomix.ollama.dimension') || 768;
+      } else if (provider === 'lmstudio') {
+        embeddingDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
+      }
 
       // Get actual index dimension from vector DB
       let indexDimension: number | undefined;

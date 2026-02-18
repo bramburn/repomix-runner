@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "1.0.23",
+  "version": "1.0.23-alpha.20260218095739",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -254,7 +254,8 @@
             "type": "string",
             "enum": [
               "gemini",
-              "ollama"
+              "ollama",
+              "lmstudio"
             ],
             "default": "gemini",
             "description": "🤖 \n Embedding provider to use"
@@ -276,6 +277,30 @@
             "type": "number",
             "default": 768,
             "description": "📏 \n Embedding dimension size"
+          },
+          "repomix.lmstudio.baseUrl": {
+            "order": 5,
+            "type": "string",
+            "default": "http://localhost:1234/v1",
+            "description": "🌐 \n LM Studio API base URL (e.g., http://localhost:1234/v1)"
+          },
+          "repomix.lmstudio.apiKey": {
+            "order": 6,
+            "type": "string",
+            "default": "",
+            "description": "🔑 \n LM Studio API key (optional, can be left blank)"
+          },
+          "repomix.lmstudio.model": {
+            "order": 7,
+            "type": "string",
+            "default": "",
+            "description": "📦 \n LM Studio embedding model name"
+          },
+          "repomix.lmstudio.dimension": {
+            "order": 8,
+            "type": "number",
+            "default": 768,
+            "description": "📏 \n LM Studio embedding dimension size"
           }
         }
       },

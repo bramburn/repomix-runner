@@ -20,7 +20,7 @@ import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
 import { ApplyTab } from './components/ApplyTab.js';
-import { ChatTab } from './components/ChatTab.js';
+
 import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
 
@@ -211,7 +211,7 @@ export const App = () => {
           <Tab value="bundles">Bundles</Tab>
           {ENABLE_SMART_AGENT_TAB && <Tab value="agent">Smart Agent</Tab>}
           <Tab value="search">Search</Tab>
-          <Tab value="chat">Chat</Tab>
+
           <Tab value="settings">Settings</Tab>
           <Tab value="apply">Apply</Tab>
           <Tab value="debug">Debug</Tab>
@@ -249,7 +249,7 @@ export const App = () => {
           )}
           {ENABLE_SMART_AGENT_TAB && selectedTab === 'agent' && <AgentView />}
           {selectedTab === 'search' && <SearchTab />}
-          {selectedTab === 'chat' && <ChatTab />}
+
           {selectedTab === 'settings' && (
             <SettingsTab
               pineconeIndexes={pineconeIndexes}

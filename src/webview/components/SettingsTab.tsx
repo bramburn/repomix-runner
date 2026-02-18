@@ -141,7 +141,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
 
   // Embedding Provider State
-  const [embeddingProvider, setEmbeddingProvider] = useState<'gemini' | 'ollama'>('gemini');
+  const [embeddingProvider, setEmbeddingProvider] = useState<'gemini' | 'ollama' | 'lmstudio'>('gemini');
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState('nomic-embed-text');
   const [ollamaDimension, setOllamaDimension] = useState(768);
@@ -149,6 +149,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null);
   const [isFetchingOllamaModels, setIsFetchingOllamaModels] = useState(false);
   const [isTestingDimension, setIsTestingDimension] = useState(false);
+  
+  // LM Studio State
+  const [lmstudioBaseUrl, setLmstudioBaseUrl] = useState('http://localhost:1234/v1');
+  const [lmstudioApiKey, setLmstudioApiKey] = useState('');
+  const [lmstudioModel, setLmstudioModel] = useState('');
+  const [lmstudioDimension, setLmstudioDimension] = useState(768);
+  const [lmstudioModels, setLmstudioModels] = useState<Array<{ id: string }>>([]);
+  const [lmstudioModelsError, setLmstudioModelsError] = useState<string | null>(null);
+  const [isFetchingLMStudioModels, setIsFetchingLMStudioModels] = useState(false);
+  const [isTestingLMStudioDimension, setIsTestingLMStudioDimension] = useState(false);
 
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
@@ -325,6 +335,33 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           }
           break;
 
+        case 'lmstudioConfig':
+          setLmstudioBaseUrl(message.baseUrl || 'http://localhost:1234/v1');
+          setLmstudioApiKey(message.apiKey || '');
+          setLmstudioModel(message.model || '');
+          setLmstudioDimension(message.dimension || 768);
+          break;
+
+        case 'lmstudioModelsResult':
+          setLmstudioModels(message.models || []);
+          setLmstudioModelsError(message.error || null);
+          setIsFetchingLMStudioModels(false);
+          break;
+
+        case 'lmstudioDimensionResult':
+          setIsTestingLMStudioDimension(false);
+          if (message.dimension) {
+            setLmstudioDimension(message.dimension);
+          }
+          if (message.error) {
+            vscode.postMessage({
+              command: 'showNotification',
+              type: 'error',
+              message: `Dimension test failed: ${message.error}`,
+            });
+          }
+          break;
+
         case 'compatibilityStatus':
           setCompatibilityStatus({
             compatible: message.compatible,
@@ -381,6 +418,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'getCopyMode' });
     vscode.postMessage({ command: 'getTokenBudget' });
     vscode.postMessage({ command: 'getEmbeddingConfig' });
+    vscode.postMessage({ command: 'getLMStudioConfig' });
     vscode.postMessage({ command: 'checkCompatibility' });
     vscode.postMessage({ command: 'getAnalysisStatus' });
 
@@ -466,7 +504,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   const handleEmbeddingProviderChange = (_e: any, data: any) => {
-    const provider = data.optionValue as 'gemini' | 'ollama';
+    const provider = data.optionValue as 'gemini' | 'ollama' | 'lmstudio';
     setEmbeddingProvider(provider);
   };
 
@@ -489,6 +527,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     });
   };
 
+  const handleFetchLMStudioModels = () => {
+    setIsFetchingLMStudioModels(true);
+    setLmstudioModelsError(null);
+    vscode.postMessage({ command: 'fetchLMStudioModels', baseUrl: lmstudioBaseUrl, apiKey: lmstudioApiKey });
+  };
+
+  const handleLMStudioModelSelect = (_e: any, data: any) => {
+    const modelName = data.optionValue as string;
+    setLmstudioModel(modelName);
+    
+    // Auto-test dimension when model is selected
+    setIsTestingLMStudioDimension(true);
+    vscode.postMessage({ 
+      command: 'testLMStudioDimension', 
+      baseUrl: lmstudioBaseUrl,
+      apiKey: lmstudioApiKey,
+      model: modelName 
+    });
+  };
+
   const handleSaveEmbeddingConfig = () => {
     if (embeddingProvider === 'ollama') {
       if (!ollamaUrl.trim() || !ollamaModel.trim() || ollamaDimension <= 0) {
@@ -501,13 +559,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       }
     }
 
-    vscode.postMessage({
+    if (embeddingProvider === 'lmstudio') {
+      if (!lmstudioBaseUrl.trim() || !lmstudioModel.trim() || lmstudioDimension <= 0) {
+        vscode.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: 'Please fill in all LM Studio configuration fields',
+        });
+        return;
+      }
+    }
+
+    const message: any = {
       command: 'setEmbeddingConfig',
       provider: embeddingProvider,
-      ollamaUrl: ollamaUrl,
-      ollamaModel: ollamaModel,
-      ollamaDimension: ollamaDimension,
-    });
+    };
+
+    if (embeddingProvider === 'ollama') {
+      message.ollamaUrl = ollamaUrl;
+      message.ollamaModel = ollamaModel;
+      message.ollamaDimension = ollamaDimension;
+    } else if (embeddingProvider === 'lmstudio') {
+      message.lmstudioBaseUrl = lmstudioBaseUrl;
+      message.lmstudioApiKey = lmstudioApiKey;
+      message.lmstudioModel = lmstudioModel;
+      message.lmstudioDimension = lmstudioDimension;
+    }
+
+    vscode.postMessage(message);
   };
 
   const handleResetVectorIndex = () => {
@@ -682,6 +761,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             >
               <Option value="gemini">Google Gemini (768d)</Option>
               <Option value="ollama">Ollama (Local)</Option>
+              <Option value="lmstudio">LM Studio (Local)</Option>
             </Dropdown>
             <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
               Choose which embedding model to use for vector search indexing.
@@ -782,6 +862,121 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 appearance="primary"
                 onClick={handleSaveEmbeddingConfig}
                 disabled={!ollamaUrl.trim() || !ollamaModel.trim() || ollamaDimension <= 0}
+              >
+                Save Embedding Configuration
+              </Button>
+            </div>
+          )}
+
+          {/* LM Studio Configuration Accordion */}
+          {embeddingProvider === 'lmstudio' && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '12px',
+              padding: '12px',
+              border: '1px solid var(--vscode-panel-border)',
+              borderRadius: '4px',
+              backgroundColor: 'var(--vscode-editor-background)'
+            }}>
+              <Label weight="semibold" size="small">LM Studio Connection Settings</Label>
+
+              {/* Base URL Input */}
+              <div>
+                <Label size="small">Base URL</Label>
+                <Input
+                  placeholder="http://localhost:1234/v1"
+                  value={lmstudioBaseUrl}
+                  onChange={(_e, data) => setLmstudioBaseUrl(data.value)}
+                  style={{ marginTop: '4px' }}
+                />
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  LM Studio API base URL (usually http://localhost:1234/v1)
+                </Text>
+              </div>
+
+              {/* API Key Input */}
+              <div>
+                <Label size="small">API Key (Optional)</Label>
+                <Input
+                  type="password"
+                  placeholder="Leave blank if not required"
+                  value={lmstudioApiKey}
+                  onChange={(_e, data) => setLmstudioApiKey(data.value)}
+                  style={{ marginTop: '4px' }}
+                />
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  LM Studio API key (optional, leave blank if authentication is disabled)
+                </Text>
+              </div>
+
+              {/* Model Manager */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <Label size="small">Model</Label>
+                  <Button
+                    size="small"
+                    appearance="secondary"
+                    icon={isFetchingLMStudioModels ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
+                    onClick={handleFetchLMStudioModels}
+                    disabled={!lmstudioBaseUrl.trim() || isFetchingLMStudioModels}
+                  >
+                    Fetch Models
+                  </Button>
+                </div>
+                <Dropdown
+                  placeholder="Select a model"
+                  value={lmstudioModel}
+                  onOptionSelect={handleLMStudioModelSelect}
+                  disabled={lmstudioModels.length === 0}
+                >
+                  {lmstudioModels.map((model) => (
+                    <Option key={model.id} value={model.id}>{model.id}</Option>
+                  ))}
+                </Dropdown>
+                {lmstudioModelsError && (
+                  <Text size={100} style={{ color: 'var(--vscode-errorForeground)', marginTop: '4px' }}>
+                    {lmstudioModelsError}
+                  </Text>
+                )}
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  Select an embedding model loaded in LM Studio
+                </Text>
+              </div>
+
+              {/* Dimension Input */}
+              <div>
+                <Label size="small">Embedding Dimension</Label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                  <Input
+                    type="number"
+                    value={lmstudioDimension.toString()}
+                    onChange={(_e, data) => {
+                      const val = parseInt(data.value);
+                      if (!isNaN(val) && val > 0) {
+                        setLmstudioDimension(val);
+                      }
+                    }}
+                    style={{ width: '120px' }}
+                    disabled={isTestingLMStudioDimension}
+                  />
+                  {isTestingLMStudioDimension && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Spinner size="tiny" />
+                      <Text size={100}>Testing...</Text>
+                    </div>
+                  )}
+                </div>
+                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
+                  Auto-detected when you select a model. Common values: 768, 1024, 4096
+                </Text>
+              </div>
+
+              {/* Save Button */}
+              <Button
+                appearance="primary"
+                onClick={handleSaveEmbeddingConfig}
+                disabled={!lmstudioBaseUrl.trim() || !lmstudioModel.trim() || lmstudioDimension <= 0}
               >
                 Save Embedding Configuration
               </Button>

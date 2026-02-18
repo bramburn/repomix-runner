@@ -362,6 +362,29 @@ export class IndexingController extends BaseController {
             provider: 'ollama',
             ollama: { url: ollamaUrl, model: ollamaModel, dimension: ollamaDimension }
           });
+        } else if (provider === 'lmstudio') {
+          const lmstudioBaseUrl = config.get<string>('repomix.lmstudio.baseUrl') || 'http://localhost:1234/v1';
+          const lmstudioApiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
+          const lmstudioModel = config.get<string>('repomix.lmstudio.model') || '';
+          const lmstudioDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
+          
+          if (!lmstudioModel) {
+            this.context.postMessage({
+              command: 'repoSearchError',
+              error: 'LM Studio model is required for search. Please configure it in Settings.'
+            });
+            return;
+          }
+          
+          embeddingService.switchProvider({
+            provider: 'lmstudio',
+            lmstudio: {
+              baseUrl: lmstudioBaseUrl,
+              apiKey: lmstudioApiKey,
+              model: lmstudioModel,
+              dimension: lmstudioDimension
+            }
+          });
         }
       } catch (embeddingError) {
         const errorDetail = embeddingError instanceof Error ? embeddingError.message : String(embeddingError);

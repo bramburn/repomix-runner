@@ -148,6 +148,16 @@ export const mergedConfigSchema = repomixRunnerConfigDefaultSchema.and(
   }).passthrough()
 );
 
+// LM Studio Configuration Schema
+export const lmStudioConfigSchema = z.object({
+  baseUrl: z.string().url().default('http://localhost:1234/v1'),
+  apiKey: z.string().optional().default(''),
+  model: z.string().min(1),
+  dimension: z.number().positive().default(768),
+});
+
+export type LMStudioConfig = z.infer<typeof lmStudioConfigSchema>;
+
 export type RepomixConfigFile = z.infer<typeof repomixConfigBaseSchema>;
 export type RepomixConfigDefault = z.infer<typeof repomixConfigDefaultSchema>;
 export type RepomixRunnerConfigFile = z.infer<typeof repomixRunnerConfigBaseSchema>;
