@@ -1,6 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@fluentui/react-components';
-import paperPlaneIcon from '../../../../paper-plane.svg';
+
+// Paper plane icon (inline SVG for reliable bundling)
+const PaperPlaneIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 512 512"
+    style={{ width: '16px', height: '16px', fill: 'white' }}
+  >
+    <path d="M0 288L512 0 448 480 271.8 404.5 208 512l-48-16V416 384L384 160 133 345 0 288z" />
+  </svg>
+);
 
 export const ChatInput = () => {
   const [inputValue, setInputValue] = useState('');
@@ -75,13 +85,7 @@ export const ChatInput = () => {
         />
         <Button
           appearance="primary"
-          icon={
-            <img
-              src={paperPlaneIcon}
-              alt="Send"
-              style={{ width: '16px', height: '16px', filter: 'invert(1)' }}
-            />
-          }
+          icon={<PaperPlaneIcon />}
           onClick={handleSend}
           disabled={!inputValue.trim()}
           style={{
