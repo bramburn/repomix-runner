@@ -48,16 +48,24 @@ const TEXT_BASENAMES = new Set([
   'podfile.lock',
 
   // Python
-  'pipfile', 'pipfile.lock', 'requirements.txt',
+  'pipfile', 'pipfile.lock', 'requirements.txt', 'pyproject.toml', 'poetry.lock', 'uv.lock',
 
   // Rust
   'cargo.toml', 'cargo.lock',
 
-  // JS
-  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+  // JS/TS/Deno/Bun
+  'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+  'deno.json', 'deno.jsonc', 'deno.lock',
 
   // Java / Android
   'gradle.properties', 'settings.gradle', 'settings.gradle.kts', 'build.gradle', 'build.gradle.kts',
+
+  // C# /.NET
+  'packages.config', 'global.json',
+  'directory.build.props', 'directory.build.targets',
+
+  // App settings (JSON format)
+  'appsettings.json',
 
   // Dotfiles
   '.env', '.env.local', '.env.development', '.env.production', '.env.test',
@@ -83,6 +91,8 @@ const TEXT_EXTENSIONS = new Set([
   '.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.env',
   '.plist', '.xcconfig', '.pbxproj',
   '.sql', '.graphql', '.gql', '.proto',
+  // Project files
+  '.csproj', '.sln',
 
   // Docs / plain text
   '.md', '.mdx', '.txt', '.log',
@@ -469,3 +479,6 @@ export async function embedAndUpsertFile(
     );
   }
 }
+
+// Export for testing
+export { isBinaryFile };

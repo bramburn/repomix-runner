@@ -9,7 +9,15 @@
 - [src/webview/index.tsx](file://src/webview/index.tsx)
 - [scripts/setup-treesitter.mjs](file://scripts/setup-treesitter.mjs)
 - [scripts/build-rust.mjs](file://scripts/build-rust.mjs)
+- [src/test-compression.ts](file://src/test-compression.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated web-tree-sitter dependency from version ^0.25.0 to ^0.26.5 for improved parsing capabilities
+- Added @cspotcode/source-map-support development dependency for enhanced debugging experience
+- Enhanced TypeScript compilation with ts-node integration for testing and development workflows
+- Updated web-tree-sitter WASM parser versions and improved download reliability
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -24,6 +32,8 @@
 
 ## Introduction
 This document explains the TypeScript compilation pipeline in the Repomix Runner Plus build system. It covers esbuild configuration for both the extension (Node.js) and webview (browser) targets, build contexts, environment handling, external dependencies, source maps, and the custom plugin ecosystem. It also documents development versus production differences, watch mode, parallel builds, TypeScript configuration, path aliases, module resolution, and troubleshooting strategies for common issues.
+
+**Updated** Enhanced with improved web-tree-sitter integration (0.26.5), enhanced debugging support via @cspotcode/source-map-support, and streamlined TypeScript compilation workflows.
 
 ## Project Structure
 The build system centers on a single esbuild orchestration script that defines two build contexts:
@@ -98,7 +108,7 @@ WV_CTX --> SHIMS
 
 ### Extension Build Context (Node.js)
 - Entry point: Single-file entry for the extension.
-- Output: CommonJS bundle written to the extension’s main field.
+- Output: CommonJS bundle written to the extension's main field.
 - Platform: Node.js.
 - Minification: Controlled by production flag.
 - Source maps: Generated only in development.
@@ -204,6 +214,8 @@ WV-->>CW : onEnd() copy tree-sitter *.wasm
 - Exclude patterns:
   - Skips node_modules, assets, and dist from TypeScript checks.
 
+**Updated** Enhanced with improved debugging support through @cspotcode/source-map-support integration and streamlined ts-node configuration for testing workflows.
+
 Module resolution:
 - esbuild resolves imports using Node module resolution semantics by default.
 - For the webview, Node builtin aliases are provided to prevent unresolved module errors.
@@ -252,6 +264,8 @@ Parallel execution:
 - Setup script:
   - A dedicated script downloads language-specific WASM parsers into assets and generates a manifest and README for reference.
 
+**Updated** Enhanced web-tree-sitter integration with version 0.26.5 providing improved parsing capabilities across supported programming languages including JavaScript, TypeScript, Python, Rust, C#, and Dart.
+
 **Section sources**
 - [esbuild.js](file://esbuild.js#L44-L57)
 - [esbuild.js](file://esbuild.js#L59-L89)
@@ -279,6 +293,8 @@ The build depends on:
 - Node.js built-ins for the webview, resolved via aliases to shims.
 - WASM assets managed by the WASM copy plugin and prepared by the setup script.
 
+**Updated** Enhanced with @cspotcode/source-map-support for improved debugging experience and upgraded web-tree-sitter to 0.26.5 for better parsing performance.
+
 ```mermaid
 graph TB
 ESB["esbuild.js"] --> EXT["Extension Build"]
@@ -290,6 +306,8 @@ CW --> SQL["sql-wasm.wasm"]
 CW --> TSW["tree-sitter-wasm/*.wasm"]
 TSSET["setup-treesitter.mjs"] --> TSDIR["assets/tree-sitter-wasm/"]
 TSDIR --> CW
+SUB["@cspotcode/source-map-support"] --> DEV["Development Debugging"]
+WTS["web-tree-sitter@0.26.5"] --> PARSERS["Enhanced Parsing"]
 ```
 
 **Diagram sources**
@@ -299,6 +317,7 @@ TSDIR --> CW
 **Section sources**
 - [esbuild.js](file://esbuild.js#L1-L150)
 - [scripts/setup-treesitter.mjs](file://scripts/setup-treesitter.mjs#L1-L278)
+- [package.json](file://package.json#L636-L659)
 
 ## Performance Considerations
 - Parallel builds: Both contexts are created and driven concurrently, reducing total build time.
@@ -307,7 +326,7 @@ TSDIR --> CW
 - Source maps: Disabled in production to avoid shipping mapping overhead.
 - Aliasing: Reduces runtime polyfills and avoids bundling heavy Node builtins.
 
-[No sources needed since this section provides general guidance]
+**Updated** Improved performance through enhanced web-tree-sitter 0.26.5 parsing capabilities and streamlined TypeScript compilation with ts-node integration.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -323,12 +342,17 @@ Common issues and resolutions:
   - Verify NODE_ENV injection and minification flags are set according to the production flag.
 - Watch mode not triggering:
   - Ensure the watch flag is passed to the build script and that both contexts are watching concurrently.
+- **Updated** Enhanced debugging support:
+  - Ensure @cspotcode/source-map-support is properly installed for improved error stack traces.
+  - Verify ts-node integration for testing workflows using `npm run test:compression`.
 
 **Section sources**
 - [esbuild.js](file://esbuild.js#L11-L26)
 - [esbuild.js](file://esbuild.js#L33-L92)
 - [esbuild.js](file://esbuild.js#L138-L143)
 - [scripts/setup-treesitter.mjs](file://scripts/setup-treesitter.mjs#L179-L270)
+- [src/test-compression.ts](file://src/test-compression.ts#L1-L10)
+- [package.json](file://package.json#L636-L659)
 
 ## Conclusion
-The Repomix Runner Plus build system uses a focused esbuild configuration to produce separate bundles for the extension and webview. It leverages a plugin system for improved diagnostics and runtime asset management, supports both development and production modes, and uses watch mode for efficient iteration. Proper handling of external dependencies and Node builtin aliases ensures robust operation across environments.
+The Repomix Runner Plus build system uses a focused esbuild configuration to produce separate bundles for the extension and webview. It leverages a plugin system for improved diagnostics and runtime asset management, supports both development and production modes, and uses watch mode for efficient iteration. Proper handling of external dependencies and Node builtin aliases ensures robust operation across environments. **Updated** Enhanced with improved web-tree-sitter 0.26.5 integration, @cspotcode/source-map-support for debugging, and streamlined TypeScript compilation workflows for better developer experience.

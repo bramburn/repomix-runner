@@ -8,6 +8,7 @@
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts)
 - [types.ts (embeddings)](file://src/core/indexing/embeddings/types.ts)
 - [types.ts (vector db)](file://src/core/indexing/vectorDb/types.ts)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts)
@@ -15,7 +16,18 @@
 - [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts)
 - [outputPathResolver.test.ts](file://src/test/core/files/outputPathResolver.test.ts)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added LM Studio embedding provider configuration schema documentation
+- Updated embedding provider types to include LM Studio alongside Gemini and Ollama
+- Documented LM Studio configuration properties: base URL, API key, model selection, and dimension settings
+- Added LM Studio-specific configuration validation and defaults
+- Updated configuration precedence to include LM Studio settings
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,6 +44,8 @@
 ## Introduction
 This document describes the configuration schema system in Repomix Runner Plus. It explains how configuration is defined, validated, loaded, and merged from multiple sources, including VS Code settings, repomix.config.json, and runtime overrides. It also documents the configuration types for embedding providers, vector database adapters, clipboard modes, and indexing parameters, along with precedence rules, validation feedback, and troubleshooting guidance.
 
+**Updated** Added comprehensive documentation for LM Studio embedding provider configuration, including schema definitions, validation rules, and integration with the broader configuration system.
+
 ## Project Structure
 The configuration system spans three primary areas:
 - Schema definitions that declare allowed keys, types, defaults, and validation rules
@@ -41,7 +55,7 @@ The configuration system spans three primary areas:
 ```mermaid
 graph TB
 subgraph "Configuration Schema"
-A["configSchema.ts<br/>Defines Zod schemas and defaults"]
+A["configSchema.ts<br/>Defines Zod schemas and defaults<br/>Includes LM Studio schema"]
 end
 subgraph "Configuration Loader"
 B["configLoader.ts<br/>Reads VS Code settings<br/>Parses repomix.config.json<br/>Merges configs with precedence"]
@@ -55,13 +69,14 @@ end
 subgraph "Embedding Providers"
 E["GeminiProvider.ts"]
 F["OllamaProvider.ts"]
-G["types.ts (embeddings)"]
+G["LMStudioProvider.ts"]
+H["types.ts (embeddings)"]
 end
 subgraph "Vector DB Adapters"
-H["types.ts (vector db)"]
-I["pineconeAdapter.ts"]
-J["qdrantAdapter.ts"]
-K["factory.ts"]
+I["types.ts (vector db)"]
+J["pineconeAdapter.ts"]
+K["qdrantAdapter.ts"]
+L["factory.ts"]
 end
 A --> B
 B --> C
@@ -73,15 +88,17 @@ A --> H
 A --> I
 A --> J
 A --> K
+A --> L
 ```
 
 **Diagram sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L1-L215)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L1-L36)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L1-L78)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L1-L46)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L90)
 - [types.ts (embeddings)](file://src/core/indexing/embeddings/types.ts#L1-L6)
 - [types.ts (vector db)](file://src/core/indexing/vectorDb/types.ts#L1-L44)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts)
@@ -89,7 +106,7 @@ A --> K
 - [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
 
 **Section sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L1-L215)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L1-L36)
@@ -105,8 +122,10 @@ Key responsibilities:
 - Merge and normalize configuration with explicit precedence
 - Translate configuration to CLI flags for external tooling
 
+**Updated** Enhanced with LM Studio embedding provider configuration schema and validation rules.
+
 **Section sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L1-L215)
 
@@ -136,7 +155,7 @@ CF->>CF : cliFlagsBuilder(config)
 
 **Diagram sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L99-L229)
-- [configSchema.ts](file://src/config/configSchema.ts#L103-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L103-L175)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L43-L215)
 
 ## Detailed Component Analysis
@@ -148,20 +167,23 @@ The schema system defines:
 - Default configuration schema with sensible defaults
 - Runner-specific schema for VS Code extension settings
 - Merged configuration schema that adds runtime metadata
+- **New** LM Studio configuration schema for local embedding provider
 
 Highlights:
 - Output style enum restricts style to predefined values
 - Passthrough allows future-proofing of configuration sections
 - Defaults are applied via default() on fields and a default object for sections
 - Runner schema extends the base schema to include VS Code-specific keys
+- **New** LM Studio schema includes base URL validation, optional API key, model selection, and dimension settings
 
 Practical implications:
 - Adding new keys to repomix.config.json is supported via passthrough
 - Defaults ensure predictable behavior when keys are omitted
 - Runner schema isolates VS Code-specific settings while inheriting base configuration
+- **New** LM Studio configuration provides comprehensive validation for local AI model deployment
 
 **Section sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 
 ### Configuration Loading and Validation
 The loader performs:
@@ -195,13 +217,43 @@ Embedding providers expose a common interface and require configuration:
 - IEmbeddingProvider defines embedText, embedTexts, and getDimensions
 - GeminiProvider requires an API key and uses a fixed embedding dimension
 - OllamaProvider requires URL, model, and dimension
+- **New** LMStudioProvider requires base URL, optional API key, model, and dimension
 
 These types inform how embedding-related configuration is structured and validated within the broader schema system.
+
+**Updated** Enhanced with LM Studio provider configuration including comprehensive validation rules.
 
 **Section sources**
 - [types.ts (embeddings)](file://src/core/indexing/embeddings/types.ts#L1-L6)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L1-L78)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L1-L46)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L90)
+
+### LM Studio Configuration Schema
+**New Section** The LM Studio configuration schema provides comprehensive validation for local AI model deployment:
+
+- **baseUrl**: String URL with automatic validation, defaults to 'http://localhost:1234/v1'
+- **apiKey**: Optional string with empty string default, supports bearer token authentication
+- **model**: Required string with minimum length validation, specifies the embedding model name
+- **dimension**: Positive number with default 768, validates embedding vector dimensions
+
+Validation rules:
+- Base URL must be a valid URL format
+- Model field requires non-empty string
+- Dimension must be positive number
+- API key is optional but validated when provided
+
+Integration points:
+- Webview settings interface with real-time validation
+- VS Code workspace configuration storage
+- Embedding service provider switching
+- Model fetching and dimension testing capabilities
+
+**Section sources**
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L90)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L870-L984)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L746-L751)
 
 ### Vector Database Adapter Types
 Vector database adapters define a common interface for upsert/query/delete operations:
@@ -268,7 +320,7 @@ BuildFlags --> End(["Ready"])
 
 **Diagram sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L99-L229)
-- [configSchema.ts](file://src/config/configSchema.ts#L103-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L103-L175)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L43-L215)
 
 ## Detailed Component Analysis
@@ -307,14 +359,21 @@ class MergedConfigSchema {
 +configFilePath : string
 +remote : object
 }
+class LMStudioConfigSchema {
++baseUrl : string
++apiKey : string
++model : string
++dimension : number
+}
 RepomixConfigDefaultSchema --> RepomixConfigBaseSchema : "extends"
 RepomixRunnerConfigDefaultSchema --> RepomixRunnerConfigBaseSchema : "extends"
 RepomixRunnerConfigBaseSchema --> RepomixConfigBaseSchema : "and"
 MergedConfigSchema --> RepomixRunnerConfigDefaultSchema : "validates"
+LMStudioConfigSchema --> RepomixConfigBaseSchema : "extends"
 ```
 
 **Diagram sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L3-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L3-L175)
 
 ### Configuration Resolution Flow
 ```mermaid
@@ -359,10 +418,25 @@ H --> I
 **Section sources**
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L151-L214)
 
+### Example: LM Studio Configuration Validation
+**New Example** LM Studio configuration validation demonstrates comprehensive schema enforcement:
+
+- Base URL validation ensures proper URL format with automatic default
+- API key validation supports optional bearer token authentication
+- Model selection requires non-empty string with minimum length validation
+- Dimension validation enforces positive numeric values with sensible defaults
+
+The validation system provides immediate feedback for configuration errors and ensures compatibility with the LM Studio embedding provider.
+
+**Section sources**
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L23-L30)
+
 ## Dependency Analysis
 - configLoader.ts depends on configSchema.ts for schema definitions and default values
 - cliFlagsBuilder.ts depends on MergedConfig type from configSchema.ts
 - Embedding providers depend on types.ts (embeddings) and are influenced by configuration schemas
+- **New** LM Studio provider integrates with the unified embedding service architecture
 - Vector DB adapters depend on types.ts (vector db) and are influenced by configuration schemas
 
 ```mermaid
@@ -371,19 +445,26 @@ SC["configSchema.ts"] --> CL["configLoader.ts"]
 SC --> CB["cliFlagsBuilder.ts"]
 SC --> EP["GeminiProvider.ts"]
 SC --> OP["OllamaProvider.ts"]
+SC --> LSP["LMStudioProvider.ts"]
+SC --> ES["embeddingService.ts"]
 SC --> ET["types.ts (embeddings)"]
 SC --> VT["types.ts (vector db)"]
 SC --> PF["factory.ts"]
 SC --> PA["pineconeAdapter.ts"]
 SC --> QA["qdrantAdapter.ts"]
+ES --> LSP
+ES --> EP
+ES --> OP
 ```
 
 **Diagram sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L1-L215)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L1-L78)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L1-L46)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L90)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L84)
 - [types.ts (embeddings)](file://src/core/indexing/embeddings/types.ts#L1-L6)
 - [types.ts (vector db)](file://src/core/indexing/vectorDb/types.ts#L1-L44)
 - [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
@@ -391,7 +472,7 @@ SC --> QA["qdrantAdapter.ts"]
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts)
 
 **Section sources**
-- [configSchema.ts](file://src/config/configSchema.ts#L1-L165)
+- [configSchema.ts](file://src/config/configSchema.ts#L1-L175)
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L1-L215)
 
@@ -400,6 +481,7 @@ SC --> QA["qdrantAdapter.ts"]
 - Merging prioritizes later sources; avoid excessive overrides to reduce merge overhead
 - CLI flag building is O(N) over configuration keys; minimize unnecessary nested sections
 - Embedding provider calls are external API-bound; cache results where appropriate and batch requests
+- **New** LM Studio provider performance considerations include local model inference latency and memory usage
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -427,15 +509,27 @@ Common issues and resolutions:
   - Symptom: Need to migrate from old .repomix/config path
   - Action: Use goToConfigFile to select and confirm migration
   - Reference: [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L1-L36)
+- **New** LM Studio connection failures
+  - Symptom: API request failures or invalid response format
+  - Action: Verify base URL accessibility, model availability, and dimension compatibility
+  - Reference: [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L41-L45)
+- **New** LM Studio configuration validation errors
+  - Symptom: Schema validation failures for base URL, model, or dimension
+  - Action: Check URL format, model name spelling, and dimension value positivity
+  - Reference: [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
 
 **Section sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L111-L129)
 - [configLoader.ts](file://src/config/configLoader.ts#L132-L138)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L151-L214)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L1-L36)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L41-L45)
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
 
 ## Conclusion
 The configuration schema system in Repomix Runner Plus provides a robust, extensible, and strongly validated foundation for managing configuration across multiple sources. With clear precedence rules, comprehensive defaults, and explicit validation, it ensures predictable behavior while enabling flexible customization. The integration with VS Code settings and CLI mapping further enhances usability and interoperability.
+
+**Updated** The addition of LM Studio embedding provider configuration significantly expands the system's flexibility for local AI model deployment, providing comprehensive validation, real-time feedback, and seamless integration with the existing configuration architecture.
 
 ## Appendices
 
@@ -454,9 +548,14 @@ Resolution specifics:
 - tokenCount.encoding: last source wins
 - version: override if present
 - configFilePath: provided or from runner configPath
+- **New** lmstudio.baseUrl: validated URL with automatic default
+- **New** lmstudio.apiKey: optional bearer token authentication
+- **New** lmstudio.model: required model name validation
+- **New** lmstudio.dimension: positive numeric dimension validation
 
 **Section sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L132-L229)
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
 
 ### Practical Examples and References
 - Example: Output path resolution with directory target
@@ -467,3 +566,9 @@ Resolution specifics:
   - Reference: [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L151-L214)
 - Example: Legacy config file selection
   - Reference: [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L1-L36)
+- **New** Example: LM Studio configuration validation
+  - Reference: [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- **New** Example: LM Studio embedding provider integration
+  - Reference: [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L65-L69)
+- **New** Example: LM Studio webview configuration interface
+  - Reference: [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L870-L984)

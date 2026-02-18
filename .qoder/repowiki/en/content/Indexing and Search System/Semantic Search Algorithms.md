@@ -19,12 +19,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced detailed logging throughout the search workflow with comprehensive console logging
-- Implemented comprehensive error handling with user-friendly error messages for rate limiting, network connectivity, authentication, and vector database problems
-- Added improved user feedback mechanisms through structured error reporting and progress tracking
-- Integrated robust retry service with exponential backoff for transient failures
-- Enhanced embedding service with priority queuing and detailed error categorization
-- Improved vector database adapters with comprehensive error handling and metadata validation
+- Enhanced search graph nodes with integrated multi-query RAG expansion
+- Implemented dynamic confidence thresholding with adaptive range slider
+- Added file-level grouping capability with configurable group sizes
+- Improved vector database adapters with native grouping support
+- Enhanced LLM-based reranking with confidence threshold filtering
+- Updated UI with intelligent threshold adjustment and reset controls
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,62 +32,64 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Enhanced Error Handling and Logging](#enhanced-error-handling-and-logging)
-7. [User Feedback and Experience](#user-feedback-and-experience)
-8. [Dependency Analysis](#dependency-analysis)
-9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
-12. [Appendices](#appendices)
+6. [Enhanced Search Capabilities](#enhanced-search-capabilities)
+7. [Dynamic Confidence Thresholding](#dynamic-confidence-thresholding)
+8. [File-Level Grouping Implementation](#file-level-grouping-implementation)
+9. [Multi-Query RAG Integration](#multi-query-rag-integration)
+10. [Enhanced Error Handling and Logging](#enhanced-error-handling-and-logging)
+11. [User Feedback and Experience](#user-feedback-and-experience)
+12. [Performance Considerations](#performance-considerations)
+13. [Troubleshooting Guide](#troubleshooting-guide)
+14. [Conclusion](#conclusion)
+15. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Semantic Search Algorithms subsystem responsible for retrieving and ranking relevant repository artifacts using vector search and LLM-based reranking. The system has been significantly enhanced with detailed logging, comprehensive error handling, and improved user feedback mechanisms for rate limiting, network connectivity, authentication, and vector database problems.
+This document describes the Semantic Search Algorithms subsystem responsible for retrieving and ranking relevant repository artifacts using vector search and LLM-based reranking. The system has been significantly enhanced with dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with query expansion capabilities.
 
 Key enhancements include:
-- Comprehensive console logging at every stage of the search workflow
-- Structured error categorization with user-friendly messages for different failure types
-- Priority queuing for embedding operations to handle rate limiting gracefully
-- Robust retry mechanisms with exponential backoff for transient failures
-- Enhanced vector database adapters with detailed error reporting
-- Improved user feedback through structured error messages and progress tracking
+- **Dynamic Confidence Thresholding**: Intelligent threshold adjustment with adaptive range slider and reset functionality
+- **File-Level Grouping**: Configurable grouping by file path with optimized chunk selection
+- **Multi-Query RAG Integration**: Advanced query expansion with semantic variant generation
+- **Enhanced Vector Database Support**: Native grouping capabilities in Pinecone and Qdrant adapters
+- **Improved LLM Reranking**: Confidence-based filtering with threshold tuning
+- **Advanced UI Controls**: Interactive threshold adjustment with real-time feedback
 
 ## Project Structure
-The semantic search subsystem spans three primary areas:
-- Search graph orchestration and state: LangGraph-based workflow with typed state and comprehensive logging
-- Retrieval and reranking: Vector DB adapters, embedding service with priority queuing, query expansion, and LLM reranking
-- Web UI and controller: User-driven search, filters, result presentation, and enhanced error feedback
+The semantic search subsystem spans four primary areas:
+- **Enhanced Search Graph**: LangGraph-based workflow with integrated query expansion and grouping
+- **Multi-Query RAG Pipeline**: Query expansion with semantic variant generation and parallel processing
+- **Vector Database Layer**: Enhanced adapters with native grouping and confidence filtering
+- **Intelligent UI Controls**: Dynamic threshold adjustment with adaptive range optimization
 
 ```mermaid
 graph TB
-subgraph "Search Graph"
+subgraph "Enhanced Search Graph"
 SG["graph.ts<br/>createSearchGraph() with detailed logging"]
-ST["state.ts<br/>SearchGraphState with observability"]
-ND["nodes.ts<br/>validateInputs → expandQuery → vectorSearch → dedupe → rerank → finalize<br/>with enhanced error handling"]
+ST["state.ts<br/>SearchGraphState with observability<br/>+ enableGrouping flag"]
+ND["nodes.ts<br/>validateInputs → vectorSearch<br/>→ dedupe → rerank → finalize<br/>with query expansion and grouping"]
 end
-subgraph "Retrieval Layer"
-ES["embeddingService.ts<br/>EmbeddingService with priority queuing"]
+subgraph "Multi-Query RAG Pipeline"
+QE["queryExpansion.ts<br/>getAllQueriesToSearch()<br/>+ semantic variant generation"]
+LR["llmReranking.ts<br/>rerankResultsWithLLM()<br/>+ confidence threshold filtering"]
+end
+subgraph "Enhanced Vector DB Layer"
 VF["factory.ts<br/>getVectorDbAdapterForRepo()"]
-PC["pineconeAdapter.ts<br/>with comprehensive error handling"]
-QD["qdrantAdapter.ts<br/>with detailed error reporting"]
+PC["pineconeAdapter.ts<br/>+ client-side grouping<br/>+ native grouping support"]
+QD["qdrantAdapter.ts<br/>+ native grouping<br/>+ adaptive group sizes"]
 end
-subgraph "Ranking & Expansion"
-QE["queryExpansion.ts<br/>expandQuery() with structured error handling"]
-LR["llmReranking.ts<br/>rerankResultsWithLLM() with fallback"]
-end
-subgraph "UI & Controller"
-IC["IndexingController.ts<br/>with enhanced error feedback"]
-STab["SearchTab.tsx<br/>filters, thresholds, messaging with progress tracking"]
+subgraph "Intelligent UI Controls"
+IC["IndexingController.ts<br/>+ dynamic threshold handling"]
+STab["SearchTab.tsx<br/>+ adaptive slider<br/>+ reset range button"]
 LG["logger.ts<br/>structured logging utility"]
-RS["retryService.ts<br/>exponential backoff with context logging"]
+RS["retryService.ts<br/>exponential backoff"]
 end
 SG --> ST
 SG --> ND
-ND --> ES
+ND --> QE
+ND --> LR
 ND --> VF
 VF --> PC
 VF --> QD
-ND --> QE
-ND --> LR
 IC --> SG
 IC --> LG
 IC --> RS
@@ -95,50 +97,42 @@ STab --> IC
 ```
 
 **Diagram sources**
-- [graph.ts](file://src/search/graph.ts#L5-L27)
+- [graph.ts](file://src/search/graph.ts#L5-L25)
 - [state.ts](file://src/search/state.ts#L7-L56)
-- [nodes.ts](file://src/search/nodes.ts#L12-L187)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L68)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L61)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L200)
-- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L143)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L52-L157)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L619-L636)
-- [logger.ts](file://src/shared/logger.ts#L7-L132)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L58-L64)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L144)
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L17-L75)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L86-L176)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L127-L129)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 
 **Section sources**
-- [graph.ts](file://src/search/graph.ts#L1-L55)
-- [state.ts](file://src/search/state.ts#L1-L59)
-- [nodes.ts](file://src/search/nodes.ts#L1-L370)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L52-L157)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L619-L636)
+- [graph.ts](file://src/search/graph.ts#L1-L53)
+- [state.ts](file://src/search/state.ts#L1-L57)
+- [nodes.ts](file://src/search/nodes.ts#L1-L381)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L125-L190)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 
 ## Core Components
-- **SearchGraphState**: Typed shared state across nodes with comprehensive observability including inputs, derived fields, timing, logs, errors, and token counters.
-- **Enhanced Nodes**: Five-stage pipeline with detailed logging and comprehensive error handling for validation, query expansion, vector search, deduplication, LLM reranking, and finalization.
-- **Priority Embedding Service**: Embedding service with queue management, priority queuing for user-facing operations, and detailed error categorization.
-- **Structured Error Handling**: Comprehensive error classification for rate limiting, network connectivity, authentication, and vector database problems with user-friendly messages.
-- **Retry Service**: Exponential backoff retry mechanism with context-aware logging for transient failures.
-- **Enhanced Vector DB Adapters**: Pinecone and Qdrant adapters with detailed error reporting, metadata validation, and comprehensive failure handling.
-- **Logger Utility**: Structured logging with emoji indicators, console and output channel support, and verbose mode for debugging.
-- **Controller and UI**: Enhanced orchestration with detailed error feedback, progress tracking, and comprehensive user notifications.
+- **Enhanced SearchGraphState**: Typed shared state with new `enableGrouping` flag for file-level grouping control
+- **Integrated Query Expansion**: Multi-query RAG pipeline embedded directly in vectorSearchNode with semantic variant generation
+- **Dynamic Confidence Thresholding**: Adaptive threshold control with intelligent range adjustment and reset functionality
+- **File-Level Grouping**: Configurable grouping by file path with optimized chunk selection per file
+- **Enhanced Vector Database Adapters**: Native grouping support in Pinecone and Qdrant with client-side fallback
+- **Advanced LLM Reranking**: Confidence-based filtering with threshold tuning and combined scoring
+- **Intelligent UI Controls**: Interactive threshold adjustment with real-time feedback and adaptive range optimization
 
 **Section sources**
-- [state.ts](file://src/search/state.ts#L7-L56)
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L28-L167)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L22-L58)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L248)
-- [logger.ts](file://src/shared/logger.ts#L7-L132)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L52-L157)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L438-L460)
+- [state.ts](file://src/search/state.ts#L16-L16)
+- [nodes.ts](file://src/search/nodes.ts#L80-L92)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
 
 ## Architecture Overview
-The semantic search workflow is a LangGraph StateGraph with five nodes, each enhanced with comprehensive logging and error handling. The system now provides detailed observability and user feedback throughout the entire search process.
+The enhanced semantic search workflow maintains the LangGraph StateGraph structure while integrating advanced capabilities. The system now provides dynamic confidence thresholding, file-level grouping, and multi-query RAG expansion with comprehensive observability and user feedback.
 
 ```mermaid
 sequenceDiagram
@@ -146,178 +140,223 @@ participant UI as "SearchTab.tsx"
 participant Ctrl as "IndexingController.ts"
 participant Graph as "graph.ts"
 participant Nodes as "nodes.ts"
+participant QE as "queryExpansion.ts"
 participant Emb as "embeddingService.ts"
-participant VDBF as "factory.ts"
 participant VDB as "Pinecone/Qdrant Adapter"
 participant LLM as "llmReranking.ts"
-participant Logger as "logger.ts"
-UI->>Ctrl : "searchRepo(query, topK, useSmartFilter, confidenceThreshold)"
+UI->>Ctrl : "searchRepo(query, topK, useSmartFilter, confidenceThreshold, enableGrouping)"
 Ctrl->>Graph : "runSearchGraph(initialState, adapter, context)"
 Graph->>Nodes : "validateInputs()"
-Note over Nodes : Detailed logging : [SEARCH_GRAPH] validateInputsNode START/END
 alt errors present
-Nodes-->>Graph : "errors populated with user-friendly messages"
+Nodes-->>Graph : "errors populated"
 Graph-->>Ctrl : "finalState.errors"
-Ctrl-->>UI : "repoSearchError with structured error"
+Ctrl-->>UI : "repoSearchError"
 else valid
-Graph->>Nodes : "expandQuery()"
-Note over Nodes : Detailed logging : [SEARCH_GRAPH] expandQueryNode START/END
-Nodes->>Emb : "embedText(variants) with priority queuing"
-Emb->>Emb : "enqueue with priority handling"
-Emb-->>Nodes : "vectors with detailed queue stats"
-Nodes->>VDBF : "getVectorDbAdapterForRepo()"
-VDBF-->>Nodes : "adapter with error categorization"
-Nodes->>VDB : "queryVectors(vector, topK) with comprehensive error handling"
-VDB-->>Nodes : "matches with detailed error reporting"
+Graph->>Nodes : "vectorSearch()"
+Note over Nodes : Multi-query expansion + embedding
+Nodes->>QE : "getAllQueriesToSearch(userQuery, apiKey)"
+QE-->>Nodes : "expandedQueries array"
+Nodes->>Emb : "embedText(variants) in parallel"
+Emb-->>Nodes : "vectors array"
+Nodes->>VDB : "queryVectors(vector, topK, scoreThreshold, groupBy, groupSize)"
+VDB-->>Nodes : "matches or groupedMatches"
 Graph->>Nodes : "dedupe()"
 Graph->>Nodes : "rerank()"
-Nodes->>LLM : "rerankResultsWithLLM(userQuery, hits, api, repoRoot)"
-LLM-->>Nodes : "rerankedHits with fallback on error"
+Nodes->>LLM : "rerankResultsWithLLM(userQuery, hits, apiKey, repoRoot, config)"
+LLM-->>Nodes : "rerankedHits with confidence filtering"
 Graph->>Nodes : "finalize()"
 Nodes-->>Graph : "finalHits"
 Graph-->>Ctrl : "finalState.finalHits"
-Ctrl-->>UI : "repoSearchResults with progress tracking"
+Ctrl-->>UI : "repoSearchResults"
 end
 ```
 
 **Diagram sources**
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L52-L157)
-- [graph.ts](file://src/search/graph.ts#L32-L54)
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
+- [graph.ts](file://src/search/graph.ts#L30-L52)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L58-L64)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L89-L142)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L61)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L17-L33)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L85-L119)
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L143)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L619-L636)
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L25-L75)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L86-L176)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L144)
 
 ## Detailed Component Analysis
 
-### Enhanced Search Graph and State Management
-The search graph now includes comprehensive logging at every stage and enhanced error handling with user-friendly messages. The state management captures detailed observability including timing metrics, comprehensive logs, structured errors, and token usage tracking.
+### Enhanced Search Graph with Integrated Query Expansion
+The search graph now includes comprehensive logging and enhanced error handling with integrated multi-query RAG expansion. The vectorSearchNode has been redesigned to handle query expansion internally, eliminating the separate expandQueryNode.
 
 ```mermaid
 flowchart TD
 Start(["Start"]) --> Validate["validateInputsNode<br/>with detailed logging"]
 Validate --> HasErrors{"errors.length > 0?"}
-HasErrors --> |Yes| End(["End with user-friendly error"])
-HasErrors --> |No| Expand["expandQueryNode<br/>with detailed logging"]
-Expand --> Vector["vectorSearchNode<br/>with comprehensive error handling"]
-Vector --> VectorHasErrors{"errors.length > 0?"}
-VectorHasErrors --> |Yes| End
-VectorHasErrors --> |No| Dedupe["dedupeNode<br/>with detailed logging"]
-Dedupe --> Rerank["rerankNode<br/>with detailed logging"]
-Rerank --> Finalize["finalizeNode<br/>with detailed logging"]
+HasErrors --> |Yes| End(["End with error"])
+HasErrors --> |No| Vector["vectorSearchNode<br/>+ integrated query expansion"]
+Vector --> Expand["Generate expanded queries<br/>getAllQueriesToSearch()"]
+Expand --> Embed["Parallel embedding<br/>Promise.all()"]
+Embed --> QueryDB["Query Vector DB<br/>with grouping support"]
+QueryDB --> Dedupe["dedupeNode<br/>with grouping awareness"]
+Dedupe --> Rerank["rerankNode<br/>with confidence filtering"]
+Rerank --> Finalize["finalizeNode<br/>with .gitignore filtering"]
 Finalize --> End
 ```
 
 **Diagram sources**
 - [graph.ts](file://src/search/graph.ts#L14-L24)
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
 - [state.ts](file://src/search/state.ts#L7-L56)
 
 **Section sources**
-- [state.ts](file://src/search/state.ts#L7-L56)
-- [graph.ts](file://src/search/graph.ts#L1-L55)
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
+- [state.ts](file://src/search/state.ts#L16-L16)
+- [graph.ts](file://src/search/graph.ts#L1-L53)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
 
-### Priority Embedding Service with Enhanced Error Handling
-The embedding service now includes priority queuing for user-facing operations, detailed queue statistics, and comprehensive error categorization. This ensures that search operations receive priority treatment during rate limiting scenarios.
+### Multi-Query RAG Integration with Semantic Variant Generation
+The system now implements advanced multi-query RAG expansion with semantic variant generation. The `getAllQueriesToSearch` function generates 3-5 semantic variants of the original query using Gemini AI, creating a comprehensive search strategy.
 
 ```mermaid
 flowchart TD
-A["embedText(priority=true)"] --> B["enqueue with priority handling"]
-B --> C{"activeRequests < maxConcurrent?"}
-C --> |Yes| D["processQueue()"]
-D --> E["provider.embedText()"]
-E --> F["return result"]
-C --> |No| G["wait in queue"]
-G --> D
-H["Error handling"] --> I["Categorize error:<br/>- Rate limit<br/>- Network<br/>- Auth<br/>- Provider init"]
-I --> J["Return user-friendly error message"]
+A["Original Query"] --> B["expandQuery()<br/>Gemini AI variant generation"]
+B --> C["Semantic Variants"]
+C --> D["getAllQueriesToSearch()<br/>combines original + variants"]
+D --> E["Expanded Queries Array"]
+E --> F["Parallel Embedding<br/>Promise.all()"]
+F --> G["Multi-Query Vector Search"]
 ```
 
 **Diagram sources**
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L89-L142)
-
-**Section sources**
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L28-L167)
-
-### Enhanced Vector Database Adapters with Comprehensive Error Reporting
-Both Pinecone and Qdrant adapters now include comprehensive error handling with detailed logging, metadata validation, and structured error messages for different failure scenarios.
-
-**Section sources**
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L248)
-
-### LLM-Based Reranking with Fallback Mechanisms
-The LLM reranking mechanism includes comprehensive error handling with fallback to original scores when LLM operations fail, ensuring search reliability even when AI services encounter issues.
-
-**Section sources**
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L143)
-
-### Query Expansion with Structured Error Handling
-Query expansion now includes structured error handling with fallback to original query when expansion fails, ensuring search functionality remains available even when AI services encounter issues.
+- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
 
 **Section sources**
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
+- [nodes.ts](file://src/search/nodes.ts#L80-L92)
 
-### Enhanced Search State Management and User Interaction Tracking
-The search state now captures comprehensive observability including detailed timing metrics, structured logs, categorized errors, and token usage tracking. The UI provides enhanced user feedback through progress tracking and detailed error messages.
+### Enhanced Vector Database Adapters with Native Grouping
+Both Pinecone and Qdrant adapters now support native grouping capabilities. Pinecone provides client-side grouping as a fallback, while Qdrant offers native searchPointGroups functionality.
+
+**Section sources**
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
+
+### Advanced LLM-Based Reranking with Confidence Filtering
+The LLM reranking mechanism now includes confidence threshold filtering, ensuring only highly relevant results are retained. The system combines vector scores with LLM confidence scores for optimal ranking.
+
+**Section sources**
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
+
+## Enhanced Search Capabilities
+
+### Dynamic Confidence Thresholding System
+The system now features intelligent confidence thresholding with adaptive range adjustment. Users can fine-tune the threshold from 0.0 to 1.0 with 0.01 granularity, and the system automatically adjusts the visible range based on the current threshold value.
 
 ```mermaid
 flowchart TD
-U["User sets query, topK, smartFilter, threshold"] --> S["SearchGraphState<br/>with detailed observability"]
-S --> E["expandedQueries<br/>with logging"]
-S --> V["vectorHits<br/>with detailed error tracking"]
-S --> D["dedupedHits<br/>with timing metrics"]
-S --> R["rerankedHits<br/>with fallback handling"]
-S --> F["finalHits<br/>with .gitignore filtering"]
-F --> G["UI filters (file types)<br/>with progress tracking"]
-G --> H["Rendered results<br/>with error feedback"]
+A["User Adjusts Threshold"] --> B["calculateDynamicRange()"]
+B --> C{"Significant Change?"}
+C --> |Yes| D["Recalculate Min/Max Range"]
+C --> |No| E["Maintain Current Range"]
+D --> F["Update Slider Min/Max"]
+E --> F
+F --> G["Apply New Threshold"]
+G --> H["Filter Results by Confidence"]
 ```
 
 **Diagram sources**
-- [state.ts](file://src/search/state.ts#L17-L56)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L438-L460)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 
 **Section sources**
-- [state.ts](file://src/search/state.ts#L7-L56)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L438-L460)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L538-L540)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
+- [nodes.ts](file://src/search/nodes.ts#L178-L182)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L119-L119)
+
+### File-Level Grouping Implementation
+The system now supports configurable file-level grouping to eliminate duplicate files from results. When enabled, the vector database queries return only the best chunk per file, reducing redundancy while maintaining comprehensive coverage.
+
+**Section sources**
+- [nodes.ts](file://src/search/nodes.ts#L179-L181)
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
+
+## Dynamic Confidence Thresholding
+
+### Adaptive Range Slider Implementation
+The UI features an adaptive confidence threshold slider that dynamically adjusts its range based on user interaction. The system calculates appropriate minimum and maximum values around the current threshold position.
+
+### Intelligent Threshold Adjustment
+When users move the threshold slider significantly, the system recalculates the visible range to provide better granularity around the current setting. A reset button allows users to restore the default 0.0-1.0 range.
+
+### Threshold Application in Search Pipeline
+The confidence threshold is applied at multiple stages:
+- Vector database queries filter results below the threshold
+- LLM reranking removes results below the confidence threshold
+- Final result filtering ensures only high-confidence matches remain
+
+**Section sources**
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
+- [nodes.ts](file://src/search/nodes.ts#L178-L182)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L119-L119)
+
+## File-Level Grouping Implementation
+
+### Grouping Configuration
+The system supports configurable file-level grouping through the `enableGrouping` flag in SearchGraphState. When enabled, vector database queries return only the highest scoring chunk per file.
+
+### Vector Database Grouping Support
+Both Pinecone and Qdrant adapters implement grouping differently:
+- **Pinecone**: Client-side grouping since native grouping is not supported
+- **Qdrant**: Native grouping using searchPointGroups with configurable group sizes
+
+### Deduplication Logic Enhancement
+The dedupeNode has been enhanced to work effectively with grouping. When grouping is enabled, the system assumes unique files and uses deduplication primarily as a safety net for edge cases.
+
+**Section sources**
+- [state.ts](file://src/search/state.ts#L16-L16)
+- [nodes.ts](file://src/search/nodes.ts#L179-L181)
+- [nodes.ts](file://src/search/nodes.ts#L274-L294)
+- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
+- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
+
+## Multi-Query RAG Integration
+
+### Semantic Variant Generation
+The system generates 3-5 semantic variants of the original query using Gemini AI, creating a comprehensive search strategy that captures different aspects of the user's intent.
+
+### Parallel Processing Architecture
+Query expansion and embedding now use parallel processing:
+- All query variants are embedded simultaneously using Promise.all()
+- Vector database queries are executed in parallel for each variant
+- Results are merged and deduplicated at the end
+
+### Query Expansion Flow
+The multi-query approach follows this sequence:
+1. Generate semantic variants using Gemini AI
+2. Combine original query with all variants
+3. Embed all queries in parallel
+4. Query vector database with all embeddings
+5. Merge and deduplicate results
+
+**Section sources**
+- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
+- [nodes.ts](file://src/search/nodes.ts#L80-L92)
+- [nodes.ts](file://src/search/nodes.ts#L102-L104)
 
 ## Enhanced Error Handling and Logging
 
 ### Comprehensive Error Categorization
-The system now provides detailed error categorization for different failure scenarios:
-
-**Rate Limiting Errors**: Detected through HTTP 429, "rate limit", "quota", or "too many requests" in error messages, with user-friendly messages suggesting waiting periods and indexing completion.
-
-**Network Connectivity Errors**: Identified by "fetch failed", "econnrefused", "enotfound", "etimedout", or "network" keywords, with suggestions for connection checks and firewall configuration.
-
-**Authentication Errors**: Recognized by "api key", "unauthorized", "401", "403", or "invalid" in error messages, directing users to verify API key settings.
-
-**Provider Initialization Errors**: Detected through "not initialized" or "switchprovider" messages, guiding users to check embedding provider configurations.
-
-**Vector Database Connection Errors**: Comprehensive error handling for Pinecone and Qdrant adapters with specific messages for connectivity, authentication, collection/index not found, and timeout scenarios.
+The system provides detailed error categorization for different failure scenarios with enhanced user-friendly messages.
 
 ### Detailed Logging Throughout the Workflow
-Every major operation now includes comprehensive console logging with structured prefixes:
-- `[SEARCH_GRAPH]` for graph-level operations
-- `[EMBEDDING_SERVICE]` for embedding operations
-- `[LLM_RERANKING]` for LLM operations
-- `[INDEXING_CONTROLLER]` for controller-level operations
-
-Each log entry includes operation start/end markers, parameter information, timing metrics, and result summaries.
+Every major operation includes comprehensive console logging with structured prefixes and timing information.
 
 ### Priority Queuing for Rate Limiting
-The embedding service implements priority queuing where search operations receive priority treatment over background indexing operations, helping to mitigate rate limiting issues during user interactions.
+The embedding service implements priority queuing where search operations receive priority treatment over background indexing operations.
 
 ### Retry Service with Exponential Backoff
-A comprehensive retry service provides exponential backoff retry logic with context-aware logging for transient failures, reducing the impact of temporary service unavailability.
+A comprehensive retry service provides exponential backoff retry logic with context-aware logging for transient failures.
 
 **Section sources**
-- [nodes.ts](file://src/search/nodes.ts#L114-L253)
+- [nodes.ts](file://src/search/nodes.ts#L107-L160)
+- [nodes.ts](file://src/search/nodes.ts#L208-L261)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L89-L142)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L58)
 - [logger.ts](file://src/shared/logger.ts#L7-L132)
@@ -325,74 +364,33 @@ A comprehensive retry service provides exponential backoff retry logic with cont
 ## User Feedback and Experience
 
 ### Structured Error Messages
-The system provides user-friendly error messages tailored to specific failure scenarios, including actionable steps for resolution and detailed technical information for debugging.
+The system provides user-friendly error messages tailored to specific failure scenarios with actionable resolution steps.
 
 ### Progress Tracking and Status Updates
-Enhanced progress tracking provides real-time feedback on search operations, including query expansion status, embedding progress, and result filtering information.
+Enhanced progress tracking provides real-time feedback on search operations including query expansion status, embedding progress, and result filtering information.
+
+### Intelligent UI Controls
+The dynamic confidence threshold slider provides real-time feedback with adaptive range adjustment and reset functionality.
 
 ### Comprehensive Logging Interface
-The logger utility provides multiple output channels (console, VS Code output panel) with emoji indicators and verbose mode support for detailed debugging.
-
-### Summary Generation Integration
-When smart filtering is enabled, the system automatically generates markdown summaries for search results, providing users with context about the relevance decisions made by the AI.
+The logger utility supports multiple output channels with emoji indicators and verbose mode for detailed debugging.
 
 **Section sources**
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L190-L268)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L558-L576)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L465-L472)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 - [logger.ts](file://src/shared/logger.ts#L105-L132)
 
-## Dependency Analysis
-The enhanced search subsystem maintains clear layering with additional error handling and logging dependencies:
-- UI and controller depend on the search graph with enhanced error feedback
-- The graph depends on nodes with comprehensive logging
-- Nodes depend on embedding service with priority queuing, vector DB factory, and LLM reranking with fallback
-- Vector DB adapters depend on external SDKs with comprehensive error handling
-- Retry service provides exponential backoff for transient failures
-- Logger utility supports structured logging across all components
-
-```mermaid
-graph LR
-UI["SearchTab.tsx"] --> CTRL["IndexingController.ts<br/>with enhanced error feedback"]
-CTRL --> GR["graph.ts<br/>with detailed logging"]
-GR --> ND["nodes.ts<br/>with comprehensive error handling"]
-ND --> ES["embeddingService.ts<br/>with priority queuing"]
-ND --> VF["factory.ts<br/>with error categorization"]
-VF --> PC["pineconeAdapter.ts<br/>with detailed error reporting"]
-VF --> QD["qdrantAdapter.ts<br/>with comprehensive error handling"]
-ND --> LR["llmReranking.ts<br/>with fallback mechanisms"]
-ND --> QE["queryExpansion.ts<br/>with structured error handling"]
-CTRL --> RS["retryService.ts<br/>with exponential backoff"]
-CTRL --> LG["logger.ts<br/>structured logging"]
-```
-
-**Diagram sources**
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L619-L636)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L78-L88)
-- [graph.ts](file://src/search/graph.ts#L5-L27)
-- [nodes.ts](file://src/search/nodes.ts#L1-L11)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L6)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L6)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L4)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L4)
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L1-L5)
-- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L1-L2)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L2)
-- [logger.ts](file://src/shared/logger.ts#L1-L2)
-
-**Section sources**
-- [graph.ts](file://src/search/graph.ts#L1-L55)
-- [nodes.ts](file://src/search/nodes.ts#L1-L370)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L61)
-
 ## Performance Considerations
-- **Rate Limiting Mitigation**: Priority queuing ensures search operations receive priority treatment during embedding service rate limiting
+- **Parallel Processing**: Multi-query RAG uses Promise.all() for simultaneous embedding and querying
+- **Dynamic Thresholding**: Adaptive range adjustment reduces unnecessary slider movement
+- **File-Level Grouping**: Eliminates redundant file processing while maintaining result quality
+- **Rate Limiting Mitigation**: Priority queuing ensures search operations receive priority treatment
 - **Error Recovery**: Comprehensive error handling with fallback mechanisms prevents single point of failure
 - **Logging Overhead**: Detailed logging provides valuable debugging information with minimal performance impact
 - **Retry Efficiency**: Exponential backoff reduces retry frequency while maintaining reliability
-- **Queue Management**: Priority queuing prevents starvation of user-facing operations during high load
 
 ## Troubleshooting Guide
-The enhanced error handling provides comprehensive troubleshooting capabilities:
+The enhanced error handling provides comprehensive troubleshooting capabilities with improved user guidance.
 
 ### Validation Failures
 - Empty query, missing repo root, or missing Google API key cause immediate termination with detailed error messages
@@ -428,34 +426,16 @@ participant LLM as "llmReranking.ts"
 UI->>Ctrl : "searchRepo(...)"
 Ctrl->>Graph : "runSearchGraph(...)"
 Graph->>Nodes : "validateInputs()"
-Note over Nodes : [SEARCH_GRAPH] validateInputsNode START
 alt errors
 Nodes-->>Graph : "errors with user-friendly messages"
 Graph-->>Ctrl : "finalState.errors"
 Ctrl-->>UI : "repoSearchError with structured error"
-Note over UI : Detailed error message displayed
 else success
-Graph->>Nodes : "expandQuery()"
-Note over Nodes : [SEARCH_GRAPH] expandQueryNode START
 Graph->>Nodes : "vectorSearch()"
-Note over Nodes : [SEARCH_GRAPH] vectorSearchNode START
-alt embedding error
-Nodes->>Nodes : "Categorize embedding error"
-Nodes-->>Graph : "User-friendly error message"
-Graph-->>Ctrl : "finalState.errors"
-Ctrl-->>UI : "repoSearchError with specific guidance"
-else vector DB error
-Nodes->>Nodes : "Categorize vector DB error"
-Nodes-->>Graph : "User-friendly error message"
-Graph-->>Ctrl : "finalState.errors"
-Ctrl-->>UI : "repoSearchError with resolution steps"
-end
-Graph->>Nodes : "dedupe()"
-Graph->>Nodes : "rerank()"
-alt LLM failure
-Nodes->>LLM : "rerankResultsWithLLM()"
-LLM-->>Nodes : "Fallback to original scores"
-end
+Nodes->>Nodes : "Multi-query expansion + embedding"
+Nodes->>Nodes : "Vector DB query with grouping"
+Nodes->>Nodes : "Deduplication with grouping awareness"
+Nodes->>Nodes : "LLM reranking with confidence filtering"
 Graph->>Nodes : "finalize()"
 Nodes-->>Ctrl : "finalHits"
 Ctrl-->>UI : "repoSearchResults"
@@ -463,29 +443,30 @@ end
 ```
 
 **Diagram sources**
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L90-L107)
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L139-L143)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L551-L554)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
+- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L751-L775)
 
 **Section sources**
-- [nodes.ts](file://src/search/nodes.ts#L12-L370)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L62-L75)
-- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L139-L143)
+- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
+- [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
 - [logger.ts](file://src/shared/logger.ts#L7-L132)
 
 ## Conclusion
-The enhanced Semantic Search Algorithms subsystem now provides comprehensive error handling, detailed logging, and improved user feedback mechanisms. The system's modular design with priority queuing, structured error categorization, and fallback mechanisms ensures reliable operation even under challenging conditions. The detailed observability and user-friendly error messages enable effective troubleshooting and provide excellent user experience across rate limiting, network connectivity, authentication, and vector database problems.
+The enhanced Semantic Search Algorithms subsystem now provides comprehensive dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with integrated query expansion. The system's modular design with priority queuing, structured error categorization, and advanced UI controls ensures reliable operation with exceptional user experience. The intelligent threshold adjustment, native grouping support, and semantic variant generation deliver superior search quality while maintaining excellent performance characteristics.
 
 ## Appendices
 
 ### Best Practices Checklist
-- **Error Resolution**: Use structured error messages to quickly identify and resolve issues
+- **Threshold Tuning**: Use the adaptive slider to find optimal confidence thresholds for your use case
+- **Grouping Configuration**: Enable file-level grouping for repositories with repetitive file structures
+- **Multi-Query Benefits**: Leverage semantic variants for complex queries requiring multiple search perspectives
 - **Performance Monitoring**: Monitor queue statistics and timing metrics for optimal performance
-- **User Guidance**: Leverage user-friendly error messages to guide users through resolution steps
+- **User Guidance**: Leverage user-friendly error messages to quickly identify and resolve issues
 - **Logging Strategy**: Utilize detailed logging for debugging while maintaining reasonable verbosity
 - **Retry Configuration**: Configure appropriate retry settings for different failure scenarios
-- **Priority Management**: Understand how priority queuing affects embedding service performance during concurrent operations
 
 ### Common Error Scenarios and Solutions
 - **Rate Limiting**: Wait for cooldown period or reduce concurrent operations
@@ -493,3 +474,12 @@ The enhanced Semantic Search Algorithms subsystem now provides comprehensive err
 - **Authentication Problems**: Check API key validity and permissions
 - **Vector Database Issues**: Verify connection string, credentials, and collection existence
 - **Provider Initialization**: Ensure embedding provider is properly configured and initialized
+- **Grouping Issues**: Check vector database support for grouping functionality
+- **Threshold Problems**: Use reset range button to restore default threshold values
+
+### Advanced Configuration Options
+- **Dynamic Range Adjustment**: Automatic range optimization based on current threshold position
+- **File-Level Grouping**: Configurable chunk selection per file for optimal result diversity
+- **Multi-Query Expansion**: Semantic variant generation for enhanced search coverage
+- **Confidence Filtering**: Adjustable confidence thresholds for result quality control
+- **Parallel Processing**: Optimized query execution for improved performance

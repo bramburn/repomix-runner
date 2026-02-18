@@ -7,26 +7,30 @@
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts)
 - [types.ts](file://src/core/indexing/embeddings/types.ts)
 - [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts)
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts)
 - [retryService.ts](file://src/core/indexing/retryService.ts)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts)
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts)
 - [fileEmbeddingPipeline.test.ts](file://src/test/core/indexing/fileEmbeddingPipeline.test.ts)
 - [repomix.config.json](file://repomix.config.json)
 - [README.md](file://README.md)
 - [nodes.ts](file://src/search/nodes.ts)
+- [configSchema.ts](file://src/config/configSchema.ts)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced EmbeddingService with priority queue system and request serialization
-- Added comprehensive debugging statistics and queue monitoring capabilities
-- Implemented priority-based embedding requests for user-facing operations
-- Updated search functionality to utilize priority queuing for improved responsiveness
-- Added queue management with configurable concurrency limits
+- Enhanced EmbeddingService to support LM Studio provider alongside existing Gemini and Ollama providers
+- Added LMStudioProvider.ts implementation with comprehensive error handling and dimension validation
+- Updated provider configuration schema to include LM Studio settings
+- Added LM Studio web UI components for model management and configuration
+- Enhanced embedding service with three-provider support (Gemini, Ollama, LM Studio)
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,11 +39,12 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Priority Queue System](#priority-queue-system)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+7. [Provider Support Matrix](#provider-support-matrix)
+8. [Dependency Analysis](#dependency-analysis)
+9. [Performance Considerations](#performance-considerations)
+10. [Troubleshooting Guide](#troubleshooting-guide)
+11. [Conclusion](#conclusion)
+12. [Appendices](#appendices)
 
 ## Introduction
 This document describes the File Embedding Pipeline, which transforms raw file content into vector embeddings suitable for similarity search and retrieval. The pipeline performs:
@@ -47,18 +52,19 @@ This document describes the File Embedding Pipeline, which transforms raw file c
 - Text extraction and validation
 - Semantic and line-based text chunking
 - Preprocessing and metadata enrichment
-- Provider-agnostic embedding generation with priority queue management
+- Provider-agnostic embedding generation with priority queue management across three providers (Gemini, Ollama, and LM Studio)
 - Batched vector upsert into a vector database
 
-It supports multiple embedding providers (Gemini and Ollama) and integrates with a repository orchestrator for full or incremental indexing. The enhanced embedding service now includes priority-based request queuing, comprehensive debugging statistics, and request serialization to prevent rate limiting.
+The pipeline now supports three embedding providers with comprehensive configuration options, robust error handling, and integrated web UI for LM Studio model management. The enhanced embedding service includes priority-based request queuing, comprehensive debugging statistics, and request serialization to prevent rate limiting.
 
 ## Project Structure
-The embedding pipeline spans several modules:
+The embedding pipeline spans several modules with expanded provider support:
 - Orchestration and repository scanning
 - File processing and chunking
-- Enhanced embedding service with priority queue management
+- Enhanced embedding service with priority queue management across three providers
 - Vector database adapter interface
 - Utilities for retries, batching, and vector identity
+- Web UI components for LM Studio configuration and model management
 
 ```mermaid
 graph TB
@@ -77,12 +83,18 @@ ESQ["Priority Queue Management"]
 ESD["Debugging Statistics"]
 GP["GeminiProvider.ts"]
 OP["OllamaProvider.ts"]
+LP["LMStudioProvider.ts"]
 ET["types.ts"]
 end
 subgraph "Persistence"
 VDT["vectorDb\\types.ts"]
 VID["vectorIdentity.ts"]
 RS["retryService.ts"]
+end
+subgraph "LM Studio Integration"
+WSC["ConfigController.ts"]
+WSS["SettingsTab.tsx"]
+LMS["LM Studio Config Schema"]
 end
 subgraph "Usage Context"
 SEARCH["search/nodes.ts"]
@@ -97,12 +109,15 @@ ES --> ESQ
 ES --> ESD
 ES --> GP
 ES --> OP
+ES --> LP
 ES --> ET
 FEP --> VDT
 FEP --> VID
 FEP --> RS
 SEARCH --> ES
 AGENT --> ES
+WSC --> LMS
+WSS --> LP
 ```
 
 **Diagram sources**
@@ -114,11 +129,15 @@ AGENT --> ES
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L68)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L8-L77)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L9-L45)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L10-L90)
 - [types.ts](file://src/core/indexing/embeddings/types.ts#L1-L6)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L19-L42)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L19-L42)
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts#L17-L32)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [nodes.ts](file://src/search/nodes.ts#L95-L105)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
 
 **Section sources**
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
@@ -126,15 +145,16 @@ AGENT --> ES
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L227-L251)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L68)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L19-L42)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L19-L42)
 
 ## Core Components
 - File Embedding Pipeline: Reads files, filters binaries, chunks text, generates embeddings, and upserts vectors with metadata.
 - Enhanced Text Chunker: Implements semantic chunking (when AST is available) and line-based fallback with overlap.
-- Priority-aware Embedding Service: Provider abstraction with request queuing, priority management, and comprehensive debugging statistics.
+- Multi-provider Embedding Service: Provider abstraction supporting Gemini, Ollama, and LM Studio with request queuing, priority management, and comprehensive debugging statistics.
 - Vector Identity: Deterministic vector ID generation and parsing for integrity and incremental updates.
 - Retry and Batching: Robust retries with exponential backoff and batching utilities for throughput.
 - Repository Orchestrator: Coordinates repository-wide indexing and incremental updates.
+- LM Studio Integration: Web UI components for model discovery, configuration testing, and dimension validation.
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
@@ -143,9 +163,10 @@ AGENT --> ES
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts#L17-L66)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L10-L90)
 
 ## Architecture Overview
-The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities and provides comprehensive debugging capabilities.
+The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds using the selected provider, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities across three providers and provides comprehensive debugging capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -154,7 +175,7 @@ participant Pipeline as "embedAndUpsertFile"
 participant Chunker as "chunkText"
 participant EmbedSvc as "EmbeddingService"
 participant Queue as "Priority Queue"
-participant Provider as "GeminiProvider/OllamaProvider"
+participant Provider as "Gemini/Ollama/LM Studio"
 participant Adapter as "VectorDbAdapter"
 Orchestrator->>Pipeline : "Process file"
 Pipeline->>Pipeline : "Skip binary / empty / .git"
@@ -164,7 +185,7 @@ Chunker-->>Pipeline : "TextChunk[]"
 Pipeline->>EmbedSvc : "embedTexts(batch, priority=false)"
 EmbedSvc->>Queue : "enqueue(request, priority=false)"
 Queue-->>EmbedSvc : "process in order"
-EmbedSvc->>Provider : "embedTexts"
+EmbedSvc->>Provider : "embedTexts (selected provider)"
 Provider-->>EmbedSvc : "number[][]"
 EmbedSvc-->>Pipeline : "embeddings"
 Pipeline->>Pipeline : "Build VectorItems with metadata"
@@ -180,7 +201,8 @@ Pipeline-->>Orchestrator : "vector count"
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L55-L60)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L48-L76)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L36-L44)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L22-L25)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L17-L78)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L22-L25)
 
 ## Detailed Component Analysis
 
@@ -271,12 +293,13 @@ J --> K["Create TextChunk with indices and optional tokens"]
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L180-L217)
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L227-L251)
 
-### Priority-aware Embedding Service Abstraction
-The EmbeddingService provides a unified interface to switch between providers and produce embeddings for single texts or batches. It now includes advanced queue management with priority-based request processing and comprehensive debugging capabilities.
+### Multi-provider Embedding Service Abstraction
+The EmbeddingService provides a unified interface to switch between providers and produce embeddings for single texts or batches. It now includes advanced queue management with priority-based request processing and comprehensive debugging capabilities across three providers.
 
-**Updated** Enhanced with priority queue system, request serialization, and debugging statistics
+**Updated** Enhanced with LM Studio provider support alongside existing Gemini and Ollama providers
 
 Key Features:
+- Multi-provider architecture supporting Gemini, Ollama, and LM Studio
 - Priority-based request queuing with configurable concurrency limits
 - Comprehensive queue statistics for debugging and monitoring
 - Request serialization to prevent rate limiting
@@ -330,11 +353,18 @@ class OllamaProvider {
 +embedTexts(texts) number[][]
 +getDimensions() number
 }
+class LMStudioProvider {
+-config : LMStudioConfig
++embedText(text) number[]
++embedTexts(texts) number[][]
++getDimensions() number
+}
 EmbeddingService --> IEmbeddingProvider : "delegates to"
 EmbeddingService --> QueueEntry : "manages"
 EmbeddingService --> QueueStats : "provides"
 GeminiProvider ..|> IEmbeddingProvider
 OllamaProvider ..|> IEmbeddingProvider
+LMStudioProvider ..|> IEmbeddingProvider
 ```
 
 **Diagram sources**
@@ -344,6 +374,7 @@ OllamaProvider ..|> IEmbeddingProvider
 - [types.ts](file://src/core/indexing/embeddings/types.ts#L1-L6)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L8-L77)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L9-L45)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L10-L90)
 
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L5-L15)
@@ -353,6 +384,31 @@ OllamaProvider ..|> IEmbeddingProvider
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L132-L157)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L16-L18)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L42-L44)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L87-L89)
+
+### LM Studio Provider Implementation
+The LM Studio provider offers local AI inference capabilities with comprehensive error handling and dimension validation. It supports optional authentication and handles multiple response formats from the LM Studio API.
+
+**New** LM Studio provider implementation with robust error handling and dimension validation
+
+Key Features:
+- Local AI inference support for offline embedding generation
+- Optional API key authentication with bearer token support
+- Flexible response format handling (OpenAI-style and direct responses)
+- Dimension validation with warning-only approach for flexibility
+- Parallelized batch processing for improved throughput
+- Comprehensive error logging and debugging information
+
+Configuration Options:
+- baseUrl: LM Studio server URL (default: http://localhost:1234/v1)
+- apiKey: Optional bearer token for authentication
+- model: Embedding model loaded in LM Studio
+- dimension: Expected embedding vector dimension
+
+**Section sources**
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L3-L8)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L17-L78)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L80-L89)
 
 ### Vector Identity and Metadata
 Vector IDs are deterministic and include repoId, file path, chunk index, and a short text hash. Metadata includes repoId, file path, chunk indices, source, text hash, and updated timestamp. This enables:
@@ -406,7 +462,7 @@ Orchestrator-->>Caller : "incremental summary"
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L267-L454)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L35-L35)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L35-L35)
 
 **Section sources**
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
@@ -415,7 +471,7 @@ Orchestrator-->>Caller : "incremental summary"
 ## Priority Queue System
 
 ### Queue Management Architecture
-The enhanced embedding service now implements a sophisticated priority queue system that ensures critical user-facing operations receive immediate processing while maintaining fairness for background indexing tasks.
+The enhanced embedding service now implements a sophisticated priority queue system that ensures critical user-facing operations receive immediate processing while maintaining fairness for background indexing tasks across all three providers.
 
 **Updated** New priority queue system with comprehensive request management
 
@@ -440,7 +496,7 @@ NextIteration --> CapacityCheck
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L108-L127)
 
 ### Queue Statistics and Debugging
-The service provides comprehensive debugging capabilities through queue statistics that help monitor and troubleshoot embedding operations.
+The service provides comprehensive debugging capabilities through queue statistics that help monitor and troubleshoot embedding operations across all providers.
 
 **Updated** New debugging statistics and monitoring capabilities
 
@@ -453,16 +509,69 @@ Key Statistics:
 Usage Examples:
 - Search operations use `priority: true` to ensure immediate processing
 - Indexing operations use `priority: false` for background processing
-- Queue statistics logged for monitoring and debugging
+- Queue statistics logged for monitoring and debugging across all providers
 
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
 - [nodes.ts](file://src/search/nodes.ts#L99-L105)
 
+## Provider Support Matrix
+
+### Provider Comparison and Capabilities
+
+| Feature | Gemini | Ollama | LM Studio |
+|---------|--------|--------|-----------|
+| **API Type** | Cloud API | HTTP REST | HTTP REST |
+| **Authentication** | API Key Required | None/Optional | Optional Bearer Token |
+| **Response Format** | Structured JSON | Direct Array | OpenAI-style + Direct |
+| **Dimension Control** | Fixed (768) | Configurable | Configurable |
+| **Batch Support** | Native | Parallel Requests | Parallel Requests |
+| **Local Deployment** | No | Yes | Yes |
+| **Offline Capability** | No | Yes | Yes |
+| **Model Loading** | Predefined | Dynamic | Dynamic |
+| **Error Handling** | Structured | Standard | Comprehensive |
+
+### Provider Configuration Examples
+
+**Gemini Configuration:**
+```typescript
+provider: 'gemini',
+gemini: {
+  apiKey: 'YOUR_GEMINI_API_KEY'
+}
+```
+
+**Ollama Configuration:**
+```typescript
+provider: 'ollama',
+ollama: {
+  url: 'http://localhost:11434',
+  model: 'nomic-embed-text',
+  dimension: 768
+}
+```
+
+**LM Studio Configuration:**
+```typescript
+provider: 'lmstudio',
+lmstudio: {
+  baseUrl: 'http://localhost:1234/v1',
+  apiKey: '', // Optional
+  model: 'nomic-embed-text',
+  dimension: 768
+}
+```
+
+**Section sources**
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L6-L22)
+- [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L4-L10)
+- [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L3-L7)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L3-L8)
+
 ## Dependency Analysis
 - File Embedding Pipeline depends on:
   - Enhanced Text chunker for segmentation
-  - Priority-aware Embedding service for provider abstraction
+  - Multi-provider Embedding service for provider abstraction
   - Vector DB adapter for persistence
   - Retry service for robustness
   - Tree-sitter service for AST-based chunking
@@ -478,26 +587,33 @@ FEP --> VDT["vectorDb\\types.ts"]
 TC --> TS["treeSitterService.ts"]
 ES --> GP["GeminiProvider.ts"]
 ES --> OP["OllamaProvider.ts"]
+ES --> LP["LMStudioProvider.ts"]
 ES --> ET["types.ts"]
 ES --> ESQ["Priority Queue System"]
 ES --> ESD["Debugging Stats"]
+WSC --> LMS["LM Studio Config Schema"]
+WSS --> LP
 ```
 
 **Diagram sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L4-L10)
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L17-L19)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L3)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L1)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L1)
 - [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L1-L1)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L1-L2)
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L1-L1)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L1)
 - [types.ts](file://src/core/indexing/embeddings/types.ts#L1-L6)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L4-L10)
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L17-L19)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L3)
-- [vectorDb\types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L1)
+- [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L1)
 
 ## Performance Considerations
 - Enhanced concurrency controls:
@@ -522,6 +638,10 @@ ES --> ESD["Debugging Stats"]
   - Incremental embedding reduces full re-index cost
   - Hash-based change detection skips unchanged files
   - Queue statistics enable performance monitoring
+- Provider-specific optimizations:
+  - LM Studio supports local inference with configurable model loading
+  - Gemini provides fixed dimensionality for predictable performance
+  - Ollama offers flexible model selection with dynamic dimension control
 
 [No sources needed since this section provides general guidance]
 
@@ -534,11 +654,15 @@ Common issues and resolutions:
 - .git internals:
   - Explicitly filtered; ensure paths do not leak into processing.
 - Provider configuration errors:
-  - Missing API keys or invalid Ollama config cause initialization failures.
+  - Missing API keys or invalid provider configs cause initialization failures.
+  - LM Studio requires valid model names and accessible base URLs.
 - Dimension mismatches:
-  - Gemini provider specifies fixed dimensions; verify provider alignment.
+  - Gemini provider specifies fixed dimensions (768); verify provider alignment.
+  - LM Studio allows flexible dimensions with warning-only validation.
+  - Ollama requires explicit dimension configuration.
 - Network/API failures:
   - Exponential backoff is applied; check provider quotas and connectivity.
+  - LM Studio requires running server instance and loaded models.
 - Vector DB errors:
   - Ensure adapter supports required operations and credentials are valid.
 - Queue congestion:
@@ -547,17 +671,24 @@ Common issues and resolutions:
 - Priority starvation:
   - Ensure user-facing operations use `priority: true`
   - Background tasks automatically use lower priority
+- LM Studio specific issues:
+  - Verify LM Studio server is running and accessible
+  - Ensure embedding models are loaded in LM Studio
+  - Check model compatibility with configured dimension
+  - Test model availability using web UI components
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L200-L213)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L241-L249)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L31-L44)
 - [GeminiProvider.ts](file://src/core/indexing/embeddings/GeminiProvider.ts#L41-L43)
+- [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L22-L26)
+- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L41-L45)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L58)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
 
 ## Conclusion
-The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors. Its enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports multiple providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale.
+The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors across three embedding providers. Its enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports Gemini, Ollama, and LM Studio providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale with flexible deployment options.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -566,12 +697,16 @@ The File Embedding Pipeline provides a robust, extensible, and efficient mechani
 ### Configuration Examples
 Provider configuration examples for EmbeddingService:
 
-- Enhanced EmbeddingService with Priority Queue
-  - provider: "gemini" | "ollama"
+- Enhanced EmbeddingService with Three Providers
+  - provider: "gemini" | "ollama" | "lmstudio"
   - gemini.apiKey: "<your-gemini-api-key>"
   - ollama.url: "<http://localhost:11434>"
   - ollama.model: "<model-name>"
   - ollama.dimension: <vector-dimension>
+  - lmstudio.baseUrl: "<http://localhost:1234/v1>"
+  - lmstudio.apiKey: "<optional-bearer-token>"
+  - lmstudio.model: "<model-name>"
+  - lmstudio.dimension: <vector-dimension>
   - maxConcurrent: <number> (default: 1)
   - Example reference: [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L5-L15)
 
@@ -592,6 +727,21 @@ Provider configuration examples for EmbeddingService:
   - Indexing operations: `embeddingService.embedTexts(chunks, 'indexing', false)`
   - Example reference: [nodes.ts](file://src/search/nodes.ts#L101-L102)
 
+- LM Studio Configuration Schema
+  - baseUrl: string URL with default 'http://localhost:1234/v1'
+  - apiKey: optional string with default empty
+  - model: string minimum length 1
+  - dimension: positive number with default 768
+  - Example reference: [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+
+- LM Studio Web UI Integration
+  - Model discovery via `/models` endpoint
+  - Dimension testing via sample embedding requests
+  - Real-time configuration validation
+  - Example references:
+    - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+    - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+
 - Repository indexing configuration (repomix.config.json)
   - maxFileSize: controls maximum file size considered
   - ignore patterns: .gitignore, dot-ignore, defaults, custom patterns
@@ -605,6 +755,9 @@ Provider configuration examples for EmbeddingService:
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L5-L15)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L130-L143)
 - [nodes.ts](file://src/search/nodes.ts#L101-L102)
+- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
 - [repomix.config.json](file://repomix.config.json#L1-L43)
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
 
@@ -624,3 +777,16 @@ Provider configuration examples for EmbeddingService:
 
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
+
+### LM Studio Integration Details
+- Web UI components for LM Studio configuration:
+  - Model discovery with automatic fetching
+  - Dimension testing with real-time feedback
+  - Configuration validation and error handling
+  - Example references:
+    - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+    - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+
+**Section sources**
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
