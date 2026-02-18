@@ -6,6 +6,7 @@ import { getRepoId } from '../../utils/repoIdentity.js';
 import { logger } from '../../shared/logger.js';
 import ignore from 'ignore';
 import { IndexingError } from '../../shared/indexingError.js';
+import { collectGitignorePatterns } from '../files/gitignoreUtils.js';
 
 const DEFAULT_BINARY_PATTERNS = [
   '**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.webp', '**/*.ico', '**/*.svg',
@@ -45,18 +46,10 @@ export async function indexRepository(cwd: string, databaseService: DatabaseServ
     // while this project uses 'ignore' (v7), causing compatibility issues.
     const ignorePatterns: string[] = [];
 
-    // Add .gitignore patterns
-    console.log(`[REPO_INDEXER] Loading .gitignore patterns...`);
-    const gitignorePath = path.join(cwd, '.gitignore');
-    if (fs.existsSync(gitignorePath)) {
-      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
-      // Split by newlines and trim, remove empty lines and comments
-      const lines = gitignoreContent.split(/\r?\n/).filter(line => line.trim() && !line.startsWith('#'));
-      ignorePatterns.push(...lines);
-      console.log(`[REPO_INDEXER] Loaded ${lines.length} patterns from .gitignore`);
-    } else {
-      console.log(`[REPO_INDEXER] No .gitignore file found`);
-    }
+    // Add .gitignore patterns from ALL subdirectories (not just root)
+    console.log(`[REPO_INDEXER] Loading .gitignore patterns from all subdirectories...`);
+    const gitignorePatterns = collectGitignorePatterns(cwd);
+    ignorePatterns.push(...gitignorePatterns);
 
     // Add default ignore patterns (e.g. .git, node_modules)
     ignorePatterns.push('.git', 'node_modules', '.DS_Store');

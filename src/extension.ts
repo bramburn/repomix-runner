@@ -8,6 +8,7 @@ import { testCompression } from './commands/testCompression.js';
 import { runRepomixOnOpenFiles } from './commands/runRepomixOnOpenFiles.js';
 import { getCwd } from './config/getCwd.js';
 import { tempDirManager } from './core/files/tempDirManager.js';
+import { collectGitignorePatterns } from './core/files/gitignoreUtils.js';
 import { runRepomixOnSelectedFiles } from './commands/runRepomixOnSelectedFiles.js';
 import { runBundle } from './commands/runBundle.js';
 import { deleteBundle } from './commands/deleteBundle.js';
@@ -217,27 +218,22 @@ export async function activate(context: vscode.ExtensionContext) {
     // - Patterns like **/node_modules, *.log, dist/, etc.
     // - Negation patterns (!pattern)
     // - Comments (# comment)
+    // - Subfolder .gitignore files (e.g., subfolder/.gitignore)
     // ========================================================================
-
+    
     console.log(`[BackgroundMonitor] Setting up .gitignore-based filtering...`);
-
+    
     // Initialize the ignore instance
     const ig = ignore();
-
-    // Try to load .gitignore file if it exists
-    const gitignorePath = path.join(repoRoot, '.gitignore');
-
-    if (fs.existsSync(gitignorePath)) {
-      try {
-        const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-        ig.add(gitignoreContent);
-        console.log(`[BackgroundMonitor] ✓ Loaded .gitignore (${gitignoreContent.split('\n').length} lines)`);
-      } catch (error) {
-        console.warn(`[BackgroundMonitor] ⚠ Failed to read .gitignore: ${error}`);
-        logger.both.warn('[BackgroundMonitor] Failed to read .gitignore:', error);
-      }
-    } else {
-      console.log(`[BackgroundMonitor] No .gitignore file found (will use default ignore list)`);
+    
+    // Load .gitignore patterns from ALL subdirectories (not just root)
+    try {
+      const allGitignorePatterns = collectGitignorePatterns(repoRoot);
+      ig.add(allGitignorePatterns);
+      console.log(`[BackgroundMonitor] ✓ Loaded .gitignore patterns from all subdirectories`);
+    } catch (error) {
+      console.warn(`[BackgroundMonitor] ⚠ Failed to collect .gitignore patterns: ${error}`);
+      logger.both.warn('[BackgroundMonitor] Failed to collect .gitignore patterns:', error);
     }
 
     // Add additional common ignore patterns that may not be in .gitignore

@@ -25,6 +25,7 @@ suite('runRepomix', () => {
       useTargetAsOutput: false,
       useBundleNameAsOutputName: true,
       configPath: '',
+      respectGitignoreInMarkdown: false,
     },
     output: {
       filePath: '/fake/output.txt',

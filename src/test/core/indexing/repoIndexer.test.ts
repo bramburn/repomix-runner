@@ -95,4 +95,62 @@ suite('RepoIndexer Test Suite', () => {
 
         assert.strictEqual(count, 2, 'Should update index count');
     });
+
+    test('indexRepository should respect subfolder .gitignore files', async () => {
+        // Setup repo structure with subfolder .gitignore
+        // /
+        //   - file1.txt
+        //   - root.log           (should be ignored by root .gitignore)
+        //   - .gitignore         (contains *.log)
+        //   - subfolder1/
+        //     - file2.txt
+        //     - data.log         (should be ignored by root .gitignore)
+        //     - temp/            (should be ignored by subfolder1/.gitignore)
+        //       - cache.tmp
+        //     - .gitignore       (contains temp/)
+
+        // Root files
+        fs.writeFileSync(path.join(tempDir, 'file1.txt'), 'content1');
+        fs.writeFileSync(path.join(tempDir, 'root.log'), 'log data');
+        fs.writeFileSync(path.join(tempDir, '.gitignore'), '*.log\n');
+
+        // Subfolder1 with its own .gitignore
+        const subfolder1 = path.join(tempDir, 'subfolder1');
+        fs.mkdirSync(subfolder1, { recursive: true });
+        fs.writeFileSync(path.join(subfolder1, 'file2.txt'), 'content2');
+        fs.writeFileSync(path.join(subfolder1, 'data.log'), 'more log data');
+        
+        const tempDir_in_sub = path.join(subfolder1, 'temp');
+        fs.mkdirSync(tempDir_in_sub, { recursive: true });
+        fs.writeFileSync(path.join(tempDir_in_sub, 'cache.tmp'), 'temp data');
+        
+        fs.writeFileSync(path.join(subfolder1, '.gitignore'), 'temp/\n');
+
+        // Run indexer
+        const count = await indexRepository(tempDir, dbService);
+
+        // Verification
+        // Expected: file1.txt, .gitignore, subfolder1/file2.txt, subfolder1/.gitignore (4 files)
+        // Ignored: root.log (*.log from root), subfolder1/data.log (*.log from root), subfolder1/temp/cache.tmp (temp/ from subfolder)
+        
+        assert.strictEqual(count, 4, 'Should index exactly 4 files');
+
+        const repoId = `dir:${path.basename(tempDir)}`;
+        const dbCount = await dbService.getRepoFileCount(repoId);
+        assert.strictEqual(dbCount, 4, 'Database should verify 4 files');
+        
+        // Verify specific files are present
+        const files = await dbService.getRepoFiles(repoId);
+        const filePaths = files.sort();
+        
+        assert.ok(filePaths.includes('file1.txt'), 'file1.txt should be indexed');
+        assert.ok(filePaths.includes('.gitignore'), '.gitignore should be indexed');
+        assert.ok(filePaths.includes('subfolder1/file2.txt'), 'subfolder1/file2.txt should be indexed');
+        assert.ok(filePaths.includes('subfolder1/.gitignore'), 'subfolder1/.gitignore should be indexed');
+        
+        // Verify ignored files are NOT present
+        assert.ok(!filePaths.includes('root.log'), 'root.log should be ignored by root .gitignore');
+        assert.ok(!filePaths.includes('subfolder1/data.log'), 'subfolder1/data.log should be ignored by root .gitignore');
+        assert.ok(!filePaths.includes('subfolder1/temp/cache.tmp'), 'subfolder1/temp/cache.tmp should be ignored by subfolder .gitignore');
+    });
 });

@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import ignore from 'ignore';
 import { GitService } from '../git/GitService.js';
+import { collectGitignorePatterns } from '../core/files/gitignoreUtils.js';
 
 export async function validateInputsNode(state: SearchGraphState) {
     console.log('[SEARCH_GRAPH] ===== validateInputsNode START =====');
@@ -348,15 +349,15 @@ export async function finalizeNode(state: SearchGraphState) {
     console.log('[SEARCH_GRAPH] Applying .gitignore filtering...');
     try {
         const ig = ignore();
-        const gitignorePath = path.join(state.repoRoot, '.gitignore');
-
-        if (fs.existsSync(gitignorePath)) {
-            const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
-            ig.add(gitignoreContent);
-            console.log('[SEARCH_GRAPH] Loaded .gitignore file');
-        }
-
+        
+        // Load .gitignore patterns from ALL subdirectories (not just root)
+        const allGitignorePatterns = collectGitignorePatterns(state.repoRoot);
+        ig.add(allGitignorePatterns);
+        
+        // Add additional default ignores
         ig.add(['.git', 'node_modules', '.DS_Store', 'dist', 'out', 'build']);
+        
+        console.log('[SEARCH_GRAPH] Loaded .gitignore patterns from all subdirectories');
 
         finalHits = finalHits.filter((r) => {
             if (!r.path) return false;

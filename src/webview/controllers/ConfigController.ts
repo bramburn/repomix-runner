@@ -91,7 +91,7 @@ export class ConfigController extends BaseController {
         return true;
 
       case 'fetchQdrantCollections':
-        await this.handleFetchQdrantCollections();
+        await this.handleFetchQdrantCollections(message.apiKey);
         return true;
 
       // --- Embedding Provider Configuration ---
@@ -514,10 +514,18 @@ export class ConfigController extends BaseController {
     }
   }
 
-  private async handleFetchQdrantCollections() {
+  private async handleFetchQdrantCollections(providedApiKey?: string) {
     try {
       const url = this.extensionContext.globalState.get('repomix.qdrant.url') as string;
-      const apiKey = await this.extensionContext.secrets.get(SECRET_QDRANT);
+      // Use provided API key first, fall back to stored secret
+      const effectiveApiKey = providedApiKey || await this.extensionContext.secrets.get(SECRET_QDRANT);
+
+      console.log('[ConfigController] Fetching Qdrant collections with:', {
+        url: url || 'NOT SET',
+        hasProvidedKey: !!providedApiKey,
+        hasStoredKey: !!effectiveApiKey,
+        usingProvidedKey: !!providedApiKey
+      });
 
       if (!url) {
         this.context.postMessage({
@@ -530,10 +538,18 @@ export class ConfigController extends BaseController {
 
       const { QdrantClient } = await import('@qdrant/js-client-rest');
       const clientConfig: any = { url, timeout: 30000 };
-      if (apiKey) clientConfig.apiKey = apiKey;
+      if (effectiveApiKey) clientConfig.apiKey = effectiveApiKey;
+
+      console.log('[ConfigController] Creating Qdrant client with config:', {
+        url: clientConfig.url,
+        hasApiKey: !!clientConfig.apiKey,
+        timeout: clientConfig.timeout
+      });
 
       const client = new QdrantClient(clientConfig);
       const response = await client.getCollections();
+
+      console.log('[ConfigController] Qdrant collections response:', response);
 
       this.context.postMessage({
         command: 'updateQdrantCollections',
@@ -541,10 +557,24 @@ export class ConfigController extends BaseController {
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[ConfigController] Failed to fetch Qdrant collections:', error);
+      
+      // Provide more specific error messages
+      let userFriendlyError = errorMessage;
+      if (errorMessage.includes('ECONNREFUSED')) {
+        userFriendlyError = 'Could not connect to Qdrant server. Please check the URL and ensure the server is running.';
+      } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
+        userFriendlyError = 'Authentication failed. Please check your API key.';
+      } else if (errorMessage.includes('Forbidden') || errorMessage.includes('403')) {
+        userFriendlyError = 'Access forbidden. Please check your API key permissions.';
+      } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
+        userFriendlyError = 'Could not resolve Qdrant server address. Please check the URL.';
+      }
+
       this.context.postMessage({
         command: 'updateQdrantCollections',
         collections: [],
-        error: errorMessage
+        error: userFriendlyError
       });
     }
   }

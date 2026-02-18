@@ -136,6 +136,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [qdrantCollection, setQdrantCollection] = useState('');
   const [qdrantTestLoading, setQdrantTestLoading] = useState(false);
 
+  // Debug logging for Qdrant state changes
+  useEffect(() => {
+    console.log('[SettingsTab] Qdrant state updated:', {
+      url: qdrantUrl,
+      collection: qdrantCollection,
+      hasKey: !!qdrantKey,
+      keyLength: qdrantKey.length,
+      provider: vectorDbProvider
+    });
+  }, [qdrantUrl, qdrantCollection, qdrantKey, vectorDbProvider]);
+
   const [qdrantCollections, setQdrantCollections] = useState<Array<{ name: string }>>([]);
   const [qdrantCollectionsError, setQdrantCollectionsError] = useState<string | null>(null);
   const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
@@ -233,17 +244,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     }
   }, [pineconeIndexes, indexError]);
 
-  // Fetch Qdrant collections when URL changes
+  // Fetch Qdrant collections when URL or key changes
   useEffect(() => {
     if (!qdrantUrl.trim() || vectorDbProvider !== 'qdrant') {
       return;
     }
+    console.log('[SettingsTab] Auto-fetching Qdrant collections due to URL/key change');
     setIsFetchingQdrantCollections(true);
     const timer = setTimeout(() => {
-      vscode.postMessage({ command: 'fetchQdrantCollections' });
+      vscode.postMessage({ 
+        command: 'fetchQdrantCollections',
+        apiKey: qdrantKey.trim() || undefined
+      });
     }, 500);
     return () => clearTimeout(timer);
-  }, [qdrantUrl, vectorDbProvider]);
+  }, [qdrantUrl, qdrantKey, vectorDbProvider]);
 
   // Sync fetching state with collections response
   useEffect(() => {
@@ -1088,14 +1103,37 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             <Button
               icon={isFetchingQdrantCollections ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
               onClick={() => {
+                console.log('[SettingsTab] Manual fetch Qdrant collections with current key');
                 setIsFetchingQdrantCollections(true);
-                vscode.postMessage({ command: 'fetchQdrantCollections' });
+                vscode.postMessage({ 
+                  command: 'fetchQdrantCollections',
+                  apiKey: qdrantKey.trim() || undefined
+                });
               }}
               disabled={!qdrantUrl.trim() || isFetchingQdrantCollections}
               appearance="secondary"
             />
           </div>
-          {qdrantCollectionsError && <Text size={100} style={{ color: 'var(--vscode-errorForeground)' }}>{qdrantCollectionsError}</Text>}
+          {qdrantCollections.length > 0 && (
+            <Text size={100} style={{ color: 'var(--vscode-charts-green)' }}>
+              ✓ Found {qdrantCollections.length} collection{qdrantCollections.length !== 1 ? 's' : ''}
+            </Text>
+          )}
+          {isFetchingQdrantCollections && (
+            <Text size={100} style={{ color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic' }}>
+              Fetching collections...
+            </Text>
+          )}
+          {qdrantCollectionsError && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <Text size={100} style={{ color: 'var(--vscode-errorForeground)' }}>
+                {qdrantCollectionsError}
+              </Text>
+              <Text size={100} style={{ color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic' }}>
+                Tip: Check your Qdrant URL, API key, and network connectivity
+              </Text>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <Label size="small">Or enter new collection name</Label>
             <Input

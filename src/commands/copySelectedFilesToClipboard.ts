@@ -4,6 +4,7 @@ import { getCwd } from '../config/getCwd';
 import { runRepomixClipboardGenerateMarkdown } from '../core/files/runRepomixClipboardGenerateMarkdown';
 import { readRepomixRunnerVscodeConfig } from '../config/configLoader';
 import { generateMarkdownContent } from '../core/files/markdownGenerator';
+import { expandUrisToFilesRespectingGitignore } from '../core/files/filteredFileExpander';
 
 /**
  * Expands a list of URIs (files or folders) into a flat list of file URIs.
@@ -74,13 +75,20 @@ export async function copySelectedFilesToClipboard(
   try {
     const cwd = getCwd();
     const config = readRepomixRunnerVscodeConfig();
-    const { copyMode } = config.runner;
+    const { copyMode, respectGitignoreInMarkdown } = config.runner;
 
     // Fallback to clickedFile if selectedFiles is empty
     const sourceUris = selectedFiles?.length ? selectedFiles : [clickedFile];
 
-    // Expand folders into files (up to MAX_FILES)
-    const expandedFiles = await expandUrisToFiles(sourceUris, MAX_FILES);
+    // Expand folders into files (up to MAX_FILES) with optional gitignore filtering
+    const expansionResult = await expandUrisToFilesRespectingGitignore(
+      sourceUris,
+      MAX_FILES,
+      cwd,
+      respectGitignoreInMarkdown
+    );
+    
+    const expandedFiles = expansionResult.files;
 
     if (expandedFiles.length === 0) {
       vscode.window.showWarningMessage(
@@ -89,10 +97,24 @@ export async function copySelectedFilesToClipboard(
       return;
     }
 
+    // Show warning if we hit the limit
     if (expandedFiles.length === MAX_FILES) {
       vscode.window.showWarningMessage(
         `Only the first ${MAX_FILES} files were included.`
       );
+    }
+
+    // Show info about ignored files if gitignore filtering was applied
+    if (respectGitignoreInMarkdown && expansionResult.ignoredCount > 0) {
+      const fileWord = expansionResult.ignoredCount === 1 ? 'file' : 'files';
+      console.log(`[Repomix] Ignored ${expansionResult.ignoredCount} ${fileWord} due to .gitignore rules`);
+      
+      // Only show notification for significant numbers of ignored files
+      if (expansionResult.ignoredCount >= 5) {
+        vscode.window.showInformationMessage(
+          `${expansionResult.ignoredCount} files were ignored due to .gitignore rules`
+        );
+      }
     }
 
     const relativeFiles = expandedFiles
@@ -112,7 +134,7 @@ export async function copySelectedFilesToClipboard(
       return;
     }
 
-    console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (mode: ${copyMode})`);
+    console.log(`[Repomix] Copying ${relativeFiles.length} files as Markdown (mode: ${copyMode}${respectGitignoreInMarkdown ? ', gitignore filtering: ON' : ''})`);
 
     let result: { tokenCount: number } | undefined;
 
@@ -134,10 +156,11 @@ export async function copySelectedFilesToClipboard(
 
     const fileWord = relativeFiles.length === 1 ? "file" : "files";
     const modeSuffix = copyMode === 'content' ? "content " : "";
+    const gitignoreSuffix = respectGitignoreInMarkdown ? " (respecting .gitignore)" : "";
     const formattedTokenCount = result?.tokenCount ? ` (${result.tokenCount.toLocaleString()} tokens)` : "";
 
     vscode.window.showInformationMessage(
-      `✓ Copied ${relativeFiles.length} ${fileWord} ${modeSuffix}as Markdown to clipboard${formattedTokenCount}`
+      `✓ Copied ${relativeFiles.length} ${fileWord} ${modeSuffix}as Markdown to clipboard${gitignoreSuffix}${formattedTokenCount}`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

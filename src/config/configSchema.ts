@@ -118,6 +118,7 @@ export const repomixRunnerConfigBaseSchema = z
       useTargetAsOutput: z.boolean(),
       useBundleNameAsOutputName: z.boolean(),
       configPath: z.string().optional(),
+      respectGitignoreInMarkdown: z.boolean().optional(),
     }),
   })
   .and(repomixConfigBaseSchema);
@@ -131,6 +132,7 @@ export const repomixRunnerConfigDefaultSchema = z
       useTargetAsOutput: z.boolean().default(true),
       useBundleNameAsOutputName: z.boolean().default(true),
       configPath: z.string().default(''),
+      respectGitignoreInMarkdown: z.boolean().default(false),
     }),
   })
   .and(repomixConfigDefaultSchema);
@@ -170,5 +172,6 @@ export const defaultConfig = repomixRunnerConfigDefaultSchema.parse({
     copyMode: 'file',
     useTargetAsOutput: true,
     useBundleNameAsOutputName: true,
+    respectGitignoreInMarkdown: false,
   },
 });
