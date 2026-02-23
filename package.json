@@ -422,6 +422,29 @@
             "minimum": 1,
             "maximum": 168,
             "description": "🏛️ How often (in hours) to regenerate the architecture document"
+          },
+          "repomix.chat.editMode": {
+            "order": 12,
+            "type": "string",
+            "enum": ["full", "search_replace", "hybrid"],
+            "default": "hybrid",
+            "description": "How to apply file edits: full file write, SEARCH/REPLACE patch, or auto-select based on file size"
+          },
+          "repomix.chat.hybridThresholdLines": {
+            "order": 13,
+            "type": "number",
+            "default": 300,
+            "minimum": 50,
+            "maximum": 1000,
+            "description": "Line count threshold for hybrid mode (files >= this use SEARCH/REPLACE)"
+          },
+          "repomix.chat.fuzzyMatchThreshold": {
+            "order": 14,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.85,
+            "description": "Similarity score threshold for fuzzy matching (0-1)"
           }
         }
       }

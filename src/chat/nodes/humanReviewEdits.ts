@@ -14,6 +14,7 @@ export interface EditReviewInterrupt {
     filePath: string;
     action: 'create' | 'edit' | 'delete';
     preview: string;
+    lineCount: number;
   }>;
 }
 
@@ -40,7 +41,8 @@ export async function humanReviewEditsNode(
     edits: state.fileEdits.map((edit) => ({
       filePath: edit.filePath,
       action: edit.action,
-      preview: edit.content.slice(0, 500),
+      preview: edit.content.split('\n').slice(0, 20).join('\n'), // First 20 lines
+      lineCount: edit.content.split('\n').length,
     })),
   };
 

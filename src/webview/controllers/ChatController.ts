@@ -250,6 +250,22 @@ export class ChatController extends BaseController {
       } as EditReviewResume);
       return true;
     }
+    if (message.command === 'applyEdit') {
+      await this.handleApplyEdit(message.filePath);
+      return true;
+    }
+    if (message.command === 'skipEdit') {
+      await this.handleSkipEdit(message.filePath);
+      return true;
+    }
+    if (message.command === 'viewEditDiff') {
+      await this.handleViewEditDiff(message.filePath);
+      return true;
+    }
+    if (message.command === 'applyAllEdits') {
+      await this.handleApplyAllEdits();
+      return true;
+    }
     if (message.command === 'resumeCodeReview') {
       await this.resumeGraph({
         requestReviewCycle: message.requestReviewCycle,
@@ -635,6 +651,123 @@ export class ChatController extends BaseController {
       0
     );
     return goalTokens + contextTokens + 500;
+  }
+
+  /**
+   * Handles individual edit application from webview.
+   */
+  private async handleApplyEdit(filePath: string): Promise<void> {
+    try {
+      if (!this.activeThreadId) {
+        logger.both.warn('ChatController: No active thread for applyEdit');
+        return;
+      }
+
+      // Get current state to find the edit
+      const graph = await this.getGraph();
+      const config = createGraphConfig(this.activeThreadId);
+      const state = await graph.getState(config);
+      
+      const editToApply = state.fileEdits?.find((edit: any) => edit.filePath === filePath);
+      if (!editToApply) {
+        logger.both.warn(`ChatController: Edit not found: ${filePath}`);
+        return;
+      }
+
+      // Mark as approved and resume
+      const approvedEdits = [filePath];
+      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+    } catch (error) {
+      logger.both.error('ChatController: Error applying edit:', error);
+      this.context.postMessage({
+        command: 'chatResponse',
+        text: `Error applying edit: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  /**
+   * Handles individual edit skip from webview.
+   */
+  private async handleSkipEdit(filePath: string): Promise<void> {
+    try {
+      if (!this.activeThreadId) {
+        logger.both.warn('ChatController: No active thread for skipEdit');
+        return;
+      }
+
+      // For skip, we need to resume with the edit NOT in approved list
+      const graph = await this.getGraph();
+      const config = createGraphConfig(this.activeThreadId);
+      const state = await graph.getState(config);
+      
+      // Filter out the skipped edit from approved list
+      const approvedEdits = (state.fileEdits || [])
+        .filter((edit: any) => edit.filePath !== filePath && edit.approved)
+        .map((edit: any) => edit.filePath);
+
+      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+    } catch (error) {
+      logger.both.error('ChatController: Error skipping edit:', error);
+      this.context.postMessage({
+        command: 'chatResponse',
+        text: `Error skipping edit: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  /**
+   * Opens diff view for a file edit.
+   */
+  private async handleViewEditDiff(filePath: string): Promise<void> {
+    try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        logger.both.warn('ChatController: No workspace folder available');
+        return;
+      }
+
+      const fullPath = path.resolve(workspaceRoot, filePath);
+      const uri = vscode.Uri.file(fullPath);
+      
+      // Open the file in editor
+      await vscode.commands.executeCommand('vscode.open', uri);
+    } catch (error) {
+      logger.both.error('ChatController: Error opening diff:', error);
+      this.context.postMessage({
+        command: 'chatResponse',
+        text: `Error opening diff: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  /**
+   * Applies all pending edits at once.
+   */
+  private async handleApplyAllEdits(): Promise<void> {
+    try {
+      if (!this.activeThreadId) {
+        logger.both.warn('ChatController: No active thread for applyAllEdits');
+        return;
+      }
+
+      // Get current state to get all approved edits
+      const graph = await this.getGraph();
+      const config = createGraphConfig(this.activeThreadId);
+      const state = await graph.getState(config);
+      
+      const approvedEdits = (state.fileEdits || [])
+        .filter((edit: any) => edit.approved)
+        .map((edit: any) => edit.filePath);
+
+      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+    } catch (error) {
+      logger.both.error('ChatController: Error applying all edits:', error);
+      this.context.postMessage({
+        command: 'chatResponse',
+        text: `Error applying all edits: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
   }
 
   private async handleListPackages(status?: BatchJobStatus, packageType?: PackageType) {

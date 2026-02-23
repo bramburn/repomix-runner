@@ -857,6 +857,7 @@ export const EditReviewSchema = z.object({
     filePath: z.string(),
     action: z.enum(['create', 'edit', 'delete']),
     preview: z.string(),
+    lineCount: z.number(),
   })),
 });
 
@@ -864,6 +865,29 @@ export const EditReviewSchema = z.object({
 export const ResumeEditReviewSchema = z.object({
   command: z.literal('resumeEditReview'),
   approvedEdits: z.array(z.string()),
+});
+
+// Apply individual edit (webview → extension)
+export const ApplyEditSchema = z.object({
+  command: z.literal('applyEdit'),
+  filePath: z.string(),
+});
+
+// Skip individual edit (webview → extension)
+export const SkipEditSchema = z.object({
+  command: z.literal('skipEdit'),
+  filePath: z.string(),
+});
+
+// View diff for edit (webview → extension)
+export const ViewEditDiffSchema = z.object({
+  command: z.literal('viewEditDiff'),
+  filePath: z.string(),
+});
+
+// Apply all edits (webview → extension)
+export const ApplyAllEditsSchema = z.object({
+  command: z.literal('applyAllEdits'),
 });
 
 // Code review (extension → webview)
@@ -1132,6 +1156,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ResumeBatchPendingSchema,
   EditReviewSchema,
   ResumeEditReviewSchema,
+  ApplyEditSchema,
+  SkipEditSchema,
+  ViewEditDiffSchema,
+  ApplyAllEditsSchema,
   CodeReviewSchema,
   ResumeCodeReviewSchema,
   // Runner Configuration

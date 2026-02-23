@@ -1,14 +1,28 @@
 import { distance } from 'fastest-levenshtein';
 import { MatchResult } from './types.js';
 
-// Threshold: 0 to 1. 1.0 is exact match. 
-// 0.8 allows for minor whitespace/char differences.
-const SIMILARITY_THRESHOLD = 0.85;
+// Default threshold: 0 to 1. 1.0 is exact match. 
+// 0.85 allows for minor whitespace/char differences.
+const DEFAULT_SIMILARITY_THRESHOLD = 0.85;
+
+/**
+ * Normalizes whitespace in text for better fuzzy matching.
+ */
+export function normalizeWhitespace(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')  // Normalize line endings
+    .replace(/[ \t]+/g, ' ')   // Collapse multiple spaces/tabs to single space
+    .trim();
+}
 
 /**
  * Scans the file content to find the best fuzzy match for the search block.
  */
-export function locatePatch(fileContent: string, searchBlock: string): MatchResult | null {
+export function locatePatch(
+  fileContent: string,
+  searchBlock: string,
+  threshold: number = DEFAULT_SIMILARITY_THRESHOLD
+): MatchResult | null {
   const fileLines = fileContent.split('\n');
   const searchLines = searchBlock.split('\n');
   
@@ -27,9 +41,12 @@ export function locatePatch(fileContent: string, searchBlock: string): MatchResu
     const windowLines = fileLines.slice(i, i + searchHeight);
     const windowText = windowLines.join('\n');
     
-    // Calculate similarity
-    const dist = distance(windowText, searchBlock);
-    const maxLen = Math.max(windowText.length, searchBlock.length);
+    // Calculate similarity using normalized text for better matching
+    const normalizedWindow = normalizeWhitespace(windowText);
+    const normalizedSearch = normalizeWhitespace(searchBlock);
+    
+    const dist = distance(normalizedWindow, normalizedSearch);
+    const maxLen = Math.max(normalizedWindow.length, normalizedSearch.length);
     const score = 1 - (dist / maxLen);
 
     if (score > bestScore) {
@@ -50,7 +67,7 @@ export function locatePatch(fileContent: string, searchBlock: string): MatchResu
   }
 
   // Only return if it meets our confidence threshold
-  if (bestScore >= SIMILARITY_THRESHOLD && bestMatch) {
+  if (bestScore >= threshold && bestMatch) {
     return bestMatch;
   }
 

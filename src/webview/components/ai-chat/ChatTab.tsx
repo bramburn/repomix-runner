@@ -4,6 +4,7 @@ import { ChatMessage } from './ChatMessage.js';
 import { ToolCallCard } from './ToolCallCard.js';
 import { ChatInput } from './ChatInput.js';
 import { PackageInlineCard } from './PackageInlineCard.js';
+import { EditReviewPanel } from './EditReviewPanel.js';
 import { vscode } from '../../vscode-api.js';
 import type { PackagePayload } from './packageTypes.js';
 
@@ -30,11 +31,21 @@ interface PendingPackageReview {
   estimatedTokens: number;
 }
 
+interface FileEdit {
+  filePath: string;
+  action: 'create' | 'edit' | 'delete';
+  preview: string;
+  lineCount: number;
+  status: 'pending' | 'applied' | 'failed' | 'skipped';
+  error?: string;
+}
+
 export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [toolCalls] = useState<ToolCall[]>([]);
   const [progressText, setProgressText] = useState<string>('');
   const [pendingPackage, setPendingPackage] = useState<PendingPackageReview | null>(null);
+  const [pendingEdits, setPendingEdits] = useState<FileEdit[] | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [historyCursor, setHistoryCursor] = useState<{ timestamp: number; id: string } | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -112,6 +123,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
             typeof message.estimatedTokens === 'number' ? message.estimatedTokens : 0,
         });
       }
+      if (message?.command === 'editReview' && Array.isArray(message.edits)) {
+        setPendingEdits(message.edits);
+      }
     };
 
     window.addEventListener('message', handleMessage);
@@ -171,6 +185,33 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
     setPendingPackage(null);
   };
 
+  const handleApplyEdit = (filePath: string) => {
+    vscode.postMessage({
+      command: 'applyEdit',
+      filePath,
+    });
+  };
+
+  const handleSkipEdit = (filePath: string) => {
+    vscode.postMessage({
+      command: 'skipEdit',
+      filePath,
+    });
+  };
+
+  const handleViewDiff = (filePath: string) => {
+    vscode.postMessage({
+      command: 'viewEditDiff',
+      filePath,
+    });
+  };
+
+  const handleApplyAllEdits = () => {
+    vscode.postMessage({
+      command: 'applyAllEdits',
+    });
+  };
+
   return (
     <div style={{ 
       display: 'flex', 
@@ -222,6 +263,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
             onViewPackages={onOpenPackagesTab}
             onQuickSend={approvePendingPackage}
             onReject={rejectPendingPackage}
+          />
+        )}
+
+        {pendingEdits && (
+          <EditReviewPanel
+            edits={pendingEdits}
+            onApplyEdit={handleApplyEdit}
+            onSkipEdit={handleSkipEdit}
+            onViewDiff={handleViewDiff}
+            onApplyAll={handleApplyAllEdits}
           />
         )}
 
