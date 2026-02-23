@@ -131,22 +131,22 @@ export const FileEditCard: React.FC<FileEditCardProps> = ({
       case 'create':
         return tokens.colorPaletteGreenForeground1;
       case 'edit':
-        return tokens.colorPaletteBlueForeground1;
+        return tokens.colorPaletteBlueForeground2;
       case 'delete':
         return tokens.colorPaletteRedForeground1;
     }
   };
 
-  const getStatusAppearance = () => {
+  const getStatusAppearance = (): 'success' | 'warning' | 'subtle' | 'danger' => {
     switch (status) {
       case 'pending':
         return 'warning';
       case 'applied':
         return 'success';
       case 'failed':
-        return 'error';
+        return 'danger';
       case 'skipped':
-        return 'secondary';
+        return 'subtle';
     }
   };
 

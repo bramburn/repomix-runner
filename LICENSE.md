@@ -1,7 +1,7 @@
 MIT License
 
 Copyright (c) 2024 Dorian Massoulier
-Copyright (c) 2025 Bhavesh Ramburn
+Copyright (c) 2025-26 Bhavesh Ramburn
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

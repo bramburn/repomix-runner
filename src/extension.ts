@@ -38,8 +38,6 @@ import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/files/remoteDetection.js';
 import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
-
-import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import { copySelectedFilesAsCompressed } from './commands/copySelectedFilesAsCompressed.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
 import { getRepoForActiveEditor, getAllChangedUris, getChangesCounts } from './git/gitUtils.js';
@@ -49,7 +47,6 @@ import { ExtensionServices } from './core/services/ExtensionServices.js';
 import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
 import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
 import type { Pool } from 'pg';
-import { SECRET_POSTGRES_CONNECTION } from './webview/controllers/ConfigController.js';
 import { BatchManager } from './chat/batch/batchManager.js';
 import { BatchPoller } from './chat/batch/batchPoller.js';
 import type { BatchCompletionResult } from './chat/batch/types.js';
@@ -79,6 +76,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize PostgreSQL pool for chat storage
   let chatPgPool: Pool | null = null;
+  // Chat-related secrets (PRD 010)
+  const SECRET_POSTGRES_CONNECTION = 'repomix.chat.postgresConnectionString';
   const pgConnectionString = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
 
   if (pgConnectionString) {

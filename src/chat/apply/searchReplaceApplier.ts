@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { FileEdit } from '../state.js';
 import type { ApplyResult, SearchReplaceResult } from './types.js';
-import { locatePatch, repairIndentation } from '../../core/patching/contentAnalyst.js';
+import { locatePatch } from '../../core/patching/contentAnalyst.js';
 
 /**
  * Applies SEARCH/REPLACE patches with fuzzy matching support.
@@ -55,18 +55,6 @@ export async function applySearchReplace(
     const allSuccess = searchReplaceResults.every((r) => r.success);
 
     if (allSuccess && updatedContent !== fileContent) {
-      // Apply all changes at once via WorkspaceEdit
-      const workspaceEdit = new vscode.WorkspaceEdit();
-      workspaceEdit.replace(
-        fileUri,
-        new vscode.Range(
-          fileUri.with({ scheme: 'untitled' }),
-          new vscode.Position(0, 0),
-          new vscode.Position(fileContent.split('\n').length, 0)
-        ),
-        updatedContent
-      );
-
       // Simpler approach: just replace entire document content
       const lines = fileContent.split('\n');
       const editInstance = new vscode.WorkspaceEdit();

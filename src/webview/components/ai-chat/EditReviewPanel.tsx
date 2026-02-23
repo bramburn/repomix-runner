@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -138,10 +139,10 @@ export const EditReviewPanel: React.FC<EditReviewPanelProps> = ({
           <Badge appearance="outline" color="success">
             {summary.applied} applied
           </Badge>
-          <Badge appearance="outline" color="error">
+          <Badge appearance="outline" color="danger">
             {summary.failed} failed
           </Badge>
-          <Badge appearance="outline" color="secondary">
+          <Badge appearance="outline" color="informative">
             {summary.skipped} skipped
           </Badge>
         </div>
@@ -154,11 +155,21 @@ export const EditReviewPanel: React.FC<EditReviewPanelProps> = ({
             onOptionSelect={(_, data) => setFilter(data.optionValue as typeof filter)}
             size="small"
           >
-            <Option value="all">All ({edits.length})</Option>
-            <Option value="pending">Pending ({summary.pending})</Option>
-            <Option value="applied">Applied ({summary.applied})</Option>
-            <Option value="failed">Failed ({summary.failed})</Option>
-            <Option value="skipped">Skipped ({summary.skipped})</Option>
+            <Option value="all" text={`All (${edits.length})`}>
+              All ({edits.length})
+            </Option>
+            <Option value="pending" text={`Pending (${summary.pending})`}>
+              Pending ({summary.pending})
+            </Option>
+            <Option value="applied" text={`Applied (${summary.applied})`}>
+              Applied ({summary.applied})
+            </Option>
+            <Option value="failed" text={`Failed (${summary.failed})`}>
+              Failed ({summary.failed})
+            </Option>
+            <Option value="skipped" text={`Skipped (${summary.skipped})`}>
+              Skipped ({summary.skipped})
+            </Option>
           </Dropdown>
         </Field>
 

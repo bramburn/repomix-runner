@@ -1031,6 +1031,122 @@ export const QueueProcessingCompletedSchema = z.object({
   success: z.boolean(),
 });
 
+// --- Chat Settings Schemas (PRD 010) ---
+
+// Get all chat settings (webview → extension)
+export const GetChatSettingsSchema = z.object({
+  command: z.literal('getChatSettings'),
+});
+
+// Chat settings response (extension → webview)
+export const ChatSettingsResultSchema = z.object({
+  command: z.literal('chatSettingsResult'),
+  settings: z.object({
+    postgresConnectionString: z.string().optional(),
+    planningModel: z.enum(['gemini-2.5-flash', 'gemini-2.5-flash-lite']).optional(),
+    batchModel: z.string(),
+    batchMaxTokens: z.number(),
+    batchThinkingBudget: z.number(),
+    batchPollIntervalSeconds: z.number(),
+    contextThresholdPercent: z.number(),
+    maxRecentMessages: z.number(),
+    fileCompressionLevel: z.enum(['auto', 'full', 'skeleton', 'summary']).optional(),
+    editMode: z.enum(['full', 'search_replace', 'hybrid']),
+    hybridThresholdLines: z.number(),
+    fuzzyMatchThreshold: z.number(),
+    architectureRefreshHours: z.number(),
+    architectureLastGenerated: z.number().optional(),
+    architectureStatus: z.enum(['fresh', 'stale', 'missing']).optional(),
+  }),
+});
+
+// Set individual chat setting (webview → extension)
+export const SetChatSettingSchema = z.object({
+  command: z.literal('setChatSetting'),
+  key: z.string(),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+});
+
+// Test PostgreSQL connection (webview → extension)
+export const TestPostgresConnectionSchema = z.object({
+  command: z.literal('testPostgresConnection'),
+});
+
+// PostgreSQL connection test result (extension → webview)
+export const PostgresConnectionResultSchema = z.object({
+  command: z.literal('postgresConnectionResult'),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+// Run database migrations (webview → extension)
+export const RunMigrationsSchema = z.object({
+  command: z.literal('runMigrations'),
+});
+
+// Migrations complete (extension → webview)
+export const MigrationsCompleteSchema = z.object({
+  command: z.literal('migrationsComplete'),
+  success: z.boolean(),
+  error: z.string().optional(),
+});
+
+// Refresh architecture document now (webview → extension)
+export const RefreshArchitectureNowSchema = z.object({
+  command: z.literal('refreshArchitectureNow'),
+});
+
+// Architecture status update (extension → webview)
+export const ArchitectureStatusSchema = z.object({
+  command: z.literal('architectureStatus'),
+  lastGenerated: z.number().optional(),
+  status: z.enum(['fresh', 'stale', 'missing']),
+});
+
+// --- Chat History Schemas (PRD 010) ---
+
+// Search threads (webview → extension)
+export const SearchThreadsSchema = z.object({
+  command: z.literal('searchThreads'),
+  query: z.string().min(1),
+  showArchived: z.boolean().optional(),
+});
+
+// Thread search results (extension → webview)
+export const ThreadsSearchResultSchema = z.object({
+  command: z.literal('threadsSearchResult'),
+  threads: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    updatedAt: z.number(),
+    createdAt: z.number(),
+    messageCount: z.number(),
+    tokenCount: z.number(),
+    preview: z.string().optional(),
+    hasPendingBatch: z.boolean().optional(),
+    isArchived: z.boolean().optional(),
+  })),
+  total: z.number(),
+});
+
+// Archive thread (webview → extension)
+export const ArchiveThreadSchema = z.object({
+  command: z.literal('archiveThread'),
+  threadId: z.string(),
+});
+
+// Unarchive thread (webview → extension)
+export const UnarchiveThreadSchema = z.object({
+  command: z.literal('unarchiveThread'),
+  threadId: z.string(),
+});
+
+// Toggle archived threads display (webview → extension)
+export const ShowArchivedThreadsSchema = z.object({
+  command: z.literal('showArchivedThreads'),
+  show: z.boolean(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -1181,6 +1297,22 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   QueueStatusSchema,
   QueueProcessingStartedSchema,
   QueueProcessingCompletedSchema,
+  // Chat Settings (PRD 010)
+  GetChatSettingsSchema,
+  ChatSettingsResultSchema,
+  SetChatSettingSchema,
+  TestPostgresConnectionSchema,
+  PostgresConnectionResultSchema,
+  RunMigrationsSchema,
+  MigrationsCompleteSchema,
+  RefreshArchitectureNowSchema,
+  ArchitectureStatusSchema,
+  // Chat History (PRD 010)
+  SearchThreadsSchema,
+  ThreadsSearchResultSchema,
+  ArchiveThreadSchema,
+  UnarchiveThreadSchema,
+  ShowArchivedThreadsSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

@@ -67,7 +67,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message?.command === 'threadHistory' && Array.isArray(message.messages)) {
-        const incoming = message.messages.map(
+        const incoming: Message[] = message.messages.map(
           (m: { id?: string; role: 'user' | 'assistant'; content: string; timestamp?: number }) => ({
             id: m.id,
             role: m.role,

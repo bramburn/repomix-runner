@@ -10,6 +10,7 @@ import { logger } from '../../shared/logger.js';
 import { PlanService } from '../../services/planService.js';
 import { ThreadRepository } from '../../chat/db/threadRepository.js';
 import { MessageRepository } from '../../chat/db/messageRepository.js';
+import { ArchitectureRepository } from '../../chat/db/architectureRepository.js';
 import { BatchManager } from '../../chat/batch/batchManager.js';
 import { BatchPoller } from '../../chat/batch/batchPoller.js';
 import { ThreadMessage } from '../../types/chat.js';
@@ -52,6 +53,11 @@ type InterruptPayload =
   | EditReviewInterrupt
   | CodeReviewInterrupt;
 
+type SnapshotFileEdit = {
+  filePath: string;
+  approved: boolean;
+};
+
 const THREAD_HISTORY_PAGE_SIZE = 50;
 
 /**
@@ -60,6 +66,7 @@ const THREAD_HISTORY_PAGE_SIZE = 50;
 export class ChatController extends BaseController {
   private readonly threadRepository: ThreadRepository;
   private readonly messageRepository: MessageRepository;
+  private readonly architectureRepository: ArchitectureRepository;
   private readonly planService: PlanService;
   private readonly batchManager: BatchManager;
   private readonly batchPoller: BatchPoller;
@@ -81,6 +88,7 @@ export class ChatController extends BaseController {
     this.pgPool = pgPool;
     this.threadRepository = new ThreadRepository(pgPool);
     this.messageRepository = new MessageRepository(pgPool);
+    this.architectureRepository = new ArchitectureRepository(pgPool);
     this.planService = new PlanService(extensionContext);
     this.batchManager = new BatchManager(pgPool, extensionContext);
     this.batchPoller = new BatchPoller(this.batchManager, {
@@ -333,6 +341,56 @@ export class ChatController extends BaseController {
     }
     if (message.command === 'viewBatchStatus') {
       await this.handleViewBatchStatus(message.packageId);
+      return true;
+    }
+
+    // Chat Settings handlers (PRD 010)
+    if (message.command === 'getChatSettings') {
+      await this.handleGetChatSettings();
+      return true;
+    }
+    if (message.command === 'setChatSetting') {
+      await this.handleSetChatSetting(message.key, message.value);
+      return true;
+    }
+    if (message.command === 'saveSecret') {
+      await this.handleSaveSecret(message.key, message.value);
+      return true;
+    }
+    if (message.command === 'checkSecret') {
+      await this.handleCheckSecret(message.key);
+      return true;
+    }
+    if (message.command === 'testPostgresConnection') {
+      await this.handleTestPostgresConnection();
+      return true;
+    }
+    if (message.command === 'runMigrations') {
+      await this.handleRunMigrations();
+      return true;
+    }
+    if (message.command === 'refreshArchitectureNow') {
+      await this.handleRefreshArchitectureNow();
+      return true;
+    }
+
+    // Chat History handlers (PRD 010)
+    if (message.command === 'searchThreads') {
+      await this.handleSearchThreads(message.query, message.showArchived);
+      return true;
+    }
+    if (message.command === 'showArchivedThreads') {
+      // Just acknowledge, state is tracked in webview
+      return true;
+    }
+    if (message.command === 'archiveThread') {
+      await this.threadRepository.archiveThread(message.threadId);
+      await this.postThreads();
+      return true;
+    }
+    if (message.command === 'unarchiveThread') {
+      await this.threadRepository.unarchiveThread(message.threadId);
+      await this.postThreads();
       return true;
     }
 
@@ -653,6 +711,11 @@ export class ChatController extends BaseController {
     return goalTokens + contextTokens + 500;
   }
 
+  private getSnapshotFileEdits(state: { values?: unknown }): SnapshotFileEdit[] {
+    const values = (state.values ?? {}) as { fileEdits?: SnapshotFileEdit[] };
+    return Array.isArray(values.fileEdits) ? values.fileEdits : [];
+  }
+
   /**
    * Handles individual edit application from webview.
    */
@@ -667,8 +730,8 @@ export class ChatController extends BaseController {
       const graph = await this.getGraph();
       const config = createGraphConfig(this.activeThreadId);
       const state = await graph.getState(config);
-      
-      const editToApply = state.fileEdits?.find((edit: any) => edit.filePath === filePath);
+      const fileEdits = this.getSnapshotFileEdits(state);
+      const editToApply = fileEdits.find((edit) => edit.filePath === filePath);
       if (!editToApply) {
         logger.both.warn(`ChatController: Edit not found: ${filePath}`);
         return;
@@ -700,11 +763,12 @@ export class ChatController extends BaseController {
       const graph = await this.getGraph();
       const config = createGraphConfig(this.activeThreadId);
       const state = await graph.getState(config);
-      
+      const fileEdits = this.getSnapshotFileEdits(state);
+
       // Filter out the skipped edit from approved list
-      const approvedEdits = (state.fileEdits || [])
-        .filter((edit: any) => edit.filePath !== filePath && edit.approved)
-        .map((edit: any) => edit.filePath);
+      const approvedEdits = fileEdits
+        .filter((edit) => edit.filePath !== filePath && edit.approved)
+        .map((edit) => edit.filePath);
 
       await this.resumeGraph({ approvedEdits } as EditReviewResume);
     } catch (error) {
@@ -755,10 +819,8 @@ export class ChatController extends BaseController {
       const graph = await this.getGraph();
       const config = createGraphConfig(this.activeThreadId);
       const state = await graph.getState(config);
-      
-      const approvedEdits = (state.fileEdits || [])
-        .filter((edit: any) => edit.approved)
-        .map((edit: any) => edit.filePath);
+      const fileEdits = this.getSnapshotFileEdits(state);
+      const approvedEdits = fileEdits.filter((edit) => edit.approved).map((edit) => edit.filePath);
 
       await this.resumeGraph({ approvedEdits } as EditReviewResume);
     } catch (error) {
@@ -831,6 +893,251 @@ export class ChatController extends BaseController {
           : undefined,
     });
     await this.handleListPackages();
+  }
+
+  // --- Chat Settings Handlers (PRD 010) ---
+
+  private async handleGetChatSettings(): Promise<void> {
+    try {
+      const config = vscode.workspace.getConfiguration('repomix.chat');
+      
+      // Get architecture status
+      const archDoc = await this.architectureRepository.getDocument(this.repoId);
+      let architectureLastGenerated: number | undefined;
+      let architectureStatus: 'fresh' | 'stale' | 'missing' = 'missing';
+      
+      if (archDoc) {
+        architectureLastGenerated = archDoc.generatedAt;
+        const refreshHours = config.get<number>('architectureRefreshHours', 24);
+        const hoursSinceGeneration = (Date.now() - archDoc.generatedAt) / (1000 * 60 * 60);
+        
+        if (hoursSinceGeneration < refreshHours) {
+          architectureStatus = 'fresh';
+        } else {
+          architectureStatus = 'stale';
+        }
+      }
+
+      this.context.postMessage({
+        command: 'chatSettingsResult',
+        settings: {
+          postgresConnectionString: undefined, // Don't send connection string back
+          planningModel: config.get<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('planningModel', 'gemini-2.5-flash'),
+          batchModel: config.get<string>('batchModel', 'claude-opus-4-20250514'),
+          batchMaxTokens: config.get<number>('batchMaxTokens', 16384),
+          batchThinkingBudget: config.get<number>('batchThinkingBudget', 10000),
+          batchPollIntervalSeconds: config.get<number>('batchPollIntervalSeconds', 60),
+          contextThresholdPercent: config.get<number>('contextThresholdPercent', 80),
+          maxRecentMessages: config.get<number>('maxRecentMessages', 10),
+          fileCompressionLevel: config.get<'auto' | 'full' | 'skeleton' | 'summary'>('fileCompressionLevel', 'auto'),
+          editMode: config.get<'full' | 'search_replace' | 'hybrid'>('editMode', 'hybrid'),
+          hybridThresholdLines: config.get<number>('hybridThresholdLines', 300),
+          fuzzyMatchThreshold: config.get<number>('fuzzyMatchThreshold', 0.85),
+          architectureRefreshHours: config.get<number>('architectureRefreshHours', 24),
+          architectureLastGenerated,
+          architectureStatus,
+        },
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to get chat settings', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to load settings: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  private async handleSetChatSetting(key: string, value: any): Promise<void> {
+    try {
+      const config = vscode.workspace.getConfiguration('repomix.chat');
+      await config.update(key, value, vscode.ConfigurationTarget.Global);
+      
+      // Reload settings to confirm
+      await this.handleGetChatSettings();
+    } catch (error) {
+      logger.both.error('ChatController: Failed to set chat setting', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to save setting: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  private async handleSaveSecret(key: string, value: string): Promise<void> {
+    try {
+      if (!value.trim()) {
+        // Clear the secret
+        await this.extensionContext.secrets.delete(key);
+      } else {
+        await this.extensionContext.secrets.store(key, value);
+      }
+      
+      this.context.postMessage({
+        command: 'secretStatus',
+        key,
+        exists: !!value.trim(),
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to save secret', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to save secret: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  private async handleCheckSecret(key: string): Promise<void> {
+    try {
+      const exists = !!(await this.extensionContext.secrets.get(key));
+      this.context.postMessage({
+        command: 'secretStatus',
+        key,
+        exists,
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to check secret', error);
+    }
+  }
+
+  private async handleTestPostgresConnection(): Promise<void> {
+    try {
+      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString');
+      
+      if (!connectionString) {
+        this.context.postMessage({
+          command: 'postgresConnectionResult',
+          success: false,
+          error: 'PostgreSQL connection string not configured',
+        });
+        return;
+      }
+
+      // Test the connection using the existing testConnection function
+      const { testConnection } = await import('../../chat/db/postgresClient.js');
+      const result = await testConnection(connectionString);
+      
+      this.context.postMessage({
+        command: 'postgresConnectionResult',
+        success: result.success,
+        error: result.error,
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to test PostgreSQL connection', error);
+      this.context.postMessage({
+        command: 'postgresConnectionResult',
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handleRunMigrations(): Promise<void> {
+    try {
+      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString');
+      
+      if (!connectionString) {
+        this.context.postMessage({
+          command: 'migrationsComplete',
+          success: false,
+          error: 'PostgreSQL connection string not configured',
+        });
+        return;
+      }
+
+      // Import and run migrations
+      const { runMigrations } = await import('../../chat/db/migrationRunner.js');
+      await runMigrations(connectionString);
+      
+      this.context.postMessage({
+        command: 'migrationsComplete',
+        success: true,
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to run migrations', error);
+      this.context.postMessage({
+        command: 'migrationsComplete',
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handleRefreshArchitectureNow(): Promise<void> {
+    try {
+      if (!this.activeThreadId) {
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: 'No active thread available',
+        });
+        return;
+      }
+
+      // Execute architecture generation
+      await executeArchitectureGeneration(
+        this.extensionContext,
+        this.pgPool,
+        this.activeThreadId
+      );
+
+      // Post updated status
+      await this.handleGetChatSettings();
+    } catch (error) {
+      logger.both.error('ChatController: Failed to refresh architecture', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to refresh architecture: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  // --- Chat History Handlers (PRD 010) ---
+
+  private async handleSearchThreads(query: string, showArchived: boolean = false): Promise<void> {
+    try {
+      const threads = await this.threadRepository.searchThreads(this.repoId, query, showArchived);
+      
+      const threadSummaries = await Promise.all(
+        threads.map(async (thread) => {
+          const messageCount = await this.messageRepository.getMessageCount(thread.id);
+          const tokenCount = thread.totalTokens || 0;
+          const hasPendingBatch = await this.batchManager.hasPendingBatches(thread.id);
+          
+          // Get preview from first message
+          const messages = await this.messageRepository.getMessages(thread.id, { limit: 1 });
+          const preview = messages[0]?.content.slice(0, 200);
+          
+          return {
+            id: thread.id,
+            title: thread.title,
+            updatedAt: thread.updatedAt,
+            createdAt: thread.createdAt,
+            messageCount,
+            tokenCount,
+            preview,
+            hasPendingBatch,
+            isArchived: thread.isArchived,
+          };
+        })
+      );
+      
+      this.context.postMessage({
+        command: 'threadsSearchResult',
+        threads: threadSummaries,
+        total: threadSummaries.length,
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to search threads', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to search threads: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   }
 
   /**

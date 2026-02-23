@@ -449,6 +449,28 @@
             "maximum": 1,
             "default": 0.85,
             "description": "Similarity score threshold for fuzzy matching (0-1)"
+          },
+          "repomix.chat.planningModel": {
+            "order": 15,
+            "type": "string",
+            "enum": [
+              "gemini-2.5-flash",
+              "gemini-2.5-flash-lite"
+            ],
+            "default": "gemini-2.5-flash",
+            "description": "🧠 LLM model for planning and orchestration (Gemini Flash)"
+          },
+          "repomix.chat.fileCompressionLevel": {
+            "order": 16,
+            "type": "string",
+            "enum": [
+              "auto",
+              "full",
+              "skeleton",
+              "summary"
+            ],
+            "default": "auto",
+            "description": "🗜️ How to compress files in chat context (auto/full/skeleton/summary)"
           }
         }
       }

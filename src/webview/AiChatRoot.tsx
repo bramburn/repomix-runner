@@ -9,6 +9,8 @@ import {
 import { ChatTab } from './components/ai-chat/ChatTab.js';
 import { MemoryPanel } from './components/ai-chat/MemoryPanel.js';
 import { PackagesTab } from './components/ai-chat/PackagesTab.js';
+import { ChatSettingsTab } from './components/ai-chat/ChatSettingsTab.js';
+import { ChatHistoryTab } from './components/ai-chat/ChatHistoryTab.js';
 import { vscode } from './vscode-api.js';
 
 export const AiChatRoot = () => {
@@ -88,28 +90,14 @@ export const AiChatRoot = () => {
 
           {activeTab === 'Memory' && <MemoryPanel />}
           
-          {activeTab === 'Settings' && (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              height: '100%',
-              justifyContent: 'center',
-              alignItems: 'center'
-            }}>
-              <Text style={{ opacity: 0.7 }}>Settings interface coming soon...</Text>
-            </div>
-          )}
+          {activeTab === 'Settings' && <ChatSettingsTab />}
           
           {activeTab === 'History' && (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              height: '100%',
-              justifyContent: 'center',
-              alignItems: 'center'
-            }}>
-              <Text style={{ opacity: 0.7 }}>History interface coming soon...</Text>
-            </div>
+            <ChatHistoryTab
+              onResumeThread={(threadId) => {
+                setActiveTab('Chat');
+              }}
+            />
           )}
         </div>
       </div>
