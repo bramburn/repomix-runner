@@ -101,7 +101,7 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/extension.js',
-    external: ['vscode'],
+    external: ['vscode', 'pg-native'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
   });

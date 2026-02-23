@@ -216,6 +216,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     total: number;
   } | null>(null);
 
+  // Runner Configuration State
+  const [respectGitignoreInMarkdown, setRespectGitignoreInMarkdown] = useState<boolean>(false);
+
   // Auto-fetch indexes if we have the key but no indexes yet
   useEffect(() => {
     if (pineconeKeyExists && pineconeIndexes.length === 0 && !isFetchingIndexes) {
@@ -419,6 +422,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             invalidationReason: message.invalidationReason
           });
           break;
+
+        case 'runnerConfig':
+          setRespectGitignoreInMarkdown(message.config.respectGitignoreInMarkdown);
+          break;
       }
     };
     window.addEventListener('message', handler);
@@ -436,6 +443,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'getLMStudioConfig' });
     vscode.postMessage({ command: 'checkCompatibility' });
     vscode.postMessage({ command: 'getAnalysisStatus' });
+    vscode.postMessage({ command: 'getRunnerConfig' });
 
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -613,6 +621,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setIsAnalyzing(true);
     setAnalysisProgress(null);
     vscode.postMessage({ command: 'analyzeRepository' });
+  };
+
+  const handleRespectGitignoreToggle = (_ev: any, data: { checked: boolean }) => {
+    const newValue = data.checked;
+    setRespectGitignoreInMarkdown(newValue);
+    vscode.postMessage({ 
+      command: 'setRunnerConfig', 
+      config: { respectGitignoreInMarkdown: newValue } 
+    });
   };
 
   // Check if prerequisites are met for repository analysis
@@ -1168,6 +1185,36 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <div style={{ display: 'flex', gap: '8px' }}>
           <Input placeholder="Enter search query..." style={{ flexGrow: 1 }} />
           <Button icon={<SearchRegular />}>Search</Button>
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* Markdown Generation Settings */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Markdown Generation</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="respect-gitignore-markdown"
+              type="checkbox"
+              checked={respectGitignoreInMarkdown}
+              onChange={(e) => {
+                setRespectGitignoreInMarkdown(e.target.checked);
+                vscode.postMessage({ 
+                  command: 'setRunnerConfig', 
+                  config: { respectGitignoreInMarkdown: e.target.checked } 
+                });
+              }}
+            />
+            <Label htmlFor="respect-gitignore-markdown" style={{ margin: 0 }}>
+              Respect .gitignore in markdown generation
+            </Label>
+          </div>
+          <Text size={100} style={{ opacity: 0.7 }}>
+            When enabled, markdown generation (context menu actions) will exclude files that match .gitignore patterns,
+            including those in subfolders. Explicit file selections are always included.
+          </Text>
         </div>
       </div>
 

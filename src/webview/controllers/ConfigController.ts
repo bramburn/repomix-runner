@@ -132,6 +132,14 @@ export class ConfigController extends BaseController {
       case 'getAnalysisStatus':
         await this.handleGetAnalysisStatus();
         return true;
+
+      // --- Runner Configuration ---
+      case 'getRunnerConfig':
+        await this.handleGetRunnerConfig();
+        return true;
+      case 'setRunnerConfig':
+        await this.handleSetRunnerConfig(message.config);
+        return true;
     }
     return false;
   }
@@ -1258,6 +1266,56 @@ export class ConfigController extends BaseController {
         exists: false,
         valid: false
       });
+    }
+  }
+
+  // --- Runner Configuration Handlers ---
+
+  private async handleGetRunnerConfig() {
+    try {
+      const config = vscode.workspace.getConfiguration('repomix');
+      const runnerConfig = config.get<any>('runner', {});
+      
+      this.context.postMessage({
+        command: 'runnerConfig',
+        config: {
+          respectGitignoreInMarkdown: runnerConfig.respectGitignoreInMarkdown ?? false
+        }
+      });
+    } catch (error) {
+      console.error('[ConfigController] Failed to get runner config:', error);
+      this.context.postMessage({
+        command: 'runnerConfig',
+        config: {
+          respectGitignoreInMarkdown: false
+        }
+      });
+    }
+  }
+
+  private async handleSetRunnerConfig(config: { respectGitignoreInMarkdown?: boolean }) {
+    try {
+      const vscodeConfig = vscode.workspace.getConfiguration('repomix');
+      
+      if (config.respectGitignoreInMarkdown !== undefined) {
+        await vscodeConfig.update(
+          'runner.respectGitignoreInMarkdown', 
+          config.respectGitignoreInMarkdown, 
+          vscode.ConfigurationTarget.Global
+        );
+        console.log('[ConfigController] Updated respectGitignoreInMarkdown to:', config.respectGitignoreInMarkdown);
+      }
+      
+      // Send updated config back to webview
+      await this.handleGetRunnerConfig();
+      
+      vscode.window.showInformationMessage(
+        `Markdown generation settings updated successfully.`
+      );
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[ConfigController] Failed to set runner config:', error);
+      vscode.window.showErrorMessage(`Failed to update settings: ${errorMsg}`);
     }
   }
 }

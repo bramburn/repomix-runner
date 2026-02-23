@@ -1,5 +1,49 @@
 import { Annotation } from "@langchain/langgraph";
 
+// --- Type Definitions for HITL Workflow ---
+
+/**
+ * Workflow phase tracking for HITL UI state synchronization.
+ */
+export type WorkflowPhase =
+  | 'idle'
+  | 'gathering'
+  | 'goal_review'
+  | 'packaging'
+  | 'send_review'
+  | 'batch_pending'
+  | 'response_review'
+  | 'applying'
+  | 'code_review'
+  | 'complete';
+
+/**
+ * Output instruction type for batch submission.
+ */
+export type OutputInstruction = 'plan' | 'code_change' | 'code_review';
+
+/**
+ * Package payload structure for batch submission.
+ */
+export interface PackagePayload {
+  goal: string;
+  contextFiles: Array<{ path: string; content: string }>;
+  repoArchitecture: string;
+  dependencies: Record<string, string>;
+  outputInstruction: OutputInstruction;
+}
+
+/**
+ * File edit structure from batch response.
+ */
+export interface FileEdit {
+  filePath: string;
+  action: 'create' | 'edit' | 'delete';
+  content: string;
+  searchReplace?: Array<{ search: string; replace: string }>;
+  approved: boolean;
+}
+
 /**
  * Defines the shared memory of the chat graph as it processes messages.
  */
@@ -126,5 +170,61 @@ export const ChatState = Annotation.Root({
   costUsd: Annotation<number>({
     reducer: (x, y) => x + y,
     default: () => 0,
+  }),
+
+  // --- HITL Workflow State ---
+
+  // Current workflow phase for UI synchronization
+  workflowPhase: Annotation<WorkflowPhase>({
+    reducer: (_, y) => y,
+    default: () => 'idle',
+  }),
+
+  // Synthesized goal text (user-editable during review)
+  goalText: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => '',
+  }),
+
+  // Repository architecture markdown (loaded from DB or generated)
+  repoArchitecture: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => '',
+  }),
+
+  // Project dependencies extracted from package.json, requirements.txt, etc.
+  dependencies: Annotation<Record<string, string>>({
+    reducer: (_, y) => y,
+    default: () => ({}),
+  }),
+
+  // Final package payload ready for batch submission
+  packagePayload: Annotation<PackagePayload | null>({
+    reducer: (_, y) => y,
+    default: () => null,
+  }),
+
+  // Batch job ID from batch_jobs table
+  batchJobId: Annotation<string | null>({
+    reducer: (_, y) => y,
+    default: () => null,
+  }),
+
+  // Parsed file edits from batch response
+  fileEdits: Annotation<FileEdit[]>({
+    reducer: (_, y) => y,
+    default: () => [],
+  }),
+
+  // Whether user wants another review cycle
+  requestReviewCycle: Annotation<boolean>({
+    reducer: (_, y) => y,
+    default: () => false,
+  }),
+
+  // Batch response content (raw response from API or stub)
+  batchResponseContent: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => '',
   }),
 });

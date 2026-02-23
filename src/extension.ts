@@ -47,6 +47,8 @@ import { GitService } from './git/GitService.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
 import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
+import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
+import type { Pool } from 'pg';
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -69,6 +71,26 @@ export async function activate(context: vscode.ExtensionContext) {
   const databaseService = new DatabaseService(context);
   await databaseService.initialize();
   console.log('[quick-repomix] Database service initialized');
+
+  // Initialize PostgreSQL pool for chat storage
+  let chatPgPool: Pool | null = null;
+  const pgConnectionString = vscode.workspace
+    .getConfiguration('repomix.chat')
+    .get<string>('postgresConnectionString', '');
+
+  if (pgConnectionString) {
+    try {
+      chatPgPool = await initPool(pgConnectionString);
+      console.log('[quick-repomix] PostgreSQL chat storage initialized');
+    } catch (error) {
+      console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
+      vscode.window.showErrorMessage(
+        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled.`
+      );
+    }
+  } else {
+    console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
+  }
 
   // Initialize embedding service with saved configuration
   console.log('[quick-repomix] Initializing embedding service...');
@@ -495,11 +517,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
   console.log('[quick-repomix] Creating RepomixWebviewProvider...');
-  const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices);
+  const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices, chatPgPool);
   console.log('[quick-repomix] RepomixWebviewProvider created');
 
   console.log('[quick-repomix] Creating AiChatWebviewProvider...');
-  const aiChatProvider = new AiChatWebviewProvider(context.extensionUri);
+  const aiChatProvider = new AiChatWebviewProvider(context.extensionUri, context, chatPgPool);
   console.log('[quick-repomix] AiChatWebviewProvider created');
 
   console.log('[quick-repomix] Registering webview view providers...');
@@ -894,8 +916,23 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
-
-
+  const testPostgresConnectionCommand = vscode.commands.registerCommand(
+    'repomixRunner.testPostgresConnection',
+    async () => {
+      try {
+        const result = await testConnection();
+        if (result.success) {
+          vscode.window.showInformationMessage(`PostgreSQL connected: ${result.message}`);
+        } else {
+          vscode.window.showErrorMessage(`PostgreSQL connection failed: ${result.message}`);
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Connection test error: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  );
 
 
   // Ajouter toutes les souscriptions au contexte
@@ -928,6 +965,7 @@ export async function activate(context: vscode.ExtensionContext) {
     copySingleFileRespectingModeCommand,
     copyFromScmCommand,
     copyAllGitChangesCommand,
+    testPostgresConnectionCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
 }
@@ -961,7 +999,9 @@ async function cleanupOldRepomixOutputs(databaseService: DatabaseService) {
   }
 }
 
-export function deactivate() {
+export async function deactivate() {
   tempDirManager.cleanup();
-  // Database service will be disposed automatically when extension context is disposed
+  await closePool().catch((err) =>
+    console.error('[quick-repomix] Failed to close PG pool:', err)
+  );
 }

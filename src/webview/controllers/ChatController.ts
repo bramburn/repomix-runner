@@ -1,28 +1,37 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import * as path from 'path';
+import type { Pool } from 'pg';
 import { BaseController, IWebviewContext } from './BaseController.js';
 import { createChatGraph } from '../../chat/graph.js';
 import { logger } from '../../shared/logger.js';
-import { ConversationService } from '../../services/conversationService.js';
 import { PlanService } from '../../services/planService.js';
+import { ThreadRepository } from '../../chat/db/threadRepository.js';
+import { MessageRepository } from '../../chat/db/messageRepository.js';
 import { ThreadMessage } from '../../types/chat.js';
+import { getRepoId } from '../../utils/repoIdentity.js';
+import { getCwd } from '../../config/getCwd.js';
 
 /**
  * ChatController handles chat messages from the webview and executes the chat graph.
  */
 export class ChatController extends BaseController {
-  private readonly conversationService: ConversationService;
+  private readonly threadRepository: ThreadRepository;
+  private readonly messageRepository: MessageRepository;
   private readonly planService: PlanService;
   private readonly ready: Promise<void>;
   private activeThreadId: string | null = null;
+  private repoId: string = '';
 
   constructor(
     context: IWebviewContext,
-    private readonly extensionContext: vscode.ExtensionContext
+    private readonly extensionContext: vscode.ExtensionContext,
+    pgPool: Pool
   ) {
     super(context);
-    this.conversationService = new ConversationService(extensionContext);
+    this.threadRepository = new ThreadRepository(pgPool);
+    this.messageRepository = new MessageRepository(pgPool);
     this.planService = new PlanService(extensionContext);
     this.ready = this.initializeService();
   }
@@ -47,7 +56,7 @@ export class ChatController extends BaseController {
       return true;
     }
     if (message.command === 'createThread') {
-      const thread = await this.conversationService.createThread();
+      const thread = await this.threadRepository.createThread(this.repoId);
       this.activeThreadId = thread.id;
       await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', thread.id);
       await this.postThreads();
@@ -67,7 +76,7 @@ export class ChatController extends BaseController {
       return true;
     }
     if (message.command === 'renameThread') {
-      await this.conversationService.renameThread(message.threadId, message.newName);
+      await this.threadRepository.renameThread(message.threadId, message.newName);
       await this.postThreads();
       return true;
     }
@@ -83,10 +92,12 @@ export class ChatController extends BaseController {
   }
 
   private async initializeService(): Promise<void> {
-    await this.conversationService.init();
+    this.repoId = await getRepoId(getCwd());
 
-    const threads = await this.conversationService.getThreads();
-    const persisted = this.extensionContext.workspaceState.get<string>('repomix.chat.activeThreadId');
+    const threads = await this.threadRepository.getThreads(this.repoId);
+    const persisted = this.extensionContext.workspaceState.get<string>(
+      'repomix.chat.activeThreadId'
+    );
     const persistedExists = persisted && threads.some((thread) => thread.id === persisted);
 
     if (persistedExists && persisted) {
@@ -96,18 +107,24 @@ export class ChatController extends BaseController {
 
     if (threads.length > 0) {
       this.activeThreadId = threads[0].id;
-      await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', this.activeThreadId);
+      await this.extensionContext.workspaceState.update(
+        'repomix.chat.activeThreadId',
+        this.activeThreadId
+      );
       return;
     }
 
-    const created = await this.conversationService.createThread();
+    const created = await this.threadRepository.createThread(this.repoId);
     this.activeThreadId = created.id;
-    await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', this.activeThreadId);
+    await this.extensionContext.workspaceState.update(
+      'repomix.chat.activeThreadId',
+      this.activeThreadId
+    );
   }
 
   private async setActiveThread(threadId: string): Promise<void> {
-    const conversation = await this.conversationService.getConversation(threadId);
-    if (!conversation) {
+    const thread = await this.threadRepository.getThread(threadId);
+    if (!thread) {
       return;
     }
     this.activeThreadId = threadId;
@@ -117,13 +134,16 @@ export class ChatController extends BaseController {
   }
 
   private async deleteThread(threadId: string): Promise<void> {
-    await this.conversationService.deleteThread(threadId);
-    const threads = await this.conversationService.getThreads();
+    await this.threadRepository.deleteThread(threadId);
+    const threads = await this.threadRepository.getThreads(this.repoId);
 
     if (this.activeThreadId === threadId) {
-      const nextThread = threads[0] ?? (await this.conversationService.createThread());
+      const nextThread = threads[0] ?? (await this.threadRepository.createThread(this.repoId));
       this.activeThreadId = nextThread.id;
-      await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', nextThread.id);
+      await this.extensionContext.workspaceState.update(
+        'repomix.chat.activeThreadId',
+        nextThread.id
+      );
       await this.postThreadHistory(nextThread.id);
     }
 
@@ -143,7 +163,9 @@ export class ChatController extends BaseController {
     }
 
     try {
-      await this.conversationService.exportThread(threadId, destination.fsPath);
+      const messages = await this.messageRepository.getMessages(threadId);
+      const data = { id: threadId, messages };
+      await fs.writeFile(destination.fsPath, JSON.stringify(data, null, 2), 'utf-8');
       this.context.postMessage({
         command: 'showNotification',
         type: 'info',
@@ -174,7 +196,7 @@ export class ChatController extends BaseController {
   }
 
   private async postThreads(): Promise<void> {
-    const threads = await this.conversationService.getThreads();
+    const threads = await this.threadRepository.getThreads(this.repoId);
     this.context.postMessage({
       command: 'threadList',
       activeThreadId: this.activeThreadId,
@@ -191,11 +213,11 @@ export class ChatController extends BaseController {
   }
 
   private async postThreadHistory(threadId: string): Promise<void> {
-    const conversation = await this.conversationService.getConversation(threadId);
+    const messages = await this.messageRepository.getMessages(threadId);
     this.context.postMessage({
       command: 'threadHistory',
       threadId,
-      messages: (conversation?.messages ?? []).map((message) => ({
+      messages: messages.map((message) => ({
         role: message.role,
         content: message.content,
         toolCalls: message.toolCalls,
@@ -206,9 +228,12 @@ export class ChatController extends BaseController {
   private async runChatGraph(input: string) {
     try {
       if (!this.activeThreadId) {
-        const thread = await this.conversationService.createThread();
+        const thread = await this.threadRepository.createThread(this.repoId);
         this.activeThreadId = thread.id;
-        await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', thread.id);
+        await this.extensionContext.workspaceState.update(
+          'repomix.chat.activeThreadId',
+          thread.id
+        );
       }
 
       logger.both.info(`ChatController: Processing user input: "${input}"`);
@@ -219,10 +244,10 @@ export class ChatController extends BaseController {
         content: input,
         timestamp: Date.now(),
       };
-      await this.conversationService.saveMessage(this.activeThreadId, userMessage);
+      await this.messageRepository.saveMessage(this.activeThreadId, userMessage);
 
-      const conversation = await this.conversationService.getConversation(this.activeThreadId);
-      const history = (conversation?.messages ?? []).map((message) => ({
+      const messages = await this.messageRepository.getMessages(this.activeThreadId);
+      const history = messages.map((message) => ({
         role: message.role,
         content: message.content,
       }));
@@ -240,14 +265,16 @@ export class ChatController extends BaseController {
         threadId: this.activeThreadId,
         messages: history,
       });
-      
+
       logger.both.info(`ChatController: Graph returned response: "${result.aiResponse}"`);
 
       const toolCalls: NonNullable<ThreadMessage['toolCalls']> = [];
       if (result.planUpdated) {
         const fullPlanPath = this.planService.getPlanPath(this.activeThreadId);
         const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const relativePath = workspacePath ? path.relative(workspacePath, fullPlanPath) : fullPlanPath;
+        const relativePath = workspacePath
+          ? path.relative(workspacePath, fullPlanPath)
+          : fullPlanPath;
 
         toolCalls.push({
           name: 'update_plan',
@@ -265,24 +292,28 @@ export class ChatController extends BaseController {
         content: result.aiResponse,
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        tokens: (typeof result.inputTokens === 'number' || typeof result.outputTokens === 'number')
-          ? {
-              input: result.inputTokens ?? 0,
-              output: result.outputTokens ?? 0,
-              total: result.tokensUsed ?? ((result.inputTokens ?? 0) + (result.outputTokens ?? 0)),
-            }
-          : undefined,
+        tokens:
+          typeof result.inputTokens === 'number' || typeof result.outputTokens === 'number'
+            ? {
+                input: result.inputTokens ?? 0,
+                output: result.outputTokens ?? 0,
+                total:
+                  result.tokensUsed ?? (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+              }
+            : undefined,
         contextFiles: Array.isArray(result.retrievedContext)
-          ? [...new Set(
-              result.retrievedContext
-                .map((context: { filePath?: string }) => context.filePath)
-                .filter((filePath): filePath is string => Boolean(filePath))
-            )]
+          ? [
+              ...new Set(
+                result.retrievedContext
+                  .map((ctx: { filePath?: string }) => ctx.filePath)
+                  .filter((filePath): filePath is string => Boolean(filePath))
+              ),
+            ]
           : undefined,
       };
-      await this.conversationService.saveMessage(this.activeThreadId, assistantMessage);
+      await this.messageRepository.saveMessage(this.activeThreadId, assistantMessage);
       await this.postThreads();
-      
+
       this.context.postMessage({
         command: 'chatResponse',
         text: result.aiResponse,
@@ -296,7 +327,7 @@ export class ChatController extends BaseController {
       logger.both.error('ChatController: Error running chat graph:', error);
       this.context.postMessage({
         command: 'chatResponse',
-        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   }

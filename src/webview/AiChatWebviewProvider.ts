@@ -1,10 +1,17 @@
 import * as vscode from 'vscode';
+import type { Pool } from 'pg';
+import { ChatController } from './controllers/ChatController.js';
 
 export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.aiChatMain';
   private _view?: vscode.WebviewView;
+  private _chatController?: ChatController;
 
-  constructor(private readonly _extensionUri: vscode.Uri) {
+  constructor(
+    private readonly _extensionUri: vscode.Uri,
+    private readonly _extensionContext: vscode.ExtensionContext,
+    private readonly _pgPool: Pool | null
+  ) {
     console.log('[AiChatWebviewProvider] Constructor called');
   }
 
@@ -25,11 +32,44 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
     console.log('[AiChatWebviewProvider] Webview HTML set');
 
-    // Set up message handler if needed in the future
-    webviewView.webview.onDidReceiveMessage(async (data) => {
-      console.log('[AiChatWebviewProvider] Received message:', data.command);
-      // Future message handling will go here
-    });
+    if (this._pgPool) {
+      const webviewContext = {
+        webview: webviewView.webview,
+        postMessage: (msg: any) => webviewView.webview.postMessage(msg),
+      };
+
+      this._chatController = new ChatController(
+        webviewContext,
+        this._extensionContext,
+        this._pgPool
+      );
+
+      webviewView.webview.onDidReceiveMessage(async (data) => {
+        console.log('[AiChatWebviewProvider] Received message:', data.command);
+
+        if (data.command === 'webviewLoaded') {
+          await this._chatController!.onWebviewLoaded();
+          return;
+        }
+
+        await this._chatController!.handleMessage(data);
+      });
+
+      webviewView.onDidDispose(() => {
+        this._chatController?.dispose();
+        this._chatController = undefined;
+      });
+    } else {
+      webviewView.webview.onDidReceiveMessage(async (data) => {
+        if (data.command === 'webviewLoaded') {
+          webviewView.webview.postMessage({
+            command: 'chatDisabled',
+            message:
+              'PostgreSQL connection not configured. Set "repomix.chat.postgresConnectionString" in VS Code settings to enable chat.',
+          });
+        }
+      });
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {

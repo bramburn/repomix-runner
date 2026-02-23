@@ -24,6 +24,7 @@ import { ApplyController } from './controllers/ApplyController.js';
 import { IndexHistoryController } from './controllers/IndexHistoryController.js';
 import { ChatController } from './controllers/ChatController.js';
 import { ExecutionQueueManager } from './services/ExecutionQueueManager.js';
+import type { Pool } from 'pg';
 
 /**
  * HydrateState - Combined initial state sent to webview on load.
@@ -62,7 +63,8 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext,
-    private readonly _services: ExtensionServices
+    private readonly _services: ExtensionServices,
+    private readonly _pgPool: Pool | null = null
   ) {
     console.log('[quick-repomix] RepomixWebviewProvider constructor called');
     this._bundleManager = _services.bundleManager;
@@ -123,7 +125,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
       new DebugController(webviewContext, this._databaseService),
       new ApplyController(webviewContext, this._context),
       new IndexHistoryController(webviewContext, this._databaseService),
-      new ChatController(webviewContext, this._context)
+      ...(this._pgPool ? [new ChatController(webviewContext, this._context, this._pgPool)] : [])
     ];
     console.log('[quick-repomix] Controllers initialized:', this._controllers.length, 'controllers');
 

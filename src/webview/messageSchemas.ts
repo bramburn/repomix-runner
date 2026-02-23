@@ -621,6 +621,26 @@ export const ChatProgressSchema = z.object({
   text: z.string(),
 });
 
+// --- Runner Configuration Schemas ---
+
+export const GetRunnerConfigSchema = z.object({
+  command: z.literal('getRunnerConfig'),
+});
+
+export const SetRunnerConfigSchema = z.object({
+  command: z.literal('setRunnerConfig'),
+  config: z.object({
+    respectGitignoreInMarkdown: z.boolean().optional(),
+  }),
+});
+
+export const RunnerConfigSchema = z.object({
+  command: z.literal('runnerConfig'),
+  config: z.object({
+    respectGitignoreInMarkdown: z.boolean(),
+  }),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -722,6 +742,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ThreadHistorySchema,
   ChatResponseSchema,
   ChatProgressSchema,
+  // Runner Configuration
+  GetRunnerConfigSchema,
+  SetRunnerConfigSchema,
+  RunnerConfigSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
