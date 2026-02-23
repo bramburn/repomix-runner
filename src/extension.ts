@@ -49,6 +49,10 @@ import { ExtensionServices } from './core/services/ExtensionServices.js';
 import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
 import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
 import type { Pool } from 'pg';
+import { SECRET_POSTGRES_CONNECTION } from './webview/controllers/ConfigController.js';
+import { BatchManager } from './chat/batch/batchManager.js';
+import { BatchPoller } from './chat/batch/batchPoller.js';
+import type { BatchCompletionResult } from './chat/batch/types.js';
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -74,9 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize PostgreSQL pool for chat storage
   let chatPgPool: Pool | null = null;
-  const pgConnectionString = vscode.workspace
-    .getConfiguration('repomix.chat')
-    .get<string>('postgresConnectionString', '');
+  const pgConnectionString = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
 
   if (pgConnectionString) {
     try {
@@ -84,12 +86,74 @@ export async function activate(context: vscode.ExtensionContext) {
       console.log('[quick-repomix] PostgreSQL chat storage initialized');
     } catch (error) {
       console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
-      vscode.window.showErrorMessage(
-        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled.`
+      const selection = await vscode.window.showErrorMessage(
+        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled until PostgreSQL is configured correctly.`,
+        'Open Repomix Settings'
       );
+      if (selection === 'Open Repomix Settings') {
+        await vscode.commands.executeCommand('repomixRunner.openSettings');
+      }
     }
   } else {
     console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
+    const selection = await vscode.window.showWarningMessage(
+      'Chat is disabled because no PostgreSQL connection string is configured. Configure it in Repomix Runner settings.',
+      'Open Repomix Settings'
+    );
+    if (selection === 'Open Repomix Settings') {
+      await vscode.commands.executeCommand('repomixRunner.openSettings');
+    }
+  }
+
+  // Register pool disposal hook for reliable cleanup on extension deactivation
+  context.subscriptions.push({
+    dispose: () => {
+      closePool().catch((err) =>
+        console.error('[quick-repomix] Failed to close PG pool during disposal:', err)
+      );
+    }
+  });
+
+  // ==============================================================================
+  // BATCH POLLER LIFECYCLE MANAGEMENT
+  // ==============================================================================
+  // The Anthropic Batch API can take up to 24 hours. We need to ensure that
+  // pending batch jobs are resumed on extension activation and properly cleaned
+  // up on deactivation to prevent memory leaks and lost jobs.
+  // ==============================================================================
+  let batchPoller: BatchPoller | null = null;
+
+  if (chatPgPool) {
+    console.log('[quick-repomix] Initializing batch poller for background job monitoring...');
+    const batchManager = new BatchManager(chatPgPool, context);
+    batchPoller = new BatchPoller(batchManager, {
+      pollIntervalSeconds: vscode.workspace
+        .getConfiguration('repomix.chat')
+        .get<number>('batchPollIntervalSeconds', 60),
+    });
+
+    // Resume polling for all pending batches across all threads
+    // This ensures we don't lose track of jobs that were submitted before VS Code closed
+    await batchPoller.resumeAllPending(async (result: BatchCompletionResult) => {
+      if (result.status === 'completed') {
+        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} completed during startup`);
+        // Note: We cannot resume the graph here because the webview may not be loaded.
+        // The ChatController will handle resuming the graph when the user opens the thread.
+      } else if (result.status === 'cancelled') {
+        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} was cancelled`);
+      } else if (result.status === 'failed') {
+        logger.both.error(`[BatchPoller] Batch ${result.batchJobId} failed: ${result.errorMessage}`);
+      }
+    });
+
+    // Register for cleanup on deactivation
+    context.subscriptions.push({
+      dispose: () => {
+        batchPoller?.dispose();
+      },
+    });
+
+    console.log('[quick-repomix] Batch poller initialized and pending jobs resumed');
   }
 
   // Initialize embedding service with saved configuration

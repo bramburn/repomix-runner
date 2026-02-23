@@ -65,7 +65,7 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
           webviewView.webview.postMessage({
             command: 'chatDisabled',
             message:
-              'PostgreSQL connection not configured. Set "repomix.chat.postgresConnectionString" in VS Code settings to enable chat.',
+              'PostgreSQL connection not configured. Set the PostgreSQL connection string in the Repomix Runner Control Panel settings to enable chat.',
           });
         }
       });

@@ -31,6 +31,7 @@ interface ConfigSectionProps {
   value: string;
   onChange: (val: string) => void;
   onSave: () => void;
+  onDelete?: () => void;
   placeholder: string;
   description: string;
   children?: React.ReactNode;
@@ -50,6 +51,7 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
   value,
   onChange,
   onSave,
+  onDelete,
   placeholder,
   description,
   children,
@@ -104,6 +106,15 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
             >
               Save
             </Button>
+            {isConfigured && onDelete && (
+              <Button
+                appearance="secondary"
+                icon={<ErrorCircleRegular />}
+                onClick={onDelete}
+              >
+                Delete
+              </Button>
+            )}
           </div>
           <Text size={100} style={{ opacity: 0.7 }}>
             {description}
@@ -125,10 +136,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [googleKey, setGoogleKey] = useState('');
   const [pineconeKey, setPineconeKey] = useState('');
   const [qdrantKey, setQdrantKey] = useState('');
+  const [postgresConnectionString, setPostgresConnectionString] = useState('');
 
   const [googleKeyExists, setGoogleKeyExists] = useState(false);
   const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
   const [qdrantKeyExists, setQdrantKeyExists] = useState(false);
+  const [postgresConnectionExists, setPostgresConnectionExists] = useState(false);
 
   const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
 
@@ -283,6 +296,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           else if (message.key === 'qdrantApiKey') setQdrantKeyExists(message.exists);
           break;
 
+        case 'postgresConnectionStatus':
+          setPostgresConnectionExists(message.exists);
+          break;
+
         case 'vectorDbProvider':
           setVectorDbProvider(message.provider ?? 'pinecone');
           break;
@@ -432,6 +449,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
     vscode.postMessage({ command: 'checkSecret', key: 'pineconeApiKey' });
     vscode.postMessage({ command: 'checkSecret', key: 'qdrantApiKey' });
+    vscode.postMessage({ command: 'checkPostgresConnection' });
 
     vscode.postMessage({ command: 'getVectorDbProvider' });
     vscode.postMessage({ command: 'getQdrantConfig' });
@@ -461,6 +479,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const handleSaveQdrantKey = () => {
     vscode.postMessage({ command: 'saveSecret', key: 'qdrantApiKey', value: qdrantKey.trim() });
     setQdrantKey('');
+  };
+
+  const handleSavePostgresConnection = () => {
+    vscode.postMessage({ command: 'savePostgresConnection', value: postgresConnectionString.trim() });
+    setPostgresConnectionString('');
+  };
+
+  const handleDeletePostgresConnection = () => {
+    vscode.postMessage({ command: 'deletePostgresConnection' });
   };
 
   const handleSaveQdrantConfig = () => {
@@ -1050,6 +1077,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         onSave={handleSaveGoogleKey}
         placeholder="Enter Gemini API Key (starts with AIza...)"
         description="Reserved for upcoming Agent-in-Search experience. Not required for Search-only usage today."
+      />
+
+      <Divider />
+
+      <ConfigSection
+        title="PostgreSQL Connection String"
+        isConfigured={postgresConnectionExists}
+        value={postgresConnectionString}
+        onChange={setPostgresConnectionString}
+        onSave={handleSavePostgresConnection}
+        onDelete={handleDeletePostgresConnection}
+        placeholder="postgresql://user:password@localhost:5432/database"
+        description="Securely stored connection string for chat history persistence. Contains database credentials - stored encrypted in VS Code secrets."
       />
 
       <Divider />

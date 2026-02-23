@@ -10,6 +10,7 @@ import type { ProgressCallback } from './utils.js';
  */
 export interface SendReviewInterrupt {
   type: 'send_review';
+  packageId?: string;
   package: PackagePayload;
   estimatedTokens: number;
 }
@@ -19,6 +20,7 @@ export interface SendReviewInterrupt {
  */
 export interface SendReviewResume {
   approved: boolean;
+  packageId?: string;
 }
 
 /**
@@ -67,5 +69,6 @@ export async function humanApproveSendNode(
   // User approved, continue to batch submission
   return {
     workflowPhase: 'batch_pending' as const,
+    batchJobId: resumeValue.packageId ?? null,
   };
 }

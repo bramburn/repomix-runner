@@ -12,7 +12,12 @@ const PaperPlaneIcon = () => (
   </svg>
 );
 
-export const ChatInput = () => {
+interface ChatInputProps {
+  onSend: (text: string) => void;
+  disabled?: boolean;
+}
+
+export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }) => {
   const [inputValue, setInputValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -30,8 +35,7 @@ export const ChatInput = () => {
 
   const handleSend = () => {
     if (inputValue.trim()) {
-      // In a real implementation, this would send the message
-      console.log('Sending message:', inputValue);
+      onSend(inputValue.trim());
       setInputValue('');
     }
   };
@@ -87,7 +91,7 @@ export const ChatInput = () => {
           appearance="primary"
           icon={<PaperPlaneIcon />}
           onClick={handleSend}
-          disabled={!inputValue.trim()}
+          disabled={disabled || !inputValue.trim()}
           style={{
             minWidth: '36px',
             height: '36px',
@@ -98,24 +102,6 @@ export const ChatInput = () => {
         />
       </div>
 
-      {/* Pricing/Token Info */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          marginTop: '4px',
-        }}
-      >
-        <span
-          style={{
-            fontSize: '11px',
-            opacity: 0.5,
-            fontFamily: 'monospace',
-          }}
-        >
-          $0.02
-        </span>
-      </div>
     </div>
   );
 };

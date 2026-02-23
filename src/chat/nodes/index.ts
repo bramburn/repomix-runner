@@ -17,6 +17,7 @@ export { generateResponseNode } from './generateResponse.js';
 
 // HITL workflow nodes
 export { gatherContextNode } from './gatherContext.js';
+export { compressContextNode } from './compressContext.js';
 export { prepareGoalNode } from './prepareGoal.js';
 export {
   humanReviewGoalNode,
@@ -29,7 +30,7 @@ export {
   type SendReviewInterrupt,
   type SendReviewResume,
 } from './humanApproveSend.js';
-export { submitBatchNode, setSubmitBatchPool } from './submitBatch.js';
+export { submitBatchNode, setSubmitBatchManager } from './submitBatch.js';
 export {
   awaitBatchResponseNode,
   type BatchPendingInterrupt,
@@ -48,3 +49,4 @@ export {
   type CodeReviewResume,
 } from './humanReviewCode.js';
 export { generateSummaryNode } from './generateSummary.js';
+export { extractMemoryNode } from './extractMemory.js';

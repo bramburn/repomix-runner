@@ -1,23 +1,17 @@
 /**
  * awaitBatchResponse node - INTERRUPT: Waits for batch completion.
- * The external poller (PRD 005) will resume this when the batch completes.
+ * The poller resumes this when the batch reaches a terminal state.
  */
 import { interrupt } from '@langchain/langgraph';
 import { ChatState } from '../state.js';
 import type { ProgressCallback } from './utils.js';
 
-/**
- * Interrupt payload for batch pending state.
- */
 export interface BatchPendingInterrupt {
   type: 'batch_pending';
   batchJobId: string;
   estimatedCompletionTime: string;
 }
 
-/**
- * Resume value when batch completes.
- */
 export interface BatchPendingResume {
   completed: boolean;
   responseContent?: string;
@@ -35,14 +29,11 @@ export async function awaitBatchResponseNode(
     };
   }
 
-  const interruptPayload: BatchPendingInterrupt = {
+  const resumeValue = interrupt({
     type: 'batch_pending',
     batchJobId: state.batchJobId,
-    estimatedCompletionTime: '~10 minutes (stubbed)',
-  };
-
-  // This pauses until the external poller (or manual trigger) resumes
-  const resumeValue = interrupt(interruptPayload) as BatchPendingResume;
+    estimatedCompletionTime: 'Batch processing in progress (resume on open enabled).',
+  } as BatchPendingInterrupt) as BatchPendingResume;
 
   if (!resumeValue.completed) {
     return {

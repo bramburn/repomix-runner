@@ -13,6 +13,7 @@ export interface GoalPromptInput {
   }>;
   repoArchitecture: string;
   dependencies: Record<string, string>;
+  memoryContext?: string; // PRD 004: Injected memory context
 }
 
 /**
@@ -32,11 +33,16 @@ export function buildGoalPrompt(input: GoalPromptInput): string {
     .map(([name, version]) => `- ${name}: ${version}`)
     .join('\n');
 
+  // Build memory section if available
+  const memorySection = input.memoryContext
+    ? `\n${input.memoryContext}`
+    : '';
+
   return `You are a senior software architect analyzing a user's request to help them accomplish a development task.
 
 ## User's Request
 ${input.userQuery}
-
+${memorySection}
 ## Repository Architecture
 ${input.repoArchitecture || 'No architecture document available.'}
 

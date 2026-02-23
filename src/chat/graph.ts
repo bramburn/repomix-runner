@@ -3,20 +3,23 @@ import type { Pool } from 'pg';
 import type { ExtensionContext } from 'vscode';
 import { ChatState } from './state.js';
 import { createCheckpointer } from './checkpointer.js';
+import type { BatchManager } from './batch/batchManager.js';
 import {
   gatherContextNode,
+  compressContextNode,
   prepareGoalNode,
   humanReviewGoalNode,
   packagePromptNode,
   humanApproveSendNode,
   submitBatchNode,
-  setSubmitBatchPool,
+  setSubmitBatchManager,
   awaitBatchResponseNode,
   processBatchResponseNode,
   humanReviewEditsNode,
   applyEditsNode,
   humanReviewCodeNode,
   generateSummaryNode,
+  extractMemoryNode,
   type ProgressCallback,
 } from './nodes/index.js';
 
@@ -29,6 +32,8 @@ export type { ProgressCallback };
  * START
  *   ↓
  * gatherContext ← vector search + architecture loading
+ *   ↓
+ * compressContext ← token budget check + compression (PRD 003)
  *   ↓
  * prepareGoal ← Gemini synthesizes goal
  *   ↓
@@ -57,10 +62,11 @@ export type { ProgressCallback };
 export async function createHitlChatGraph(
   extensionContext: ExtensionContext,
   pgPool: Pool,
+  batchManager: BatchManager,
   onProgress: ProgressCallback
 ) {
-  // Set the pool for submitBatch node
-  setSubmitBatchPool(pgPool);
+  // Set the batch manager for submitBatch node
+  setSubmitBatchManager(batchManager);
 
   // Create the checkpointer for state persistence
   const checkpointer = await createCheckpointer(pgPool);
@@ -71,9 +77,14 @@ export async function createHitlChatGraph(
       gatherContextNode(state, extensionContext, onProgress)
     )
 
-    // Goal synthesis phase
+    // Context compression phase (PRD 003)
+    .addNode('compressContext', (state) =>
+      compressContextNode(state, extensionContext, onProgress)
+    )
+
+    // Goal synthesis phase (with memory injection - PRD 004)
     .addNode('prepareGoal', (state) =>
-      prepareGoalNode(state, extensionContext, onProgress)
+      prepareGoalNode(state, extensionContext, pgPool, onProgress)
     )
 
     // INTERRUPT 1: User reviews goal
@@ -108,9 +119,15 @@ export async function createHitlChatGraph(
       generateSummaryNode(state, extensionContext, onProgress)
     )
 
+    // Memory extraction (PRD 004)
+    .addNode('extractMemory', (state) =>
+      extractMemoryNode(state, extensionContext, pgPool, onProgress)
+    )
+
     // Define edges - linear flow with one conditional edge
     .addEdge('__start__', 'gatherContext')
-    .addEdge('gatherContext', 'prepareGoal')
+    .addEdge('gatherContext', 'compressContext')
+    .addEdge('compressContext', 'prepareGoal')
     .addEdge('prepareGoal', 'humanReviewGoal')
     .addEdge('humanReviewGoal', 'packagePrompt')
     .addEdge('packagePrompt', 'humanApproveSend')
@@ -129,7 +146,8 @@ export async function createHitlChatGraph(
       return 'generateSummary';
     })
 
-    .addEdge('generateSummary', '__end__');
+    .addEdge('generateSummary', 'extractMemory')
+    .addEdge('extractMemory', '__end__');
 
   // Compile with checkpointer for state persistence
   return workflow.compile({ checkpointer });

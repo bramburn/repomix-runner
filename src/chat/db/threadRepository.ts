@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { Thread } from '../../types/chat.js';
 
 const DEFAULT_THREAD_TITLE = 'New Chat';
+const MAX_THREAD_TITLE_LENGTH = 200;
 
 interface ThreadRow {
   id: string;
@@ -26,33 +27,53 @@ function rowToThread(row: ThreadRow): Thread {
   };
 }
 
+function assertNonEmpty(value: string, fieldName: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  return trimmed;
+}
+
+function normalizeTitle(title: string): string {
+  const trimmed = assertNonEmpty(title, 'title');
+  if (trimmed.length > MAX_THREAD_TITLE_LENGTH) {
+    throw new Error(`title must be ${MAX_THREAD_TITLE_LENGTH} characters or fewer.`);
+  }
+  return trimmed;
+}
+
 export class ThreadRepository {
   constructor(private readonly pool: Pool) {}
 
   async createThread(repoId: string, title: string = DEFAULT_THREAD_TITLE): Promise<Thread> {
+    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
+    const normalizedTitle = normalizeTitle(title);
     const result = await this.pool.query<ThreadRow>(
       `INSERT INTO chat_threads (repo_id, title)
        VALUES ($1, $2)
        RETURNING *`,
-      [repoId, title]
+      [normalizedRepoId, normalizedTitle]
     );
     return rowToThread(result.rows[0]);
   }
 
   async getThreads(repoId: string): Promise<Thread[]> {
+    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
     const result = await this.pool.query<ThreadRow>(
       `SELECT * FROM chat_threads
        WHERE repo_id = $1 AND status = 'active'
        ORDER BY updated_at DESC`,
-      [repoId]
+      [normalizedRepoId]
     );
     return result.rows.map(rowToThread);
   }
 
   async getThread(id: string): Promise<Thread | null> {
+    const normalizedId = assertNonEmpty(id, 'id');
     const result = await this.pool.query<ThreadRow>(
       `SELECT * FROM chat_threads WHERE id = $1`,
-      [id]
+      [normalizedId]
     );
     if (result.rows.length === 0) {
       return null;
@@ -69,13 +90,14 @@ export class ThreadRepository {
       totalCostUsd: number;
     }>
   ): Promise<void> {
+    const normalizedId = assertNonEmpty(id, 'id');
     const sets: string[] = [];
     const values: unknown[] = [];
     let paramIndex = 1;
 
     if (patch.title !== undefined) {
       sets.push(`title = $${paramIndex++}`);
-      values.push(patch.title);
+      values.push(normalizeTitle(patch.title));
     }
     if (patch.preview !== undefined) {
       sets.push(`preview = $${paramIndex++}`);
@@ -95,7 +117,7 @@ export class ThreadRepository {
     }
 
     sets.push(`updated_at = NOW()`);
-    values.push(id);
+    values.push(normalizedId);
 
     await this.pool.query(
       `UPDATE chat_threads SET ${sets.join(', ')} WHERE id = $${paramIndex}`,
@@ -104,17 +126,27 @@ export class ThreadRepository {
   }
 
   async renameThread(id: string, title: string): Promise<void> {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      return;
-    }
+    const normalizedId = assertNonEmpty(id, 'id');
+    const trimmed = normalizeTitle(title);
     await this.pool.query(
       `UPDATE chat_threads SET title = $1, updated_at = NOW() WHERE id = $2`,
-      [trimmed, id]
+      [trimmed, normalizedId]
+    );
+  }
+
+  async archiveThread(id: string): Promise<void> {
+    const normalizedId = assertNonEmpty(id, 'id');
+    await this.pool.query(
+      `UPDATE chat_threads SET status = 'archived', updated_at = NOW() WHERE id = $1`,
+      [normalizedId]
     );
   }
 
   async deleteThread(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM chat_threads WHERE id = $1`, [id]);
+    const normalizedId = assertNonEmpty(id, 'id');
+    await this.pool.query(
+      `UPDATE chat_threads SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
+      [normalizedId]
+    );
   }
 }

@@ -1,0 +1,4072 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 17b90e2..55b21c4 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,15 @@ All notable changes to the "Repomix Runner Plus" extension will be documented in
+ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+ 
++## [Unreleased]
++
++### Security
++
++- **PostgreSQL Connection String Storage**: Migrated from plaintext VS Code settings to encrypted `extensionContext.secrets` storage. This fixes a critical security vulnerability where database credentials (username, password, host, port) were exposed in `settings.json` files.
++  - **Breaking Change**: If you previously configured `repomix.chat.postgresConnectionString` in settings.json, you must now re-enter it in the Repomix Runner Control Panel → Settings tab → "PostgreSQL Connection String" section.
++  - The connection string is now stored securely using VS Code's encrypted secrets storage, following the same pattern as API keys.
++  - Updated error messages to reference the new configuration location.
++
+ ## [1.0.0] - 2025-01-08
+ 
+ ### Changed
+diff --git a/PRDs/005_batch_llm_pipeline.md b/PRDs/005_batch_llm_pipeline.md
+index 4e1c4ae..1af0896 100644
+--- a/PRDs/005_batch_llm_pipeline.md
++++ b/PRDs/005_batch_llm_pipeline.md
+@@ -253,3 +253,148 @@ When a batch completes:
+ - [ ] Response is correctly parsed into file edit structures
+ - [ ] Batch can be cancelled by the user
+ - [ ] Error handling for API failures, timeouts, and malformed responses
++
++---
++
++## Draft Implementation Action Plan (Codebase-Aligned)
++
++Date: 2026-02-23
++
++### Current State Snapshot
++
++- `submitBatch`, `awaitBatchResponse`, and `processBatchResponse` are present but stubbed (`src/chat/nodes/*.ts`).
++- `batch_jobs` table and repository exist (`src/chat/db/batchRepository.ts`, `src/chat/db/postgresClient.ts`).
++- No `src/chat/batch/` services exist yet.
++- `@anthropic-ai/sdk` is not installed.
++- Chat UI has interrupt schemas and controller wiring, but no real batch lifecycle UI yet.
++
++### Scope for PRD 005 Implementation Pass
++
++1. Build production-ready batch backend (`src/chat/batch/*`) and integrate it into existing graph nodes.
++2. Add Anthropic credential/config plumbing (secrets + workspace settings).
++3. Implement resilient poller that resumes pending work after restart and updates chat workflow state.
++4. Persist raw responses and parsed artifacts for PRD 009 consumers.
++5. Add tests for assembler, parser, manager, and poller behavior.
++
++### Assumptions
++
++- We keep using existing HITL interrupts in `ChatController` (no full Packages tab work in this PRD; PRD 006 handles major UX).
++- First implementation uses one batch request per approved package group, mapped by `custom_id = batch_jobs.id`.
++- Parsed output shape must support both current JSON response handling and the planned `<file_change>` format.
++
++### Dependency-Ordered Tasks
++
++#### Phase 0: Contracts and Configuration
++
++1. Add `@anthropic-ai/sdk` dependency in `package.json`.
++2. Add batch settings in `package.json` contributes section:
++   - `repomix.chat.batchModel`
++   - `repomix.chat.batchMaxTokens`
++   - `repomix.chat.batchThinkingBudget`
++   - `repomix.chat.batchPollIntervalSeconds`
++3. Extend secret handling for Anthropic key:
++   - add secret constant in `src/webview/controllers/ConfigController.ts`
++   - extend message schema enums in `src/webview/messageSchemas.ts` if using shared secret save/check command path.
++
++#### Phase 1: Batch Domain Layer (`src/chat/batch/`)
++
++1. Create `src/chat/batch/types.ts` with:
++   - package/request/result/status DTOs
++   - parser result shape for PRD 009 (`FileEdit`-compatible).
++2. Create `src/chat/batch/outputTemplates.ts` and keep templates centralized (plan/code/review).
++3. Create `src/chat/batch/packageAssembler.ts`:
++   - deterministic prompt assembly
++   - optional token estimate helper for UI/status.
++
++#### Phase 2: Anthropic Adapter and Parsing
++
++1. Create `src/chat/batch/anthropicBatchClient.ts`:
++   - `submitBatch`
++   - `getBatch`
++   - `getBatchResults`
++   - `cancelBatch`
++   - normalize API errors into typed internal errors.
++2. Create `src/chat/batch/responseParser.ts`:
++   - parse `<file_change>` blocks
++   - keep JSON fallback parser (backward compatibility with current node expectations)
++   - return structured parse diagnostics for malformed outputs.
++
++#### Phase 3: Orchestration and Polling
++
++1. Create `src/chat/batch/batchManager.ts`:
++   - create/update `batch_jobs`
++   - map local IDs to Anthropic `custom_id`
++   - store raw result payload and parsed artifact metadata.
++2. Create `src/chat/batch/batchPoller.ts`:
++   - polling loop with backoff
++   - `resumeAllPending()` on startup
++   - completion callback that hands parsed result to workflow resume path.
++3. Add incoming artifact persistence (`.repomix/incoming/{batchId}/`) in manager completion path.
++
++#### Phase 4: Graph and Extension Integration
++
++1. Update `src/chat/nodes/submitBatch.ts` to call `batchManager.submitApproved(...)` instead of stub DB write.
++2. Update `src/chat/nodes/awaitBatchResponse.ts` to reflect real ETA/status info from poller state.
++3. Update `src/chat/nodes/processBatchResponse.ts` to use `responseParser`.
++4. Update `src/chat/graph.ts` injection path so nodes receive manager/poller dependencies cleanly.
++5. Update `src/webview/controllers/ChatController.ts`:
++   - handle async batch completion signal and resume graph with `BatchPendingResume`.
++6. Update `src/webview/AiChatWebviewProvider.ts` and `src/extension.ts`:
++   - initialize poller once
++   - wire lifecycle/disposal
++   - resume pending batches on activation.
++
++#### Phase 5: Tests and Hardening
++
++1. Add tests:
++   - `src/test/chat/batch/packageAssembler.test.ts`
++   - `src/test/chat/batch/responseParser.test.ts`
++   - `src/test/chat/batch/batchManager.test.ts`
++   - `src/test/chat/batch/batchPoller.test.ts`
++2. Add integration-level test for node flow:
++   - `submitBatch -> awaitBatchResponse -> processBatchResponse`.
++3. Validate with:
++   - `npm run check-types`
++   - `npm run lint`
++   - `npm run test`.
++
++### File-Level Change Map
++
++| File | Change | Reason |
++|------|--------|--------|
++| `package.json` | update | add Anthropic SDK + batch settings |
++| `src/chat/batch/types.ts` | create | shared contracts for pipeline |
++| `src/chat/batch/outputTemplates.ts` | create | canonical output instructions |
++| `src/chat/batch/packageAssembler.ts` | create | deterministic prompt builder |
++| `src/chat/batch/anthropicBatchClient.ts` | create | API wrapper and transport logic |
++| `src/chat/batch/responseParser.ts` | create | parse model output into edits |
++| `src/chat/batch/batchManager.ts` | create | job lifecycle orchestrator |
++| `src/chat/batch/batchPoller.ts` | create | background polling + restart recovery |
++| `src/chat/nodes/submitBatch.ts` | update | replace stub path |
++| `src/chat/nodes/awaitBatchResponse.ts` | update | real pending/completion semantics |
++| `src/chat/nodes/processBatchResponse.ts` | update | parser integration |
++| `src/chat/graph.ts` | update | dependency injection for manager/poller |
++| `src/webview/controllers/ChatController.ts` | update | resume graph on completion signal |
++| `src/webview/controllers/ConfigController.ts` | update | Anthropic secret handling |
++| `src/webview/messageSchemas.ts` | update | optional secret enum/config message support |
++| `src/extension.ts` | update | initialize poller and resume pending jobs |
++| `src/webview/AiChatWebviewProvider.ts` | update | provider-level wiring for batch callbacks |
++
++### Risks and Mitigations
++
++- Risk: Poller and graph resume can desync if webview is closed.
++  Mitigation: persist completion payload in DB and allow idempotent resume by thread/job.
++- Risk: Model output format drift breaks parser.
++  Mitigation: dual parser strategy + diagnostics + fallback to raw artifact review.
++- Risk: long-running polls on many jobs can leak timers.
++  Mitigation: centralized poller registry + disposal hooks + max polling lifetime guard.
++
++### Open Questions
++
++1. Should Anthropic API key be handled only in secrets (recommended), or also through plaintext setting fallback?
++2. For PRD 005 completion, do we require automatic graph resume while chat view is closed, or is resume-on-open acceptable for v1?
++3. Should `processBatchResponse` treat non-parseable output as hard failure, or surface raw response to manual review step?
++
++### Review Checkpoint
++
++If this plan is approved, implementation can start immediately in the same phase order above.
+diff --git a/esbuild.js b/esbuild.js
+index bf068ee..ab56382 100644
+--- a/esbuild.js
++++ b/esbuild.js
+@@ -101,6 +101,8 @@ async function main() {
+     sourcesContent: false,
+     platform: 'node',
+     outfile: 'dist/extension.js',
++    // Keep `pg-native` external: it's an optional native dependency used by `pg`.
++    // Leaving it external avoids bundling native artifacts, and `pg` falls back to pure JS when absent.
+     external: ['vscode', 'pg-native'],
+     logLevel: 'silent',
+     plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
+diff --git a/package.json b/package.json
+index e224cae..59254c0 100644
+--- a/package.json
++++ b/package.json
+@@ -337,11 +337,51 @@
+         "order": 10,
+         "type": "object",
+         "properties": {
+-          "repomix.chat.postgresConnectionString": {
++          "repomix.chat.contextThresholdPercent": {
+             "order": 1,
++            "type": "number",
++            "default": 80,
++            "minimum": 50,
++            "maximum": 95,
++            "description": "Percentage of context window that triggers automatic compression"
++          },
++          "repomix.chat.maxRecentMessages": {
++            "order": 2,
++            "type": "number",
++            "default": 10,
++            "minimum": 3,
++            "maximum": 50,
++            "description": "Number of recent messages to keep in full before summarizing older ones"
++          },
++          "repomix.chat.batchModel": {
++            "order": 3,
+             "type": "string",
+-            "default": "",
+-            "description": "PostgreSQL connection string for chat storage (e.g. postgresql://user:pass@localhost:5432/dbname). Chat feature is disabled if not configured."
++            "default": "claude-opus-4-20250514",
++            "description": "Anthropic model ID used for batch jobs"
++          },
++          "repomix.chat.batchMaxTokens": {
++            "order": 4,
++            "type": "number",
++            "default": 16384,
++            "minimum": 1024,
++            "maximum": 64000,
++            "description": "Maximum output tokens per Anthropic batch request"
++          },
++          "repomix.chat.batchThinkingBudget": {
++            "order": 5,
++            "type": "number",
++            "default": 10000,
++            "minimum": 0,
++            "maximum": 32000,
++            "description": "Extended thinking token budget for Anthropic batch requests"
++          },
++          "repomix.chat.batchPollIntervalSeconds": {
++            "order": 6,
++            "type": "number",
++            "default": 60,
++            "minimum": 10,
++            "maximum": 600,
++            "description": "Polling interval (seconds) while awaiting Anthropic batch completion"
+           }
+         }
+       }
+@@ -690,6 +730,7 @@
+     "typescript": "^5.9.3"
+   },
+   "dependencies": {
++    "@anthropic-ai/sdk": "^0.51.0",
+     "@fluentui/react-components": "^9.72.8",
+     "@google/genai": "^1.34.0",
+     "@langchain/core": "^1.1.5",
+diff --git a/src/chat/db/architectureRepository.ts b/src/chat/db/architectureRepository.ts
+index 7d1430b..5fb150b 100644
+--- a/src/chat/db/architectureRepository.ts
++++ b/src/chat/db/architectureRepository.ts
+@@ -6,4 +6,36 @@ import { Pool } from 'pg';
+  */
+ export class ArchitectureRepository {
+   constructor(private readonly pool: Pool) {}
++
++  async upsertArchitecture(_data: {
++    repoId: string;
++    markdownTree: string;
++    folderExplanations?: object | null;
++    expiresAt: Date;
++    gitCommit?: string | null;
++    tokensUsed?: number | null;
++  }): Promise<void> {
++    throw new Error('ArchitectureRepository.upsertArchitecture is not implemented (PRD 008).');
++  }
++
++  async getArchitectureByRepoId(_repoId: string): Promise<{
++    id: string;
++    repoId: string;
++    markdownTree: string;
++    folderExplanations: object | null;
++    generatedAt: number;
++    expiresAt: number;
++    gitCommit: string | null;
++    tokensUsed: number | null;
++  } | null> {
++    throw new Error(
++      'ArchitectureRepository.getArchitectureByRepoId is not implemented (PRD 008).'
++    );
++  }
++
++  async deleteArchitectureByRepoId(_repoId: string): Promise<void> {
++    throw new Error(
++      'ArchitectureRepository.deleteArchitectureByRepoId is not implemented (PRD 008).'
++    );
++  }
+ }
+diff --git a/src/chat/db/batchRepository.ts b/src/chat/db/batchRepository.ts
+index 4cf216d..184739b 100644
+--- a/src/chat/db/batchRepository.ts
++++ b/src/chat/db/batchRepository.ts
+@@ -105,6 +105,8 @@ export class BatchRepository {
+     patch: {
+       batchApiId?: string;
+       status?: BatchJobStatus;
++      packageType?: PackageType;
++      promptPayload?: object;
+       responsePayload?: object;
+       tokensInput?: number;
+       tokensOutput?: number;
+@@ -127,6 +129,14 @@ export class BatchRepository {
+       updates.push(`status = $${paramIndex++}`);
+       values.push(patch.status);
+     }
++    if (patch.packageType !== undefined) {
++      updates.push(`package_type = $${paramIndex++}`);
++      values.push(patch.packageType);
++    }
++    if (patch.promptPayload !== undefined) {
++      updates.push(`prompt_payload = $${paramIndex++}`);
++      values.push(JSON.stringify(patch.promptPayload));
++    }
+     if (patch.responsePayload !== undefined) {
+       updates.push(`response_payload = $${paramIndex++}`);
+       values.push(JSON.stringify(patch.responsePayload));
+diff --git a/src/chat/db/memoryRepository.ts b/src/chat/db/memoryRepository.ts
+index 8b42a11..f55d1dc 100644
+--- a/src/chat/db/memoryRepository.ts
++++ b/src/chat/db/memoryRepository.ts
+@@ -1,9 +1,242 @@
+ import { Pool } from 'pg';
++import { logger } from '../../shared/logger.js';
++import type { MemoryScope, MemorySource, MemoryEntry } from '../memory/types.js';
+ 
+ /**
+- * MemoryRepository - CRUD for chat_memory table.
+- * Implementation deferred to PRD 004: Memory Manager CRUD.
++ * Database row structure for chat_memory table.
++ */
++interface MemoryRow {
++  id: string;
++  scope: MemoryScope;
++  scope_id: string;
++  key: string;
++  value: string;
++  source: MemorySource;
++  embedding_vector: number[] | null;
++  created_at: Date;
++  updated_at: Date;
++  expires_at: Date | null;
++}
++
++/**
++ * Maps a database row to a MemoryEntry object.
++ */
++function mapRowToEntry(row: MemoryRow): MemoryEntry {
++  return {
++    id: row.id,
++    scope: row.scope,
++    scopeId: row.scope_id,
++    key: row.key,
++    value: row.value,
++    source: row.source,
++    createdAt: row.created_at.getTime(),
++    updatedAt: row.updated_at.getTime(),
++    expiresAt: row.expires_at ? row.expires_at.getTime() : null,
++  };
++}
++
++/**
++ * MemoryRepository - CRUD operations for chat_memory table.
+  */
+ export class MemoryRepository {
+   constructor(private readonly pool: Pool) {}
++
++  /**
++   * Creates a new memory entry.
++   * @throws Error if a memory with the same (scope, scope_id, key) already exists.
++   */
++  async createMemory(data: {
++    scope: MemoryScope;
++    scopeId: string;
++    key: string;
++    value: string;
++    source: MemorySource;
++    embeddingVector?: number[] | null;
++    expiresAt?: Date | null;
++  }): Promise<MemoryEntry> {
++    try {
++      const result = await this.pool.query<MemoryRow>(
++        `INSERT INTO chat_memory (scope, scope_id, key, value, source, embedding_vector, expires_at)
++         VALUES ($1, $2, $3, $4, $5, $6, $7)
++         RETURNING *`,
++        [
++          data.scope,
++          data.scopeId,
++          data.key,
++          data.value,
++          data.source,
++          data.embeddingVector ?? null,
++          data.expiresAt ?? null,
++        ]
++      );
++      return mapRowToEntry(result.rows[0]);
++    } catch (error: unknown) {
++      // Handle unique constraint violation
++      if (
++        error instanceof Error &&
++        error.message.includes('duplicate key value violates unique constraint')
++      ) {
++        throw new Error(
++          `A memory with key "${data.key}" already exists in ${data.scope} scope for this ${data.scope === 'session' ? 'thread' : 'repository'}.`
++        );
++      }
++      logger.both.error('[MemoryRepository] createMemory failed:', error);
++      throw error;
++    }
++  }
++
++  /**
++   * Retrieves a memory entry by ID.
++   */
++  async getMemoryById(id: string): Promise<MemoryEntry | null> {
++    const result = await this.pool.query<MemoryRow>(
++      'SELECT * FROM chat_memory WHERE id = $1',
++      [id]
++    );
++
++    if (result.rows.length === 0) {
++      return null;
++    }
++
++    return mapRowToEntry(result.rows[0]);
++  }
++
++  /**
++   * Lists all memories for a given scope and scope ID.
++   * Excludes expired memories by default.
++   */
++  async listMemoryByScope(
++    scope: MemoryScope,
++    scopeId: string,
++    includeExpired = false
++  ): Promise<MemoryEntry[]> {
++    let query = `
++      SELECT * FROM chat_memory 
++      WHERE scope = $1 AND scope_id = $2
++    `;
++
++    if (!includeExpired) {
++      query += ` AND (expires_at IS NULL OR expires_at > NOW())`;
++    }
++
++    query += ` ORDER BY created_at DESC`;
++
++    const result = await this.pool.query<MemoryRow>(query, [scope, scopeId]);
++    return result.rows.map(mapRowToEntry);
++  }
++
++  /**
++   * Updates an existing memory entry.
++   * At least one field must be provided.
++   */
++  async updateMemory(
++    id: string,
++    patch: {
++      value?: string;
++      embeddingVector?: number[] | null;
++      expiresAt?: Date | null;
++    }
++  ): Promise<MemoryEntry> {
++    const setClauses: string[] = [];
++    const values: unknown[] = [];
++    let paramIndex = 1;
++
++    if (patch.value !== undefined) {
++      setClauses.push(`value = $${paramIndex++}`);
++      values.push(patch.value);
++    }
++
++    if (patch.embeddingVector !== undefined) {
++      setClauses.push(`embedding_vector = $${paramIndex++}`);
++      values.push(patch.embeddingVector);
++    }
++
++    if (patch.expiresAt !== undefined) {
++      setClauses.push(`expires_at = $${paramIndex++}`);
++      values.push(patch.expiresAt);
++    }
++
++    if (setClauses.length === 0) {
++      throw new Error('At least one field must be provided to update');
++    }
++
++    // Always update updated_at
++    setClauses.push('updated_at = NOW()');
++
++    values.push(id);
++
++    const query = `
++      UPDATE chat_memory 
++      SET ${setClauses.join(', ')}
++      WHERE id = $${paramIndex}
++      RETURNING *
++    `;
++
++    const result = await this.pool.query<MemoryRow>(query, values);
++
++    if (result.rows.length === 0) {
++      throw new Error(`Memory with id "${id}" not found`);
++    }
++
++    return mapRowToEntry(result.rows[0]);
++  }
++
++  /**
++   * Deletes a memory entry by ID.
++   */
++  async deleteMemory(id: string): Promise<void> {
++    const result = await this.pool.query('DELETE FROM chat_memory WHERE id = $1', [id]);
++
++    if (result.rowCount === 0) {
++      logger.both.warn(`[MemoryRepository] Memory with id "${id}" not found for deletion`);
++    }
++  }
++
++  /**
++   * Searches memories by keyword matching on key and value.
++   * Uses case-insensitive ILIKE search.
++   */
++  async searchByKeyword(
++    scope: MemoryScope,
++    scopeId: string,
++    query: string
++  ): Promise<MemoryEntry[]> {
++    const searchPattern = `%${query}%`;
++
++    const result = await this.pool.query<MemoryRow>(
++      `SELECT * FROM chat_memory 
++       WHERE scope = $1 AND scope_id = $2 
++       AND (expires_at IS NULL OR expires_at > NOW())
++       AND (key ILIKE $3 OR value ILIKE $3)
++       ORDER BY created_at DESC`,
++      [scope, scopeId, searchPattern]
++    );
++
++    return result.rows.map(mapRowToEntry);
++  }
++
++  /**
++   * Deletes all memories for a given scope and scope ID.
++   * Useful for cleanup when a thread or repo is deleted.
++   */
++  async deleteAllByScope(scope: MemoryScope, scopeId: string): Promise<number> {
++    const result = await this.pool.query(
++      'DELETE FROM chat_memory WHERE scope = $1 AND scope_id = $2',
++      [scope, scopeId]
++    );
++
++    return result.rowCount ?? 0;
++  }
++
++  /**
++   * Checks if a memory with the given key exists in the specified scope.
++   */
++  async existsByKey(scope: MemoryScope, scopeId: string, key: string): Promise<boolean> {
++    const result = await this.pool.query(
++      'SELECT 1 FROM chat_memory WHERE scope = $1 AND scope_id = $2 AND key = $3 LIMIT 1',
++      [scope, scopeId, key]
++    );
++
++    return result.rows.length > 0;
++  }
+ }
+diff --git a/src/chat/db/messageRepository.ts b/src/chat/db/messageRepository.ts
+index d4f5ce4..d4504f8 100644
+--- a/src/chat/db/messageRepository.ts
++++ b/src/chat/db/messageRepository.ts
+@@ -15,6 +15,10 @@ interface MessageRow {
+   context_files: string[] | null;
+   tool_calls: unknown | null;
+   metadata: unknown | null;
++  is_compressed: boolean | null;
++  original_content: string | null;
++  compressed_into: string | null;
++  compression_metadata: unknown | null;
+ }
+ 
+ function safePreview(content: string, maxLength = 80): string {
+@@ -25,6 +29,14 @@ function safePreview(content: string, maxLength = 80): string {
+   return `${normalized.slice(0, maxLength - 3)}...`;
+ }
+ 
++function assertNonEmpty(value: string, fieldName: string): string {
++  const trimmed = value.trim();
++  if (!trimmed) {
++    throw new Error(`${fieldName} is required.`);
++  }
++  return trimmed;
++}
++
+ function rowToMessage(row: MessageRow): ThreadMessage {
+   const message: ThreadMessage = {
+     id: row.id,
+@@ -60,6 +72,17 @@ export class MessageRepository {
+   constructor(private readonly pool: Pool) {}
+ 
+   async saveMessage(threadId: string, message: ThreadMessage): Promise<void> {
++    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
++    const role = message.role;
++    if (role !== 'user' && role !== 'assistant') {
++      throw new Error('message.role must be either "user" or "assistant".');
++    }
++    assertNonEmpty(message.content, 'message.content');
++    const content = message.content;
++    if (!Number.isFinite(message.timestamp)) {
++      throw new Error('message.timestamp must be a valid epoch milliseconds number.');
++    }
++
+     const client = await this.pool.connect();
+     try {
+       await client.query('BEGIN');
+@@ -69,9 +92,9 @@ export class MessageRepository {
+          VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000), $6, $7, $8, $9, $10, $11, $12)`,
+         [
+           message.id,
+-          threadId,
+-          message.role,
+-          message.content,
++          normalizedThreadId,
++          role,
++          content,
+           message.timestamp,
+           message.model ?? null,
+           message.tokens?.input ?? null,
+@@ -83,36 +106,24 @@ export class MessageRepository {
+         ]
+       );
+ 
+-      // Update thread: updated_at, preview, auto-title on first user message, token totals
+-      const updates: string[] = ['updated_at = NOW()'];
+-      const updateValues: unknown[] = [];
+-      let paramIdx = 1;
+-
+-      // Always update preview
+-      updates.push(`preview = $${paramIdx++}`);
+-      updateValues.push(safePreview(message.content));
+-
+-      // Update total_tokens if message has token info
+-      if (message.tokens?.total) {
+-        updates.push(`total_tokens = total_tokens + $${paramIdx++}`);
+-        updateValues.push(message.tokens.total);
+-      }
++      await client.query(
++        `UPDATE chat_threads
++         SET updated_at = NOW(),
++             preview = $1,
++             total_tokens = total_tokens + $2
++         WHERE id = $3`,
++        [safePreview(content), message.tokens?.total ?? 0, normalizedThreadId]
++      );
+ 
+-      // Auto-title: set title to first user message content if still default
+-      if (message.role === 'user') {
+-        updates.push(
+-          `title = CASE WHEN title = 'New Chat' THEN $${paramIdx++} ELSE title END`
++      if (role === 'user') {
++        await client.query(
++          `UPDATE chat_threads
++           SET title = CASE WHEN title = 'New Chat' THEN $1 ELSE title END
++           WHERE id = $2`,
++          [safePreview(content, 50), normalizedThreadId]
+         );
+-        updateValues.push(safePreview(message.content, 50));
+       }
+ 
+-      updateValues.push(threadId);
+-
+-      await client.query(
+-        `UPDATE chat_threads SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+-        updateValues
+-      );
+-
+       await client.query('COMMIT');
+     } catch (error) {
+       await client.query('ROLLBACK').catch(() => {});
+@@ -123,16 +134,120 @@ export class MessageRepository {
+   }
+ 
+   async getMessages(threadId: string): Promise<ThreadMessage[]> {
++    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+     const result = await this.pool.query<MessageRow>(
+       `SELECT * FROM chat_messages
+        WHERE thread_id = $1
+        ORDER BY timestamp ASC`,
+-      [threadId]
++      [normalizedThreadId]
+     );
+     return result.rows.map(rowToMessage);
+   }
+ 
+   async deleteMessage(id: string): Promise<void> {
+-    await this.pool.query(`DELETE FROM chat_messages WHERE id = $1`, [id]);
++    const normalizedId = assertNonEmpty(id, 'id');
++    await this.pool.query(`DELETE FROM chat_messages WHERE id = $1`, [normalizedId]);
++  }
++
++  /**
++   * Get uncompressed messages for a thread (for prompt building).
++   * Excludes messages that have been compressed into summaries.
++   */
++  async getUncompressedMessages(threadId: string): Promise<ThreadMessage[]> {
++    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
++    const result = await this.pool.query<MessageRow>(
++      `SELECT * FROM chat_messages
++       WHERE thread_id = $1
++         AND (is_compressed IS NULL OR is_compressed = false)
++       ORDER BY timestamp ASC`,
++      [normalizedThreadId]
++    );
++    return result.rows.map(rowToMessage);
++  }
++
++  /**
++   * Mark messages as compressed and link them to a summary message.
++   */
++  async markMessagesAsCompressed(
++    messageIds: string[],
++    summaryMessageId: string,
++    metadata?: { tokensSaved?: number; compressionTimestamp?: Date }
++  ): Promise<void> {
++    if (messageIds.length === 0) {
++      return;
++    }
++
++    const client = await this.pool.connect();
++    try {
++      await client.query('BEGIN');
++
++      for (const messageId of messageIds) {
++        await client.query(
++          `UPDATE chat_messages
++           SET is_compressed = true,
++               original_content = CASE WHEN original_content IS NULL THEN content ELSE original_content END,
++               compressed_into = $1,
++               compression_metadata = $2
++           WHERE id = $3`,
++          [summaryMessageId, metadata ? JSON.stringify(metadata) : null, messageId]
++        );
++      }
++
++      await client.query('COMMIT');
++    } catch (error) {
++      await client.query('ROLLBACK').catch(() => {});
++      throw error;
++    } finally {
++      client.release();
++    }
++  }
++
++  /**
++   * Save a summary message (system role) that represents compressed messages.
++   */
++  async saveSummaryMessage(
++    threadId: string,
++    summaryContent: string,
++    originalMessageIds: string[],
++    tokenCount: number
++  ): Promise<string> {
++    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
++    const id = crypto.randomUUID();
++    const timestamp = Date.now();
++
++    await this.pool.query(
++      `INSERT INTO chat_messages (id, thread_id, role, content, timestamp, tokens_total, metadata)
++       VALUES ($1, $2, 'system', $3, to_timestamp($4::double precision / 1000), $5, $6)`,
++      [
++        id,
++        normalizedThreadId,
++        summaryContent,
++        timestamp,
++        tokenCount,
++        JSON.stringify({
++          isSummary: true,
++          originalMessageIds,
++          originalMessageCount: originalMessageIds.length,
++        }),
++      ]
++    );
++
++    return id;
++  }
++
++  /**
++   * Get summary messages for a thread.
++   */
++  async getSummaryMessages(threadId: string): Promise<ThreadMessage[]> {
++    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
++    const result = await this.pool.query<MessageRow>(
++      `SELECT * FROM chat_messages
++       WHERE thread_id = $1
++         AND role = 'system'
++         AND metadata->>'isSummary' = 'true'
++       ORDER BY timestamp ASC`,
++      [normalizedThreadId]
++    );
++    return result.rows.map(rowToMessage);
+   }
+ }
+diff --git a/src/chat/db/postgresClient.ts b/src/chat/db/postgresClient.ts
+index 0f6cd0c..c74617e 100644
+--- a/src/chat/db/postgresClient.ts
++++ b/src/chat/db/postgresClient.ts
+@@ -1,113 +1,278 @@
+-import { Pool, PoolConfig } from 'pg';
++import { Pool, PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg';
+ import { logger } from '../../shared/logger.js';
+ 
+ let pool: Pool | null = null;
++let poolPromise: Promise<Pool> | null = null;
+ 
+-const MIGRATION_SQL = `
+--- PRD 001: PostgreSQL Chat Storage - Initial Schema
+-
+-CREATE TABLE IF NOT EXISTS chat_threads (
+-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-  repo_id TEXT NOT NULL,
+-  title TEXT NOT NULL DEFAULT 'New Chat',
+-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  total_tokens INTEGER DEFAULT 0,
+-  total_cost_usd NUMERIC(10,6) DEFAULT 0,
+-  preview TEXT DEFAULT '',
+-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted'))
+-);
+-
+-CREATE INDEX IF NOT EXISTS idx_threads_repo_updated ON chat_threads(repo_id, updated_at DESC);
+-
+-CREATE TABLE IF NOT EXISTS chat_messages (
+-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-  thread_id UUID NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+-  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+-  content TEXT NOT NULL,
+-  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  model TEXT,
+-  tokens_input INTEGER,
+-  tokens_output INTEGER,
+-  tokens_total INTEGER,
+-  cost_usd NUMERIC(10,6),
+-  context_files TEXT[],
+-  tool_calls JSONB,
+-  metadata JSONB
+-);
+-
+-CREATE INDEX IF NOT EXISTS idx_messages_thread ON chat_messages(thread_id, timestamp);
+-
+-CREATE TABLE IF NOT EXISTS chat_memory (
+-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-  scope TEXT NOT NULL CHECK (scope IN ('session', 'repo', 'global')),
+-  scope_id TEXT NOT NULL,
+-  key TEXT NOT NULL,
+-  value TEXT NOT NULL,
+-  embedding_vector FLOAT8[],
+-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  expires_at TIMESTAMPTZ,
+-  UNIQUE(scope, scope_id, key)
+-);
+-
+-CREATE INDEX IF NOT EXISTS idx_memory_scope ON chat_memory(scope, scope_id);
+-
+-CREATE TABLE IF NOT EXISTS batch_jobs (
+-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-  thread_id UUID REFERENCES chat_threads(id),
+-  batch_api_id TEXT,
+-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending', 'submitted', 'processing', 'completed', 'failed', 'cancelled')),
+-  package_type TEXT NOT NULL CHECK (package_type IN ('plan', 'code_change', 'code_review')),
+-  prompt_payload JSONB NOT NULL,
+-  response_payload JSONB,
+-  tokens_input INTEGER,
+-  tokens_output INTEGER,
+-  cost_usd NUMERIC(10,6),
+-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  submitted_at TIMESTAMPTZ,
+-  completed_at TIMESTAMPTZ,
+-  error_message TEXT,
+-  metadata JSONB
+-);
+-
+-CREATE INDEX IF NOT EXISTS idx_batch_thread ON batch_jobs(thread_id);
+-CREATE INDEX IF NOT EXISTS idx_batch_status ON batch_jobs(status);
+-
+-CREATE TABLE IF NOT EXISTS repo_architecture (
+-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-  repo_id TEXT NOT NULL UNIQUE,
+-  markdown_tree TEXT NOT NULL,
+-  folder_explanations JSONB,
+-  generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-  expires_at TIMESTAMPTZ NOT NULL,
+-  git_commit TEXT,
+-  tokens_used INTEGER
+-);
++// Migration version identifiers
++const MIGRATION_001_INITIAL = '001_initial_schema';
++const MIGRATION_002_MEMORY_SOURCE = '002_memory_source';
++
++// SQL for migration 002: Add source column to chat_memory
++const MIGRATION_002_SQL = `
++  ALTER TABLE chat_memory 
++  ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'auto'))
+ `;
+ 
+-async function runMigrations(p: Pool): Promise<void> {
+-  const client = await p.connect();
+-  try {
+-    // Check if tables already exist
++// Individual table creation statements for better error isolation
++const TABLE_STATEMENTS = {
++  schemaMigrations: `
++    CREATE TABLE IF NOT EXISTS schema_migrations (
++      version TEXT PRIMARY KEY,
++      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
++    )
++  `,
++  chatThreads: `
++    CREATE TABLE IF NOT EXISTS chat_threads (
++      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++      repo_id TEXT NOT NULL,
++      title TEXT NOT NULL DEFAULT 'New Chat',
++      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      total_tokens INTEGER DEFAULT 0,
++      total_cost_usd NUMERIC(10,6) DEFAULT 0,
++      preview TEXT DEFAULT '',
++      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted'))
++    )
++  `,
++  chatThreadsIndex: `
++    CREATE INDEX IF NOT EXISTS idx_threads_repo_updated ON chat_threads(repo_id, updated_at DESC)
++  `,
++  chatMessages: `
++    CREATE TABLE IF NOT EXISTS chat_messages (
++      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++      thread_id UUID NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
++      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
++      content TEXT NOT NULL,
++      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      model TEXT,
++      tokens_input INTEGER,
++      tokens_output INTEGER,
++      tokens_total INTEGER,
++      cost_usd NUMERIC(10,6),
++      context_files TEXT[],
++      tool_calls JSONB,
++      metadata JSONB
++    )
++  `,
++  chatMessagesIndex: `
++    CREATE INDEX IF NOT EXISTS idx_messages_thread ON chat_messages(thread_id, timestamp)
++  `,
++  chatMemory: `
++    CREATE TABLE IF NOT EXISTS chat_memory (
++      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++      scope TEXT NOT NULL CHECK (scope IN ('session', 'repo', 'global')),
++      scope_id TEXT NOT NULL,
++      key TEXT NOT NULL,
++      value TEXT NOT NULL,
++      embedding_vector FLOAT8[],
++      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      expires_at TIMESTAMPTZ,
++      UNIQUE(scope, scope_id, key)
++    )
++  `,
++  chatMemoryIndex: `
++    CREATE INDEX IF NOT EXISTS idx_memory_scope ON chat_memory(scope, scope_id)
++  `,
++  batchJobs: `
++    CREATE TABLE IF NOT EXISTS batch_jobs (
++      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++      thread_id UUID REFERENCES chat_threads(id),
++      batch_api_id TEXT,
++      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending', 'submitted', 'processing', 'completed', 'failed', 'cancelled')),
++      package_type TEXT NOT NULL CHECK (package_type IN ('plan', 'code_change', 'code_review')),
++      prompt_payload JSONB NOT NULL,
++      response_payload JSONB,
++      tokens_input INTEGER,
++      tokens_output INTEGER,
++      cost_usd NUMERIC(10,6),
++      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      submitted_at TIMESTAMPTZ,
++      completed_at TIMESTAMPTZ,
++      error_message TEXT,
++      metadata JSONB
++    )
++  `,
++  batchJobsIndexes: `
++    CREATE INDEX IF NOT EXISTS idx_batch_thread ON batch_jobs(thread_id);
++    CREATE INDEX IF NOT EXISTS idx_batch_status ON batch_jobs(status)
++  `,
++  repoArchitecture: `
++    CREATE TABLE IF NOT EXISTS repo_architecture (
++      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++      repo_id TEXT NOT NULL UNIQUE,
++      markdown_tree TEXT NOT NULL,
++      folder_explanations JSONB,
++      generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++      expires_at TIMESTAMPTZ NOT NULL,
++      git_commit TEXT,
++      tokens_used INTEGER
++    )
++  `
++};
++
++interface TableStatus {
++  chatThreads: boolean;
++  chatMessages: boolean;
++  chatMemory: boolean;
++  batchJobs: boolean;
++  repoArchitecture: boolean;
++}
++
++/**
++ * Check if each required table exists individually
++ */
++async function checkTablesExist(client: PoolClient): Promise<TableStatus> {
++  const tables = ['chat_threads', 'chat_messages', 'chat_memory', 'batch_jobs', 'repo_architecture'];
++  const status: any = {};
++
++  for (const tableName of tables) {
+     const result = await client.query(
+       `SELECT EXISTS (
+-        SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'chat_threads'
+-      ) AS exists`
++        SELECT FROM pg_tables 
++        WHERE schemaname = 'public' AND tablename = $1
++      ) AS exists`,
++      [tableName]
++    );
++    // Convert snake_case to camelCase for the status object
++    const key = tableName.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
++    status[key] = result.rows[0].exists;
++  }
++
++  return status as TableStatus;
++}
++
++/**
++ * Check if migration has already been applied
++ */
++async function isMigrationApplied(client: PoolClient, version: string): Promise<boolean> {
++  try {
++    const result = await client.query(
++      'SELECT version FROM schema_migrations WHERE version = $1',
++      [version]
+     );
++    return result.rows.length > 0;
++  } catch (error) {
++    // schema_migrations table might not exist yet
++    return false;
++  }
++}
+ 
+-    if (result.rows[0].exists) {
+-      console.log('[PostgresClient] Tables already exist, skipping migration');
++/**
++ * Record that a migration has been applied
++ */
++async function recordMigration(client: PoolClient, version: string): Promise<void> {
++  await client.query(
++    'INSERT INTO schema_migrations (version) VALUES ($1)',
++    [version]
++  );
++}
++
++/**
++ * Run migration 002: Add source column to chat_memory table.
++ * This migration is idempotent and can be run multiple times safely.
++ */
++async function runMigration002(client: PoolClient): Promise<void> {
++  const alreadyApplied = await isMigrationApplied(client, MIGRATION_002_MEMORY_SOURCE);
++  if (alreadyApplied) {
++    logger.both.debug('[PostgresClient] Migration 002 already applied, skipping');
++    return;
++  }
++
++  logger.both.info('[PostgresClient] Running migration 002: Add source column to chat_memory...');
++
++  await client.query('BEGIN');
++  try {
++    await client.query(MIGRATION_002_SQL);
++    await recordMigration(client, MIGRATION_002_MEMORY_SOURCE);
++    await client.query('COMMIT');
++    logger.both.info('[PostgresClient] Migration 002 completed successfully');
++  } catch (error) {
++    await client.query('ROLLBACK').catch(() => {});
++    logger.both.error('[PostgresClient] Migration 002 failed:', error);
++    throw error;
++  }
++}
++
++async function runMigrations(p: Pool): Promise<void> {
++  const client = await p.connect();
++  
++  try {
++    // First, create schema_migrations table outside transaction (it's idempotent)
++    await client.query(TABLE_STATEMENTS.schemaMigrations);
++    
++    // Check if initial migration has already been applied
++    const initialApplied = await isMigrationApplied(client, MIGRATION_001_INITIAL);
++    if (initialApplied) {
++      logger.both.info('[PostgresClient] Initial migration already applied');
++      // Run subsequent migrations
++      await runMigration002(client);
++      return;
++    }
++
++    // Check each table individually to handle partial failures
++    const tables = await checkTablesExist(client);
++    const allTablesExist = Object.values(tables).every(status => status === true);
++    
++    if (allTablesExist) {
++      // All tables exist but migration wasn't recorded - record it now
++      await client.query('BEGIN');
++      await recordMigration(client, MIGRATION_001_INITIAL);
++      await client.query('COMMIT');
++      logger.both.info('[PostgresClient] All tables exist, initial migration recorded');
++      // Run subsequent migrations
++      await runMigration002(client);
+       return;
+     }
+ 
+-    console.log('[PostgresClient] Running initial migration...');
++    // Some tables are missing - need to run migration
++    logger.both.info('[PostgresClient] Running initial migration...');
++    logger.both.debug('[PostgresClient] Table status:', tables);
++
+     await client.query('BEGIN');
+-    await client.query(MIGRATION_SQL);
+-    await client.query('COMMIT');
+-    console.log('[PostgresClient] Migration completed successfully');
++    
++    try {
++      // Create each table conditionally based on existence check
++      if (!tables.chatThreads) {
++        await client.query(TABLE_STATEMENTS.chatThreads);
++        await client.query(TABLE_STATEMENTS.chatThreadsIndex);
++      }
++      
++      if (!tables.chatMessages) {
++        await client.query(TABLE_STATEMENTS.chatMessages);
++        await client.query(TABLE_STATEMENTS.chatMessagesIndex);
++      }
++      
++      if (!tables.chatMemory) {
++        await client.query(TABLE_STATEMENTS.chatMemory);
++        await client.query(TABLE_STATEMENTS.chatMemoryIndex);
++      }
++      
++      if (!tables.batchJobs) {
++        await client.query(TABLE_STATEMENTS.batchJobs);
++        await client.query(TABLE_STATEMENTS.batchJobsIndexes);
++      }
++      
++      if (!tables.repoArchitecture) {
++        await client.query(TABLE_STATEMENTS.repoArchitecture);
++      }
++      
++      // Record successful migration
++      await recordMigration(client, MIGRATION_001_INITIAL);
++      
++      await client.query('COMMIT');
++      logger.both.info('[PostgresClient] Initial migration completed successfully');
++
++      // Run subsequent migrations
++      await runMigration002(client);
++    } catch (migrationError) {
++      // Re-throw to be caught by outer try-catch for rollback
++      throw migrationError;
++    }
+   } catch (error) {
+     await client.query('ROLLBACK').catch(() => {});
++    logger.both.error('[PostgresClient] Migration failed:', error);
+     throw error;
+   } finally {
+     client.release();
+@@ -115,18 +280,30 @@ async function runMigrations(p: Pool): Promise<void> {
+ }
+ 
+ export async function initPool(connectionString: string): Promise<Pool> {
+-  if (pool) {
+-    return pool;
++  if (!poolPromise) {
++    poolPromise = _initPoolImpl(connectionString);
+   }
++  try {
++    return await poolPromise;
++  } catch (error) {
++    poolPromise = null;
++    pool = null;
++    throw error;
++  }
++}
+ 
++async function _initPoolImpl(connectionString: string): Promise<Pool> {
+   const config: PoolConfig = {
+     connectionString,
+     max: 10,
+     idleTimeoutMillis: 30000,
+-    connectionTimeoutMillis: 5000,
++    connectionTimeoutMillis: 10000,
+   };
+ 
+   pool = new Pool(config);
++  pool.on('error', (error) => {
++    logger.both.error('[PostgresClient] Unexpected idle client error:', error);
++  });
+ 
+   // Test connection and run migrations
+   await runMigrations(pool);
+@@ -134,10 +311,31 @@ export async function initPool(connectionString: string): Promise<Pool> {
+   return pool;
+ }
+ 
++function isRetryablePoolError(error: unknown): boolean {
++  if (!(error instanceof Error)) {
++    return false;
++  }
++
++  const message = error.message.toLowerCase();
++  return (
++    message.includes('timeout') ||
++    message.includes('connection terminated') ||
++    message.includes('econnreset') ||
++    message.includes('econnrefused') ||
++    message.includes('could not connect')
++  );
++}
++
++function sleep(ms: number): Promise<void> {
++  return new Promise((resolve) => {
++    setTimeout(resolve, ms);
++  });
++}
++
+ export function getPool(): Pool {
+   if (!pool) {
+     throw new Error(
+-      'PostgreSQL pool not initialized. Set "repomix.chat.postgresConnectionString" in VS Code settings.'
++      'PostgreSQL pool not initialized. Configure the PostgreSQL connection string in the Repomix Runner Control Panel settings.'
+     );
+   }
+   return pool;
+@@ -147,16 +345,139 @@ export async function closePool(): Promise<void> {
+   if (pool) {
+     await pool.end();
+     pool = null;
+-    console.log('[PostgresClient] Pool closed');
++    poolPromise = null;
++    logger.both.info('[PostgresClient] Pool closed');
++  }
++}
++
++export async function queryWithRetry<T extends QueryResultRow = any>(
++  text: string,
++  values: unknown[] = []
++): Promise<QueryResult<T>> {
++  const activePool = getPool();
++  try {
++    return await activePool.query<T>(text, values);
++  } catch (error) {
++    if (!isRetryablePoolError(error)) {
++      throw error;
++    }
++    logger.both.warn('[PostgresClient] Query failed, retrying once:', error);
++    await sleep(250);
++    return activePool.query<T>(text, values);
++  }
++}
++
++/**
++ * Verify that all required tables exist and migration is properly recorded
++ */
++export async function verifyMigration(): Promise<{
++  success: boolean;
++  missingTables: string[];
++  message: string;
++}> {
++  const client = await getPool().connect();
++  
++  try {
++    // Check schema_migrations table exists
++    const schemaMigrationsResult = await client.query(
++      `SELECT EXISTS (
++        SELECT FROM pg_tables 
++        WHERE schemaname = 'public' AND tablename = 'schema_migrations'
++      ) AS exists`
++    );
++
++    if (!schemaMigrationsResult.rows[0].exists) {
++      return {
++        success: false,
++        missingTables: ['schema_migrations'],
++        message: 'schema_migrations table does not exist'
++      };
++    }
++
++    // Check if migrations are recorded
++    const migration001Applied = await isMigrationApplied(client, MIGRATION_001_INITIAL);
++    const migration002Applied = await isMigrationApplied(client, MIGRATION_002_MEMORY_SOURCE);
++    
++    // Check all required tables
++    const tables = await checkTablesExist(client);
++    const missingTables: string[] = [];
++    
++    const tableNames: Array<keyof TableStatus> = ['chatThreads', 'chatMessages', 'chatMemory', 'batchJobs', 'repoArchitecture'];
++    const tableToDbName: Record<string, string> = {
++      chatThreads: 'chat_threads',
++      chatMessages: 'chat_messages',
++      chatMemory: 'chat_memory',
++      batchJobs: 'batch_jobs',
++      repoArchitecture: 'repo_architecture'
++    };
++
++    for (const tableName of tableNames) {
++      if (!tables[tableName]) {
++        missingTables.push(tableToDbName[tableName]);
++      }
++    }
++
++    if (missingTables.length > 0) {
++      return {
++        success: false,
++        missingTables,
++        message: `Missing tables: ${missingTables.join(', ')}`
++      };
++    }
++
++    if (!migration001Applied) {
++      return {
++        success: false,
++        missingTables: [],
++        message: 'Migration 001 (initial schema) not recorded in schema_migrations table'
++      };
++    }
++
++    if (!migration002Applied) {
++      return {
++        success: false,
++        missingTables: [],
++        message: 'Migration 002 (memory source) not recorded in schema_migrations table'
++      };
++    }
++
++    return {
++      success: true,
++      missingTables: [],
++      message: 'All tables exist and all migrations are properly recorded'
++    };
++  } catch (error) {
++    const errorMessage = error instanceof Error ? error.message : String(error);
++    return {
++      success: false,
++      missingTables: [],
++      message: `Verification failed: ${errorMessage}`
++    };
++  } finally {
++    client.release();
+   }
+ }
+ 
+ export async function testConnection(): Promise<{ success: boolean; message: string }> {
++  if (!pool) {
++    return {
++      success: false,
++      message:
++        'PostgreSQL is not configured yet. Add a PostgreSQL connection string in Repomix Runner settings first.',
++    };
++  }
++
+   try {
+-    const p = getPool();
+-    const result = await p.query('SELECT version()');
++    const result = await queryWithRetry('SELECT version()');
+     const version = result.rows[0].version as string;
+-    return { success: true, message: version };
++    
++    // Also verify migration status
++    const verification = await verifyMigration();
++    
++    return { 
++      success: true, 
++      message: `${version}\nMigration Status: ${verification.message}`
++    };
+   } catch (error) {
+     const message = error instanceof Error ? error.message : String(error);
+     return { success: false, message };
+diff --git a/src/chat/db/threadRepository.ts b/src/chat/db/threadRepository.ts
+index 5811622..d3600f0 100644
+--- a/src/chat/db/threadRepository.ts
++++ b/src/chat/db/threadRepository.ts
+@@ -2,6 +2,7 @@ import { Pool } from 'pg';
+ import { Thread } from '../../types/chat.js';
+ 
+ const DEFAULT_THREAD_TITLE = 'New Chat';
++const MAX_THREAD_TITLE_LENGTH = 200;
+ 
+ interface ThreadRow {
+   id: string;
+@@ -26,33 +27,53 @@ function rowToThread(row: ThreadRow): Thread {
+   };
+ }
+ 
++function assertNonEmpty(value: string, fieldName: string): string {
++  const trimmed = value.trim();
++  if (!trimmed) {
++    throw new Error(`${fieldName} is required.`);
++  }
++  return trimmed;
++}
++
++function normalizeTitle(title: string): string {
++  const trimmed = assertNonEmpty(title, 'title');
++  if (trimmed.length > MAX_THREAD_TITLE_LENGTH) {
++    throw new Error(`title must be ${MAX_THREAD_TITLE_LENGTH} characters or fewer.`);
++  }
++  return trimmed;
++}
++
+ export class ThreadRepository {
+   constructor(private readonly pool: Pool) {}
+ 
+   async createThread(repoId: string, title: string = DEFAULT_THREAD_TITLE): Promise<Thread> {
++    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
++    const normalizedTitle = normalizeTitle(title);
+     const result = await this.pool.query<ThreadRow>(
+       `INSERT INTO chat_threads (repo_id, title)
+        VALUES ($1, $2)
+        RETURNING *`,
+-      [repoId, title]
++      [normalizedRepoId, normalizedTitle]
+     );
+     return rowToThread(result.rows[0]);
+   }
+ 
+   async getThreads(repoId: string): Promise<Thread[]> {
++    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
+     const result = await this.pool.query<ThreadRow>(
+       `SELECT * FROM chat_threads
+        WHERE repo_id = $1 AND status = 'active'
+        ORDER BY updated_at DESC`,
+-      [repoId]
++      [normalizedRepoId]
+     );
+     return result.rows.map(rowToThread);
+   }
+ 
+   async getThread(id: string): Promise<Thread | null> {
++    const normalizedId = assertNonEmpty(id, 'id');
+     const result = await this.pool.query<ThreadRow>(
+       `SELECT * FROM chat_threads WHERE id = $1`,
+-      [id]
++      [normalizedId]
+     );
+     if (result.rows.length === 0) {
+       return null;
+@@ -69,13 +90,14 @@ export class ThreadRepository {
+       totalCostUsd: number;
+     }>
+   ): Promise<void> {
++    const normalizedId = assertNonEmpty(id, 'id');
+     const sets: string[] = [];
+     const values: unknown[] = [];
+     let paramIndex = 1;
+ 
+     if (patch.title !== undefined) {
+       sets.push(`title = $${paramIndex++}`);
+-      values.push(patch.title);
++      values.push(normalizeTitle(patch.title));
+     }
+     if (patch.preview !== undefined) {
+       sets.push(`preview = $${paramIndex++}`);
+@@ -95,7 +117,7 @@ export class ThreadRepository {
+     }
+ 
+     sets.push(`updated_at = NOW()`);
+-    values.push(id);
++    values.push(normalizedId);
+ 
+     await this.pool.query(
+       `UPDATE chat_threads SET ${sets.join(', ')} WHERE id = $${paramIndex}`,
+@@ -104,17 +126,27 @@ export class ThreadRepository {
+   }
+ 
+   async renameThread(id: string, title: string): Promise<void> {
+-    const trimmed = title.trim();
+-    if (!trimmed) {
+-      return;
+-    }
++    const normalizedId = assertNonEmpty(id, 'id');
++    const trimmed = normalizeTitle(title);
+     await this.pool.query(
+       `UPDATE chat_threads SET title = $1, updated_at = NOW() WHERE id = $2`,
+-      [trimmed, id]
++      [trimmed, normalizedId]
++    );
++  }
++
++  async archiveThread(id: string): Promise<void> {
++    const normalizedId = assertNonEmpty(id, 'id');
++    await this.pool.query(
++      `UPDATE chat_threads SET status = 'archived', updated_at = NOW() WHERE id = $1`,
++      [normalizedId]
+     );
+   }
+ 
+   async deleteThread(id: string): Promise<void> {
+-    await this.pool.query(`DELETE FROM chat_threads WHERE id = $1`, [id]);
++    const normalizedId = assertNonEmpty(id, 'id');
++    await this.pool.query(
++      `UPDATE chat_threads SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
++      [normalizedId]
++    );
+   }
+ }
+diff --git a/src/chat/graph.ts b/src/chat/graph.ts
+index 2e961c8..e408017 100644
+--- a/src/chat/graph.ts
++++ b/src/chat/graph.ts
+@@ -3,20 +3,23 @@ import type { Pool } from 'pg';
+ import type { ExtensionContext } from 'vscode';
+ import { ChatState } from './state.js';
+ import { createCheckpointer } from './checkpointer.js';
++import type { BatchManager } from './batch/batchManager.js';
+ import {
+   gatherContextNode,
++  compressContextNode,
+   prepareGoalNode,
+   humanReviewGoalNode,
+   packagePromptNode,
+   humanApproveSendNode,
+   submitBatchNode,
+-  setSubmitBatchPool,
++  setSubmitBatchManager,
+   awaitBatchResponseNode,
+   processBatchResponseNode,
+   humanReviewEditsNode,
+   applyEditsNode,
+   humanReviewCodeNode,
+   generateSummaryNode,
++  extractMemoryNode,
+   type ProgressCallback,
+ } from './nodes/index.js';
+ 
+@@ -30,6 +33,8 @@ export type { ProgressCallback };
+  *   ↓
+  * gatherContext ← vector search + architecture loading
+  *   ↓
++ * compressContext ← token budget check + compression (PRD 003)
++ *   ↓
+  * prepareGoal ← Gemini synthesizes goal
+  *   ↓
+  * [INTERRUPT 1] humanReviewGoal ← user edits goal/context
+@@ -57,10 +62,11 @@ export type { ProgressCallback };
+ export async function createHitlChatGraph(
+   extensionContext: ExtensionContext,
+   pgPool: Pool,
++  batchManager: BatchManager,
+   onProgress: ProgressCallback
+ ) {
+-  // Set the pool for submitBatch node
+-  setSubmitBatchPool(pgPool);
++  // Set the batch manager for submitBatch node
++  setSubmitBatchManager(batchManager);
+ 
+   // Create the checkpointer for state persistence
+   const checkpointer = await createCheckpointer(pgPool);
+@@ -71,9 +77,14 @@ export async function createHitlChatGraph(
+       gatherContextNode(state, extensionContext, onProgress)
+     )
+ 
+-    // Goal synthesis phase
++    // Context compression phase (PRD 003)
++    .addNode('compressContext', (state) =>
++      compressContextNode(state, extensionContext, onProgress)
++    )
++
++    // Goal synthesis phase (with memory injection - PRD 004)
+     .addNode('prepareGoal', (state) =>
+-      prepareGoalNode(state, extensionContext, onProgress)
++      prepareGoalNode(state, extensionContext, pgPool, onProgress)
+     )
+ 
+     // INTERRUPT 1: User reviews goal
+@@ -108,9 +119,15 @@ export async function createHitlChatGraph(
+       generateSummaryNode(state, extensionContext, onProgress)
+     )
+ 
++    // Memory extraction (PRD 004)
++    .addNode('extractMemory', (state) =>
++      extractMemoryNode(state, extensionContext, pgPool, onProgress)
++    )
++
+     // Define edges - linear flow with one conditional edge
+     .addEdge('__start__', 'gatherContext')
+-    .addEdge('gatherContext', 'prepareGoal')
++    .addEdge('gatherContext', 'compressContext')
++    .addEdge('compressContext', 'prepareGoal')
+     .addEdge('prepareGoal', 'humanReviewGoal')
+     .addEdge('humanReviewGoal', 'packagePrompt')
+     .addEdge('packagePrompt', 'humanApproveSend')
+@@ -129,7 +146,8 @@ export async function createHitlChatGraph(
+       return 'generateSummary';
+     })
+ 
+-    .addEdge('generateSummary', '__end__');
++    .addEdge('generateSummary', 'extractMemory')
++    .addEdge('extractMemory', '__end__');
+ 
+   // Compile with checkpointer for state persistence
+   return workflow.compile({ checkpointer });
+diff --git a/src/chat/nodes/awaitBatchResponse.ts b/src/chat/nodes/awaitBatchResponse.ts
+index c2fae7f..47dc49d 100644
+--- a/src/chat/nodes/awaitBatchResponse.ts
++++ b/src/chat/nodes/awaitBatchResponse.ts
+@@ -1,23 +1,17 @@
+ /**
+  * awaitBatchResponse node - INTERRUPT: Waits for batch completion.
+- * The external poller (PRD 005) will resume this when the batch completes.
++ * The poller resumes this when the batch reaches a terminal state.
+  */
+ import { interrupt } from '@langchain/langgraph';
+ import { ChatState } from '../state.js';
+ import type { ProgressCallback } from './utils.js';
+ 
+-/**
+- * Interrupt payload for batch pending state.
+- */
+ export interface BatchPendingInterrupt {
+   type: 'batch_pending';
+   batchJobId: string;
+   estimatedCompletionTime: string;
+ }
+ 
+-/**
+- * Resume value when batch completes.
+- */
+ export interface BatchPendingResume {
+   completed: boolean;
+   responseContent?: string;
+@@ -35,14 +29,11 @@ export async function awaitBatchResponseNode(
+     };
+   }
+ 
+-  const interruptPayload: BatchPendingInterrupt = {
++  const resumeValue = interrupt({
+     type: 'batch_pending',
+     batchJobId: state.batchJobId,
+-    estimatedCompletionTime: '~10 minutes (stubbed)',
+-  };
+-
+-  // This pauses until the external poller (or manual trigger) resumes
+-  const resumeValue = interrupt(interruptPayload) as BatchPendingResume;
++    estimatedCompletionTime: 'Batch processing in progress (resume on open enabled).',
++  } as BatchPendingInterrupt) as BatchPendingResume;
+ 
+   if (!resumeValue.completed) {
+     return {
+diff --git a/src/chat/nodes/gatherContext.ts b/src/chat/nodes/gatherContext.ts
+index 51d27e8..d89eb79 100644
+--- a/src/chat/nodes/gatherContext.ts
++++ b/src/chat/nodes/gatherContext.ts
+@@ -103,7 +103,9 @@ export async function gatherContextNode(
+ 
+     for (const match of rawMatches) {
+       const filePath = match.metadata?.filePath as string | undefined;
+-      if (!filePath) continue;
++      if (!filePath) {
++        continue;
++      }
+ 
+       const startLine = match.metadata?.startLine as number | undefined;
+       const endLine = match.metadata?.endLine as number | undefined;
+diff --git a/src/chat/nodes/humanApproveSend.ts b/src/chat/nodes/humanApproveSend.ts
+index 68c4ad2..ddb35ff 100644
+--- a/src/chat/nodes/humanApproveSend.ts
++++ b/src/chat/nodes/humanApproveSend.ts
+@@ -10,6 +10,7 @@ import type { ProgressCallback } from './utils.js';
+  */
+ export interface SendReviewInterrupt {
+   type: 'send_review';
++  packageId?: string;
+   package: PackagePayload;
+   estimatedTokens: number;
+ }
+@@ -19,6 +20,7 @@ export interface SendReviewInterrupt {
+  */
+ export interface SendReviewResume {
+   approved: boolean;
++  packageId?: string;
+ }
+ 
+ /**
+@@ -67,5 +69,6 @@ export async function humanApproveSendNode(
+   // User approved, continue to batch submission
+   return {
+     workflowPhase: 'batch_pending' as const,
++    batchJobId: resumeValue.packageId ?? null,
+   };
+ }
+diff --git a/src/chat/nodes/index.ts b/src/chat/nodes/index.ts
+index 8b03bc5..167771d 100644
+--- a/src/chat/nodes/index.ts
++++ b/src/chat/nodes/index.ts
+@@ -17,6 +17,7 @@ export { generateResponseNode } from './generateResponse.js';
+ 
+ // HITL workflow nodes
+ export { gatherContextNode } from './gatherContext.js';
++export { compressContextNode } from './compressContext.js';
+ export { prepareGoalNode } from './prepareGoal.js';
+ export {
+   humanReviewGoalNode,
+@@ -29,7 +30,7 @@ export {
+   type SendReviewInterrupt,
+   type SendReviewResume,
+ } from './humanApproveSend.js';
+-export { submitBatchNode, setSubmitBatchPool } from './submitBatch.js';
++export { submitBatchNode, setSubmitBatchManager } from './submitBatch.js';
+ export {
+   awaitBatchResponseNode,
+   type BatchPendingInterrupt,
+@@ -48,3 +49,4 @@ export {
+   type CodeReviewResume,
+ } from './humanReviewCode.js';
+ export { generateSummaryNode } from './generateSummary.js';
++export { extractMemoryNode } from './extractMemory.js';
+diff --git a/src/chat/nodes/packagePrompt.ts b/src/chat/nodes/packagePrompt.ts
+index ed95fcd..d944c14 100644
+--- a/src/chat/nodes/packagePrompt.ts
++++ b/src/chat/nodes/packagePrompt.ts
+@@ -1,8 +1,11 @@
+ /**
+  * packagePrompt node - Assembles final prompt payload for batch submission.
++ * Enhanced with token budget validation (PRD 003).
+  */
+ import { ChatState, type OutputInstruction } from '../state.js';
+ import { buildBatchPrompt } from '../prompts/outputInstructions.js';
++import { countTokens, calculateBudget, CLAUDE_OPUS_BUDGET } from '../compression/tokenBudget.js';
++import { logger } from '../../shared/logger.js';
+ import type { ProgressCallback } from './utils.js';
+ 
+ /**
+@@ -55,9 +58,26 @@ export async function packagePromptNode(
+   };
+ 
+   // Also build the full prompt for reference/display
+-  const _fullPrompt = buildBatchPrompt(packagePayload);
++  const fullPrompt = buildBatchPrompt(packagePayload);
+ 
+-  onProgress(`Package ready (${outputInstruction} mode). Awaiting approval...`);
++  // Token budget validation (PRD 003)
++  const promptTokens = countTokens(fullPrompt);
++  const modelWindow = state.modelContextWindow || CLAUDE_OPUS_BUDGET.contextWindow;
++  const budget = calculateBudget(modelWindow, state.contextThresholdPercent || 80);
++
++  if (promptTokens > budget.total) {
++    logger.both.warn(
++      `[packagePrompt] Prompt exceeds budget: ${promptTokens} tokens > ${budget.total} budget. ` +
++      `Compression may not have been sufficient.`
++    );
++  } else {
++    logger.both.info(
++      `[packagePrompt] Prompt token usage: ${promptTokens}/${budget.total} ` +
++      `(${Math.round((promptTokens / budget.total) * 100)}% of budget)`
++    );
++  }
++
++  onProgress(`Package ready (${outputInstruction} mode, ${promptTokens} tokens). Awaiting approval...`);
+ 
+   return {
+     packagePayload,
+diff --git a/src/chat/nodes/prepareGoal.ts b/src/chat/nodes/prepareGoal.ts
+index abd9590..9fc3a92 100644
+--- a/src/chat/nodes/prepareGoal.ts
++++ b/src/chat/nodes/prepareGoal.ts
+@@ -2,15 +2,21 @@
+  * prepareGoal node - Gemini synthesizes a goal from user query + context.
+  */
+ import type { ExtensionContext } from 'vscode';
++import type { Pool } from 'pg';
+ import { ChatState } from '../state.js';
+ import { logger } from '../../shared/logger.js';
+ import * as llmClient from '../../agent/llmClient.js';
+ import { buildGoalPrompt, parseGoalResponse } from '../prompts/goalPrompt.js';
+ import { getApiKey, calculateGeminiCost, type ProgressCallback } from './utils.js';
++import { MemoryManager } from '../memory/memoryManager.js';
++import { injectMemories } from '../memory/memoryInjector.js';
++import { getRepoId } from '../../utils/repoIdentity.js';
++import { getCwd } from '../../config/getCwd.js';
+ 
+ export async function prepareGoalNode(
+   state: typeof ChatState.State,
+   extensionContext: ExtensionContext,
++  pgPool: Pool,
+   onProgress: ProgressCallback
+ ) {
+   onProgress('Synthesizing goal from request and context...');
+@@ -24,11 +30,25 @@ export async function prepareGoalNode(
+     };
+   }
+ 
++  // Inject relevant memories (PRD 004)
++  let memoryContext = '';
++  try {
++    const repoId = await getRepoId(getCwd());
++    const memoryManager = new MemoryManager(pgPool);
++    memoryContext = await injectMemories(state.threadId, repoId, memoryManager);
++    if (memoryContext) {
++      logger.both.debug('prepareGoal: Injecting memory context');
++    }
++  } catch (error) {
++    logger.both.warn('prepareGoal: Memory injection failed (non-blocking):', error);
++  }
++
+   const prompt = buildGoalPrompt({
+     userQuery: state.userQuery,
+     retrievedContext: state.retrievedContext,
+     repoArchitecture: state.repoArchitecture,
+     dependencies: state.dependencies,
++    memoryContext,
+   });
+ 
+   try {
+diff --git a/src/chat/nodes/processBatchResponse.ts b/src/chat/nodes/processBatchResponse.ts
+index 949c22b..0f41dc4 100644
+--- a/src/chat/nodes/processBatchResponse.ts
++++ b/src/chat/nodes/processBatchResponse.ts
+@@ -2,57 +2,17 @@
+  * processBatchResponse node - Parses batch response into file edits.
+  */
+ import { ChatState, type FileEdit } from '../state.js';
+-import { logger } from '../../shared/logger.js';
+ import type { ProgressCallback } from './utils.js';
++import { parseBatchResponse } from '../batch/responseParser.js';
+ 
+-/**
+- * Expected response format for code changes.
+- */
+-interface CodeChangeResponse {
+-  summary: string;
+-  changes: Array<{
+-    filePath: string;
+-    action: 'create' | 'edit' | 'delete';
+-    description: string;
+-    content?: string;
+-    searchReplace?: Array<{ search: string; replace: string }>;
+-  }>;
+-}
+-
+-/**
+- * Parses the batch response content into file edits.
+- */
+-function parseBatchResponse(content: string): FileEdit[] {
+-  if (!content.trim()) {
+-    return [];
+-  }
+-
+-  try {
+-    // Try to extract JSON from the response
+-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+-    if (!jsonMatch) {
+-      logger.both.warn('processBatchResponse: No JSON found in response');
+-      return [];
+-    }
+-
+-    const parsed = JSON.parse(jsonMatch[0]) as CodeChangeResponse;
+-
+-    if (!parsed.changes || !Array.isArray(parsed.changes)) {
+-      logger.both.warn('processBatchResponse: No changes array in response');
+-      return [];
+-    }
+-
+-    return parsed.changes.map((change) => ({
+-      filePath: change.filePath,
+-      action: change.action,
+-      content: change.content || '',
+-      searchReplace: change.searchReplace,
+-      approved: false, // User must approve each edit
+-    }));
+-  } catch (error) {
+-    logger.both.error('processBatchResponse: Failed to parse response', error);
+-    return [];
+-  }
++function createRawResponseFallbackEdit(batchJobId: string | null, content: string): FileEdit {
++  const safeJobId = batchJobId ?? 'unknown-batch';
++  return {
++    filePath: `.repomix/incoming/${safeJobId}/manual-review-response.md`,
++    action: 'create',
++    content: `# Manual Review Required\n\nThe batch response could not be parsed into structured edits.\n\n## Raw Response\n\n\`\`\`\n${content}\n\`\`\`\n`,
++    approved: false,
++  };
+ }
+ 
+ export async function processBatchResponseNode(
+@@ -61,7 +21,13 @@ export async function processBatchResponseNode(
+ ) {
+   onProgress('Processing batch response...');
+ 
+-  const fileEdits = parseBatchResponse(state.batchResponseContent);
++  const parsed = parseBatchResponse(state.batchResponseContent);
++  let fileEdits = parsed.fileEdits;
++
++  if (fileEdits.length === 0 && state.batchResponseContent.trim()) {
++    // Surface raw output through manual review as requested.
++    fileEdits = [createRawResponseFallbackEdit(state.batchJobId, state.batchResponseContent)];
++  }
+ 
+   if (fileEdits.length === 0) {
+     return {
+@@ -71,7 +37,11 @@ export async function processBatchResponseNode(
+     };
+   }
+ 
+-  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...`);
++  const warningSummary = parsed.parseWarnings.length
++    ? ` Parse warnings: ${parsed.parseWarnings.join(' | ')}`
++    : '';
++
++  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...${warningSummary}`);
+ 
+   return {
+     fileEdits,
+diff --git a/src/chat/nodes/submitBatch.ts b/src/chat/nodes/submitBatch.ts
+index 33c2e8d..1c8a541 100644
+--- a/src/chat/nodes/submitBatch.ts
++++ b/src/chat/nodes/submitBatch.ts
+@@ -1,18 +1,15 @@
+ /**
+- * submitBatch node - Creates batch job record (stubbed API).
+- * Full Anthropic Batch API integration will be in PRD 005.
++ * submitBatch node - Submits package payload to Anthropic batch API.
+  */
+-import type { Pool } from 'pg';
+ import { ChatState } from '../state.js';
+ import { logger } from '../../shared/logger.js';
+-import { BatchRepository } from '../db/batchRepository.js';
+ import type { ProgressCallback } from './utils.js';
++import type { BatchManager } from '../batch/batchManager.js';
+ 
+-// Global pool reference - will be set by the graph factory
+-let pgPool: Pool | null = null;
++let batchManager: BatchManager | null = null;
+ 
+-export function setSubmitBatchPool(pool: Pool) {
+-  pgPool = pool;
++export function setSubmitBatchManager(manager: BatchManager) {
++  batchManager = manager;
+ }
+ 
+ export async function submitBatchNode(
+@@ -30,42 +27,27 @@ export async function submitBatchNode(
+     };
+   }
+ 
+-  if (!pgPool) {
+-    logger.both.warn('submitBatch: No database pool available.');
++  if (!batchManager) {
++    logger.both.warn('submitBatch: Batch manager not initialized.');
+     return {
+       batchJobId: null,
+       workflowPhase: 'complete' as const,
+-      aiResponse: 'Database not available for batch submission.',
++      aiResponse: 'Batch manager is not available.',
+     };
+   }
+ 
+   try {
+-    const batchRepo = new BatchRepository(pgPool);
+-
+-    // Create the batch job record
+-    const batchJobId = await batchRepo.createBatchJob({
+-      threadId: state.threadId,
+-      packageType: state.packagePayload.outputInstruction,
+-      promptPayload: state.packagePayload,
+-      metadata: {
+-        createdBy: 'hitl_workflow',
+-        goalPreview: state.goalText.slice(0, 200),
+-      },
+-    });
+-
+-    // Mark as pending (in real implementation, this would call Anthropic API)
+-    await batchRepo.updateBatchJob(batchJobId, {
+-      status: 'pending',
+-    });
+-
+-    onProgress(`Batch job created: ${batchJobId.slice(0, 8)}...`);
++    const result = state.batchJobId
++      ? await batchManager.submitExistingPackage(state.batchJobId)
++      : await batchManager.submitPackage(state.threadId, state.packagePayload);
++    onProgress(`Batch job submitted: ${result.batchJobId.slice(0, 8)}...`);
+ 
+     return {
+-      batchJobId,
++      batchJobId: result.batchJobId,
+       workflowPhase: 'batch_pending' as const,
+     };
+   } catch (error) {
+-    logger.both.error('submitBatch: Failed to create batch job', error);
++    logger.both.error('submitBatch: Failed to submit batch', error);
+     return {
+       batchJobId: null,
+       workflowPhase: 'complete' as const,
+diff --git a/src/chat/prompts/goalPrompt.ts b/src/chat/prompts/goalPrompt.ts
+index 1a53bb9..1ca9378 100644
+--- a/src/chat/prompts/goalPrompt.ts
++++ b/src/chat/prompts/goalPrompt.ts
+@@ -13,6 +13,7 @@ export interface GoalPromptInput {
+   }>;
+   repoArchitecture: string;
+   dependencies: Record<string, string>;
++  memoryContext?: string; // PRD 004: Injected memory context
+ }
+ 
+ /**
+@@ -32,11 +33,16 @@ export function buildGoalPrompt(input: GoalPromptInput): string {
+     .map(([name, version]) => `- ${name}: ${version}`)
+     .join('\n');
+ 
++  // Build memory section if available
++  const memorySection = input.memoryContext
++    ? `\n${input.memoryContext}`
++    : '';
++
+   return `You are a senior software architect analyzing a user's request to help them accomplish a development task.
+ 
+ ## User's Request
+ ${input.userQuery}
+-
++${memorySection}
+ ## Repository Architecture
+ ${input.repoArchitecture || 'No architecture document available.'}
+ 
+diff --git a/src/chat/state.ts b/src/chat/state.ts
+index aa745f3..067fff1 100644
+--- a/src/chat/state.ts
++++ b/src/chat/state.ts
+@@ -1,4 +1,5 @@
+ import { Annotation } from "@langchain/langgraph";
++import type { CompressedSegment, CompressionLevel } from './compression/types.js';
+ 
+ // --- Type Definitions for HITL Workflow ---
+ 
+@@ -227,4 +228,50 @@ export const ChatState = Annotation.Root({
+     reducer: (_, y) => y,
+     default: () => '',
+   }),
++
++  // --- Memory State (PRD 004) ---
++
++  // Formatted memory context for debugging/display
++  activeMemories: Annotation<string>({
++    reducer: (_, y) => y,
++    default: () => '',
++  }),
++
++  // --- Context Compression State (PRD 003) ---
++
++  // Percentage of context window that triggers compression (from settings)
++  contextThresholdPercent: Annotation<number>({
++    reducer: (_, y) => y,
++    default: () => 80,
++  }),
++
++  // Current total token count across all context
++  currentTokenCount: Annotation<number>({
++    reducer: (_, y) => y,
++    default: () => 0,
++  }),
++
++  // Whether compression was applied in this workflow run
++  compressionApplied: Annotation<boolean>({
++    reducer: (_, y) => y,
++    default: () => false,
++  }),
++
++  // Compressed history segments (summaries of older messages)
++  compressedHistory: Annotation<CompressedSegment[]>({
++    reducer: (_, y) => y,
++    default: () => [],
++  }),
++
++  // Maximum recent messages to keep in full before summarizing
++  maxRecentMessages: Annotation<number>({
++    reducer: (_, y) => y,
++    default: () => 10,
++  }),
++
++  // Model context window size in tokens
++  modelContextWindow: Annotation<number>({
++    reducer: (_, y) => y,
++    default: () => 200_000,
++  }),
+ });
+diff --git a/src/core/compression/compressFile.ts b/src/core/compression/compressFile.ts
+index ad8c3f8..c0a512a 100644
+--- a/src/core/compression/compressFile.ts
++++ b/src/core/compression/compressFile.ts
+@@ -1,6 +1,33 @@
++import { encode } from 'gpt-tokenizer';
+ import { LanguageParser } from './LanguageParser.js';
+ import type { CaptureLike, CompressionOptions, BodyReplacement } from './types.js';
+ 
++/**
++ * Result of compression with token information.
++ */
++export interface CompressionWithTokens {
++  /** Compressed content, or null if compression not supported */
++  compressed: string | null;
++  /** Token count of the result (compressed content or original if compression failed) */
++  tokenCount: number;
++}
++
++/**
++ * Count tokens in a text string using gpt-tokenizer.
++ * Falls back to character-based estimation if encoding fails.
++ */
++function countTokens(text: string): number {
++  if (!text) {
++    return 0;
++  }
++  try {
++    return encode(text).length;
++  } catch {
++    // Fallback: estimate ~4 characters per token
++    return Math.ceil(text.length / 4);
++  }
++}
++
+ function detectLanguage(filePath: string): 'typescript' | 'javascript' | 'dart' | 'python' | 'csharp' | 'rust' | null {
+   const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
+ 
+@@ -82,3 +109,48 @@ export async function compressFile(
+     return null;
+   }
+ }
++
++/**
++ * Compress a file and return both the compressed content and token count.
++ * This is useful for token budget management in the compression pipeline.
++ *
++ * @param filePath - Path to the file (used for language detection)
++ * @param fileContent - Raw file content to compress
++ * @param options - Optional compression options
++ * @returns Object with compressed content and token count
++ */
++export async function compressFileWithTokens(
++  filePath: string,
++  fileContent: string,
++  options?: CompressionOptions
++): Promise<CompressionWithTokens> {
++  const compressed = await compressFile(filePath, fileContent, options);
++
++  if (compressed !== null) {
++    return {
++      compressed,
++      tokenCount: countTokens(compressed),
++    };
++  }
++
++  // Compression not supported or failed - return null with original token count
++  return {
++    compressed: null,
++    tokenCount: countTokens(fileContent),
++  };
++}
++
++/**
++ * Get list of supported language extensions.
++ */
++export function getSupportedExtensions(): string[] {
++  return ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs', 'dart', 'py', 'cs', 'rs'];
++}
++
++/**
++ * Check if a file extension is supported for AST compression.
++ */
++export function isSupportedExtension(filePath: string): boolean {
++  const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
++  return getSupportedExtensions().includes(extension);
++}
+diff --git a/src/extension.ts b/src/extension.ts
+index 723bed7..c083aba 100644
+--- a/src/extension.ts
++++ b/src/extension.ts
+@@ -49,6 +49,7 @@ import { ExtensionServices } from './core/services/ExtensionServices.js';
+ import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
+ import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
+ import type { Pool } from 'pg';
++import { SECRET_POSTGRES_CONNECTION } from './webview/controllers/ConfigController.js';
+ 
+ 
+ export async function activate(context: vscode.ExtensionContext) {
+@@ -74,9 +75,7 @@ export async function activate(context: vscode.ExtensionContext) {
+ 
+   // Initialize PostgreSQL pool for chat storage
+   let chatPgPool: Pool | null = null;
+-  const pgConnectionString = vscode.workspace
+-    .getConfiguration('repomix.chat')
+-    .get<string>('postgresConnectionString', '');
++  const pgConnectionString = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
+ 
+   if (pgConnectionString) {
+     try {
+@@ -84,12 +83,23 @@ export async function activate(context: vscode.ExtensionContext) {
+       console.log('[quick-repomix] PostgreSQL chat storage initialized');
+     } catch (error) {
+       console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
+-      vscode.window.showErrorMessage(
+-        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled.`
++      const selection = await vscode.window.showErrorMessage(
++        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled until PostgreSQL is configured correctly.`,
++        'Open Repomix Settings'
+       );
++      if (selection === 'Open Repomix Settings') {
++        await vscode.commands.executeCommand('repomixRunner.openSettings');
++      }
+     }
+   } else {
+     console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
++    const selection = await vscode.window.showWarningMessage(
++      'Chat is disabled because no PostgreSQL connection string is configured. Configure it in Repomix Runner settings.',
++      'Open Repomix Settings'
++    );
++    if (selection === 'Open Repomix Settings') {
++      await vscode.commands.executeCommand('repomixRunner.openSettings');
++    }
+   }
+ 
+   // Initialize embedding service with saved configuration
+diff --git a/src/webview/AiChatRoot.tsx b/src/webview/AiChatRoot.tsx
+index d2a0ba2..48639c3 100644
+--- a/src/webview/AiChatRoot.tsx
++++ b/src/webview/AiChatRoot.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useEffect, useState } from 'react';
+ import {
+   FluentProvider,
+   webDarkTheme,
+@@ -7,11 +7,30 @@ import {
+   Tab,
+ } from '@fluentui/react-components';
+ import { ChatTab } from './components/ai-chat/ChatTab.js';
++import { MemoryPanel } from './components/ai-chat/MemoryPanel.js';
++import { vscode } from './vscode-api.js';
+ 
+ export const AiChatRoot = () => {
+   console.log('[AiChatRoot] Component rendered');
+   
+   const [activeTab, setActiveTab] = useState('Chat');
++  const [chatDisabledMessage, setChatDisabledMessage] = useState<string | null>(null);
++
++  useEffect(() => {
++    const handleMessage = (event: MessageEvent) => {
++      const message = event.data;
++      if (message?.command === 'chatDisabled' && typeof message.message === 'string') {
++        setChatDisabledMessage(message.message);
++      }
++    };
++
++    window.addEventListener('message', handleMessage);
++    vscode.postMessage({ command: 'webviewLoaded' });
++
++    return () => {
++      window.removeEventListener('message', handleMessage);
++    };
++  }, []);
+ 
+   return (
+     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
+@@ -31,6 +50,20 @@ export const AiChatRoot = () => {
+           </Text>
+         </div>
+ 
++        {chatDisabledMessage && (
++          <div
++            style={{
++              marginBottom: '12px',
++              padding: '10px 12px',
++              border: '1px solid var(--vscode-inputValidation-warningBorder)',
++              background: 'var(--vscode-inputValidation-warningBackground)',
++              borderRadius: '6px',
++            }}
++          >
++            <Text>{chatDisabledMessage}</Text>
++          </div>
++        )}
++
+         {/* Tab Navigation */}
+         <TabList
+           selectedValue={activeTab}
+@@ -40,6 +73,7 @@ export const AiChatRoot = () => {
+           style={{ marginBottom: '15px' }}
+         >
+           <Tab value="Chat">Chat</Tab>
++          <Tab value="Memory">Memory</Tab>
+           <Tab value="Settings">Settings</Tab>
+           <Tab value="History">History</Tab>
+         </TabList>
+@@ -47,6 +81,8 @@ export const AiChatRoot = () => {
+         {/* Content Area */}
+         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+           {activeTab === 'Chat' && <ChatTab />}
++
++          {activeTab === 'Memory' && <MemoryPanel />}
+           
+           {activeTab === 'Settings' && (
+             <div style={{ 
+@@ -75,4 +111,4 @@ export const AiChatRoot = () => {
+       </div>
+     </FluentProvider>
+   );
+-};
+\ No newline at end of file
++};
+diff --git a/src/webview/AiChatWebviewProvider.ts b/src/webview/AiChatWebviewProvider.ts
+index b5a4432..d5091a1 100644
+--- a/src/webview/AiChatWebviewProvider.ts
++++ b/src/webview/AiChatWebviewProvider.ts
+@@ -65,7 +65,7 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
+           webviewView.webview.postMessage({
+             command: 'chatDisabled',
+             message:
+-              'PostgreSQL connection not configured. Set "repomix.chat.postgresConnectionString" in VS Code settings to enable chat.',
++              'PostgreSQL connection not configured. Set the PostgreSQL connection string in the Repomix Runner Control Panel settings to enable chat.',
+           });
+         }
+       });
+diff --git a/src/webview/components/SettingsTab.tsx b/src/webview/components/SettingsTab.tsx
+index 3861132..2c86066 100644
+--- a/src/webview/components/SettingsTab.tsx
++++ b/src/webview/components/SettingsTab.tsx
+@@ -31,6 +31,7 @@ interface ConfigSectionProps {
+   value: string;
+   onChange: (val: string) => void;
+   onSave: () => void;
++  onDelete?: () => void;
+   placeholder: string;
+   description: string;
+   children?: React.ReactNode;
+@@ -50,6 +51,7 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
+   value,
+   onChange,
+   onSave,
++  onDelete,
+   placeholder,
+   description,
+   children,
+@@ -104,6 +106,15 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
+             >
+               Save
+             </Button>
++            {isConfigured && onDelete && (
++              <Button
++                appearance="secondary"
++                icon={<ErrorCircleRegular />}
++                onClick={onDelete}
++              >
++                Delete
++              </Button>
++            )}
+           </div>
+           <Text size={100} style={{ opacity: 0.7 }}>
+             {description}
+@@ -125,10 +136,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
+   const [googleKey, setGoogleKey] = useState('');
+   const [pineconeKey, setPineconeKey] = useState('');
+   const [qdrantKey, setQdrantKey] = useState('');
++  const [postgresConnectionString, setPostgresConnectionString] = useState('');
+ 
+   const [googleKeyExists, setGoogleKeyExists] = useState(false);
+   const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
+   const [qdrantKeyExists, setQdrantKeyExists] = useState(false);
++  const [postgresConnectionExists, setPostgresConnectionExists] = useState(false);
+ 
+   const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
+ 
+@@ -283,6 +296,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
+           else if (message.key === 'qdrantApiKey') setQdrantKeyExists(message.exists);
+           break;
+ 
++        case 'postgresConnectionStatus':
++          setPostgresConnectionExists(message.exists);
++          break;
++
+         case 'vectorDbProvider':
+           setVectorDbProvider(message.provider ?? 'pinecone');
+           break;
+@@ -432,6 +449,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
+     vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
+     vscode.postMessage({ command: 'checkSecret', key: 'pineconeApiKey' });
+     vscode.postMessage({ command: 'checkSecret', key: 'qdrantApiKey' });
++    vscode.postMessage({ command: 'checkPostgresConnection' });
+ 
+     vscode.postMessage({ command: 'getVectorDbProvider' });
+     vscode.postMessage({ command: 'getQdrantConfig' });
+@@ -463,6 +481,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
+     setQdrantKey('');
+   };
+ 
++  const handleSavePostgresConnection = () => {
++    vscode.postMessage({ command: 'savePostgresConnection', value: postgresConnectionString.trim() });
++    setPostgresConnectionString('');
++  };
++
++  const handleDeletePostgresConnection = () => {
++    vscode.postMessage({ command: 'deletePostgresConnection' });
++  };
++
+   const handleSaveQdrantConfig = () => {
+     // Explicit check to ensure we never send empty values causing Zod errors
+     const url = qdrantUrl.trim();
+@@ -1054,6 +1081,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
+ 
+       <Divider />
+ 
++      <ConfigSection
++        title="PostgreSQL Connection String"
++        isConfigured={postgresConnectionExists}
++        value={postgresConnectionString}
++        onChange={setPostgresConnectionString}
++        onSave={handleSavePostgresConnection}
++        onDelete={handleDeletePostgresConnection}
++        placeholder="postgresql://user:password@localhost:5432/database"
++        description="Securely stored connection string for chat history persistence. Contains database credentials - stored encrypted in VS Code secrets."
++      />
++
++      <Divider />
++
+       <ConfigSection
+         title="Pinecone API Key"
+         isConfigured={pineconeKeyExists}
+diff --git a/src/webview/components/ai-chat/ChatInput.tsx b/src/webview/components/ai-chat/ChatInput.tsx
+index af9b39b..0196643 100644
+--- a/src/webview/components/ai-chat/ChatInput.tsx
++++ b/src/webview/components/ai-chat/ChatInput.tsx
+@@ -12,7 +12,12 @@ const PaperPlaneIcon = () => (
+   </svg>
+ );
+ 
+-export const ChatInput = () => {
++interface ChatInputProps {
++  onSend: (text: string) => void;
++  disabled?: boolean;
++}
++
++export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }) => {
+   const [inputValue, setInputValue] = useState('');
+   const textareaRef = useRef<HTMLTextAreaElement>(null);
+ 
+@@ -30,8 +35,7 @@ export const ChatInput = () => {
+ 
+   const handleSend = () => {
+     if (inputValue.trim()) {
+-      // In a real implementation, this would send the message
+-      console.log('Sending message:', inputValue);
++      onSend(inputValue.trim());
+       setInputValue('');
+     }
+   };
+@@ -87,7 +91,7 @@ export const ChatInput = () => {
+           appearance="primary"
+           icon={<PaperPlaneIcon />}
+           onClick={handleSend}
+-          disabled={!inputValue.trim()}
++          disabled={disabled || !inputValue.trim()}
+           style={{
+             minWidth: '36px',
+             height: '36px',
+@@ -98,24 +102,6 @@ export const ChatInput = () => {
+         />
+       </div>
+ 
+-      {/* Pricing/Token Info */}
+-      <div
+-        style={{
+-          display: 'flex',
+-          justifyContent: 'flex-end',
+-          marginTop: '4px',
+-        }}
+-      >
+-        <span
+-          style={{
+-            fontSize: '11px',
+-            opacity: 0.5,
+-            fontFamily: 'monospace',
+-          }}
+-        >
+-          $0.02
+-        </span>
+-      </div>
+     </div>
+   );
+-};
+\ No newline at end of file
++};
+diff --git a/src/webview/components/ai-chat/ChatTab.tsx b/src/webview/components/ai-chat/ChatTab.tsx
+index b0c1340..e79fe37 100644
+--- a/src/webview/components/ai-chat/ChatTab.tsx
++++ b/src/webview/components/ai-chat/ChatTab.tsx
+@@ -1,9 +1,11 @@
+ import React, { useState, useRef, useEffect } from 'react';
+-import { Text, Textarea, Button } from '@fluentui/react-components';
+-import { Send24Regular } from '@fluentui/react-icons';
++import { Text } from '@fluentui/react-components';
+ import { ChatMessage } from './ChatMessage.js';
+ import { ToolCallCard } from './ToolCallCard.js';
+ import { ChatInput } from './ChatInput.js';
++import { PackageInlineCard } from './PackageInlineCard.js';
++import { vscode } from '../../vscode-api.js';
++import type { PackagePayload } from './packageTypes.js';
+ 
+ interface Message {
+   role: 'user' | 'assistant';
+@@ -16,37 +18,105 @@ interface ToolCall {
+   details: string;
+ }
+ 
+-export const ChatTab = () => {
+-  const [messages, setMessages] = useState<Message[]>([
+-    {
+-      role: 'user',
+-      content: 'Analyze the auth.ts file for potential security vulnerabilities'
+-    },
+-    {
+-      role: 'assistant',
+-      content: 'Sure, I will examine the auth.ts file for security issues...'
+-    }
+-  ]);
+-
+-  const [toolCalls] = useState<ToolCall[]>([
+-    {
+-      name: 'Code Search',
+-      status: 'Completed',
+-      details: "Code Search: 'vulnerabilities' in auth.ts"
+-    },
+-    {
+-      name: 'File Read',
+-      status: 'Reading...',
+-      details: 'File Read: /src/utils/auth.ts'
+-    }
+-  ]);
++interface ChatTabProps {
++  onOpenPackagesTab: () => void;
++}
++
++interface PendingPackageReview {
++  packageId?: string;
++  payload: PackagePayload;
++  estimatedTokens: number;
++}
++
++export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
++  const [messages, setMessages] = useState<Message[]>([]);
++  const [toolCalls] = useState<ToolCall[]>([]);
++  const [progressText, setProgressText] = useState<string>('');
++  const [pendingPackage, setPendingPackage] = useState<PendingPackageReview | null>(null);
+ 
+   const endOfMessagesRef = useRef<HTMLDivElement>(null);
+ 
+   // Auto-scroll to bottom when messages change
+   useEffect(() => {
+     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+-  }, [messages]);
++  }, [messages, pendingPackage, progressText]);
++
++  useEffect(() => {
++    const handleMessage = (event: MessageEvent) => {
++      const message = event.data;
++      if (message?.command === 'threadHistory' && Array.isArray(message.messages)) {
++        setMessages(
++          message.messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({
++            role: m.role,
++            content: m.content,
++          }))
++        );
++        return;
++      }
++      if (message?.command === 'chatResponse' && typeof message.text === 'string') {
++        setProgressText('');
++        setMessages((prev) => [...prev, { role: 'assistant', content: message.text }]);
++        return;
++      }
++      if (message?.command === 'chatProgress' && typeof message.text === 'string') {
++        setProgressText(message.text);
++        return;
++      }
++      if (
++        (message?.command === 'packageReview' || message?.command === 'packageReady') &&
++        message.package
++      ) {
++        setPendingPackage({
++          packageId: typeof message.packageId === 'string' ? message.packageId : undefined,
++          payload: message.package as PackagePayload,
++          estimatedTokens:
++            typeof message.estimatedTokens === 'number' ? message.estimatedTokens : 0,
++        });
++      }
++    };
++
++    window.addEventListener('message', handleMessage);
++    return () => window.removeEventListener('message', handleMessage);
++  }, []);
++
++  const handleSend = (text: string) => {
++    setProgressText('');
++    setMessages((prev) => [...prev, { role: 'user', content: text }]);
++    vscode.postMessage({ command: 'chatSubmit', text });
++  };
++
++  const approvePendingPackage = () => {
++    if (!pendingPackage) {
++      return;
++    }
++
++    if (pendingPackage.packageId) {
++      vscode.postMessage({
++        command: 'approvePackage',
++        packageId: pendingPackage.packageId,
++      });
++    }
++
++    vscode.postMessage({
++      command: 'resumePackageReview',
++      approved: true,
++      packageId: pendingPackage.packageId,
++    });
++    setPendingPackage(null);
++  };
++
++  const rejectPendingPackage = () => {
++    if (!pendingPackage) {
++      return;
++    }
++
++    vscode.postMessage({
++      command: 'resumePackageReview',
++      approved: false,
++      packageId: pendingPackage.packageId,
++    });
++    setPendingPackage(null);
++  };
+ 
+   return (
+     <div style={{ 
+@@ -71,6 +141,23 @@ export const ChatTab = () => {
+           />
+         ))}
+ 
++        {pendingPackage && (
++          <PackageInlineCard
++            packageId={pendingPackage.packageId}
++            payload={pendingPackage.payload}
++            estimatedTokens={pendingPackage.estimatedTokens}
++            onViewPackages={onOpenPackagesTab}
++            onQuickSend={approvePendingPackage}
++            onReject={rejectPendingPackage}
++          />
++        )}
++
++        {progressText && (
++          <Text size={200} style={{ opacity: 0.75, marginTop: '4px' }}>
++            {progressText}
++          </Text>
++        )}
++
+         {/* Tool Calls Section */}
+         <div style={{ margin: '15px 0' }}>
+           {toolCalls.map((tool, index) => (
+@@ -87,7 +174,7 @@ export const ChatTab = () => {
+       </div>
+       
+       {/* Input Area */}
+-      <ChatInput />
++      <ChatInput onSend={handleSend} />
+     </div>
+   );
+-};
+\ No newline at end of file
++};
+diff --git a/src/webview/controllers/ChatController.ts b/src/webview/controllers/ChatController.ts
+index d932790..843aae2 100644
+--- a/src/webview/controllers/ChatController.ts
++++ b/src/webview/controllers/ChatController.ts
+@@ -3,26 +3,63 @@ import * as fs from 'node:fs/promises';
+ import { randomUUID } from 'node:crypto';
+ import * as path from 'path';
+ import type { Pool } from 'pg';
++import { Command } from '@langchain/langgraph';
+ import { BaseController, IWebviewContext } from './BaseController.js';
+-import { createChatGraph } from '../../chat/graph.js';
++import { createHitlChatGraph, createGraphConfig } from '../../chat/graph.js';
+ import { logger } from '../../shared/logger.js';
+ import { PlanService } from '../../services/planService.js';
+ import { ThreadRepository } from '../../chat/db/threadRepository.js';
+ import { MessageRepository } from '../../chat/db/messageRepository.js';
++import { BatchManager } from '../../chat/batch/batchManager.js';
++import { BatchPoller } from '../../chat/batch/batchPoller.js';
+ import { ThreadMessage } from '../../types/chat.js';
+ import { getRepoId } from '../../utils/repoIdentity.js';
+ import { getCwd } from '../../config/getCwd.js';
++import { MemoryManager } from '../../chat/memory/memoryManager.js';
++import type { MemoryScope } from '../../chat/memory/types.js';
++import type { BatchCompletionResult } from '../../chat/batch/types.js';
++import type {
++  BatchJob,
++  BatchJobStatus,
++  PackageType,
++} from '../../chat/db/batchRepository.js';
++import type {
++  GoalReviewInterrupt,
++  GoalReviewResume,
++  SendReviewInterrupt,
++  SendReviewResume,
++  BatchPendingInterrupt,
++  BatchPendingResume,
++  EditReviewInterrupt,
++  EditReviewResume,
++  CodeReviewInterrupt,
++  CodeReviewResume,
++} from '../../chat/nodes/index.js';
+ 
+ /**
+- * ChatController handles chat messages from the webview and executes the chat graph.
++ * Union type for all interrupt payloads.
++ */
++type InterruptPayload =
++  | GoalReviewInterrupt
++  | SendReviewInterrupt
++  | BatchPendingInterrupt
++  | EditReviewInterrupt
++  | CodeReviewInterrupt;
++
++/**
++ * ChatController handles chat messages from the webview and executes the HITL chat graph.
+  */
+ export class ChatController extends BaseController {
+   private readonly threadRepository: ThreadRepository;
+   private readonly messageRepository: MessageRepository;
+   private readonly planService: PlanService;
++  private readonly batchManager: BatchManager;
++  private readonly batchPoller: BatchPoller;
++  private readonly pgPool: Pool;
+   private readonly ready: Promise<void>;
+   private activeThreadId: string | null = null;
+   private repoId: string = '';
++  private compiledGraph: Awaited<ReturnType<typeof createHitlChatGraph>> | null = null;
+ 
+   constructor(
+     context: IWebviewContext,
+@@ -30,9 +67,16 @@ export class ChatController extends BaseController {
+     pgPool: Pool
+   ) {
+     super(context);
++    this.pgPool = pgPool;
+     this.threadRepository = new ThreadRepository(pgPool);
+     this.messageRepository = new MessageRepository(pgPool);
+     this.planService = new PlanService(extensionContext);
++    this.batchManager = new BatchManager(pgPool, extensionContext);
++    this.batchPoller = new BatchPoller(this.batchManager, {
++      pollIntervalSeconds: vscode.workspace
++        .getConfiguration('repomix.chat')
++        .get<number>('batchPollIntervalSeconds', 60),
++    });
+     this.ready = this.initializeService();
+   }
+ 
+@@ -41,6 +85,11 @@ export class ChatController extends BaseController {
+     await this.postThreads();
+     if (this.activeThreadId) {
+       await this.postThreadHistory(this.activeThreadId);
++      await this.postPendingBatchStatuses(this.activeThreadId);
++      await this.batchPoller.resumePendingForThread(
++        this.activeThreadId,
++        this.handleBatchTerminalState
++      );
+     }
+   }
+ 
+@@ -88,6 +137,123 @@ export class ChatController extends BaseController {
+       await this.openFile(message.path);
+       return true;
+     }
++
++    // Memory CRUD handlers (PRD 004)
++    if (message.command === 'getMemories') {
++      await this.handleGetMemories(message.scope);
++      return true;
++    }
++    if (message.command === 'createMemory') {
++      await this.handleCreateMemory(message.scope, message.key, message.value);
++      return true;
++    }
++    if (message.command === 'updateMemory') {
++      await this.handleUpdateMemory(message.id, message.value);
++      return true;
++    }
++    if (message.command === 'deleteMemory') {
++      await this.handleDeleteMemory(message.id);
++      return true;
++    }
++
++    // HITL resume commands
++    if (message.command === 'resumeGoalReview') {
++      await this.resumeGraph({
++        goalText: message.goalText,
++        contextFiles: message.contextFiles,
++      } as GoalReviewResume);
++      return true;
++    }
++    if (message.command === 'resumePackageReview') {
++      await this.resumeGraph({
++        approved: message.approved,
++        packageId: message.packageId,
++      } as SendReviewResume);
++      return true;
++    }
++    if (message.command === 'resumeBatchPending') {
++      await this.resumeGraph({
++        completed: message.completed,
++        responseContent: message.responseContent,
++        error: message.error,
++      } as BatchPendingResume);
++      return true;
++    }
++    if (message.command === 'resumeEditReview') {
++      await this.resumeGraph({
++        approvedEdits: message.approvedEdits,
++      } as EditReviewResume);
++      return true;
++    }
++    if (message.command === 'resumeCodeReview') {
++      await this.resumeGraph({
++        requestReviewCycle: message.requestReviewCycle,
++      } as CodeReviewResume);
++      return true;
++    }
++
++    // Package Manager handlers (PRD 006)
++    if (message.command === 'listPackages') {
++      await this.handleListPackages(message.status, message.packageType);
++      return true;
++    }
++    if (message.command === 'approvePackage') {
++      await this.batchManager.approvePackage(message.packageId);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'unapprovePackage') {
++      await this.batchManager.unapprovePackage(message.packageId);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'sendPackage') {
++      const result = await this.batchManager.submitExistingPackage(message.packageId);
++      this.batchPoller.startPolling(result.batchJobId, this.handleBatchTerminalState);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'sendAllApproved') {
++      const result = await this.batchManager.sendAllApproved();
++      for (const batchJobId of result.submitted) {
++        this.batchPoller.startPolling(batchJobId, this.handleBatchTerminalState);
++      }
++      await this.handleListPackages();
++      this.context.postMessage({
++        command: 'packagesBulkSendResult',
++        submitted: result.submitted,
++        failed: result.failed,
++      });
++      return true;
++    }
++    if (message.command === 'cancelBatch') {
++      await this.batchManager.cancelBatch(message.packageId);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'deletePackage') {
++      await this.batchManager.deletePackage(message.packageId);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'updatePackageDraft') {
++      await this.batchManager.updateDraftPackage(message.packageId, {
++        goal: message.goal,
++        outputInstruction: message.outputInstruction,
++      });
++      await this.handleGetPackagePreview(message.packageId);
++      await this.handleListPackages();
++      return true;
++    }
++    if (message.command === 'getPackagePreview') {
++      await this.handleGetPackagePreview(message.packageId);
++      return true;
++    }
++    if (message.command === 'viewBatchStatus') {
++      await this.handleViewBatchStatus(message.packageId);
++      return true;
++    }
++
+     return false;
+   }
+ 
+@@ -131,6 +297,8 @@ export class ChatController extends BaseController {
+     await this.extensionContext.workspaceState.update('repomix.chat.activeThreadId', threadId);
+     await this.postThreads();
+     await this.postThreadHistory(threadId);
++    await this.postPendingBatchStatuses(threadId);
++    await this.batchPoller.resumePendingForThread(threadId, this.handleBatchTerminalState);
+   }
+ 
+   private async deleteThread(threadId: string): Promise<void> {
+@@ -195,6 +363,121 @@ export class ChatController extends BaseController {
+     }
+   }
+ 
++  // --- Memory CRUD Handlers (PRD 004) ---
++
++  private async handleGetMemories(scope: MemoryScope): Promise<void> {
++    try {
++      const scopeId = scope === 'session' ? this.activeThreadId ?? '' : this.repoId;
++      if (!scopeId) {
++        this.context.postMessage({
++          command: 'memoryList',
++          scope,
++          memories: [],
++        });
++        return;
++      }
++
++      const memoryManager = new MemoryManager(this.pgPool);
++      const memories = await memoryManager.list(scope, scopeId);
++
++      this.context.postMessage({
++        command: 'memoryList',
++        scope,
++        memories: memories.map((m) => ({
++          id: m.id,
++          key: m.key,
++          value: m.value,
++          source: m.source,
++          createdAt: m.createdAt,
++          updatedAt: m.updatedAt,
++          expiresAt: m.expiresAt,
++        })),
++      });
++    } catch (error) {
++      logger.both.error('ChatController: Failed to get memories', error);
++      this.context.postMessage({
++        command: 'showNotification',
++        type: 'error',
++        message: `Failed to load memories: ${error instanceof Error ? error.message : String(error)}`,
++      });
++    }
++  }
++
++  private async handleCreateMemory(scope: MemoryScope, key: string, value: string): Promise<void> {
++    try {
++      const scopeId = scope === 'session' ? this.activeThreadId ?? '' : this.repoId;
++      if (!scopeId) {
++        throw new Error('No active context for memory creation');
++      }
++
++      const memoryManager = new MemoryManager(this.pgPool);
++      await memoryManager.create({
++        scope,
++        scopeId,
++        key,
++        value,
++        source: 'user',
++      });
++
++      // Refresh the memory list
++      await this.handleGetMemories(scope);
++    } catch (error) {
++      logger.both.error('ChatController: Failed to create memory', error);
++      this.context.postMessage({
++        command: 'showNotification',
++        type: 'error',
++        message: `Failed to create memory: ${error instanceof Error ? error.message : String(error)}`,
++      });
++    }
++  }
++
++  private async handleUpdateMemory(id: string, value: string): Promise<void> {
++    try {
++      const memoryManager = new MemoryManager(this.pgPool);
++      const memory = await memoryManager.get(id);
++
++      if (!memory) {
++        throw new Error('Memory not found');
++      }
++
++      await memoryManager.update(id, { value });
++
++      // Refresh the memory list for the appropriate scope
++      await this.handleGetMemories(memory.scope);
++    } catch (error) {
++      logger.both.error('ChatController: Failed to update memory', error);
++      this.context.postMessage({
++        command: 'showNotification',
++        type: 'error',
++        message: `Failed to update memory: ${error instanceof Error ? error.message : String(error)}`,
++      });
++    }
++  }
++
++  private async handleDeleteMemory(id: string): Promise<void> {
++    try {
++      const memoryManager = new MemoryManager(this.pgPool);
++      const memory = await memoryManager.get(id);
++
++      if (!memory) {
++        throw new Error('Memory not found');
++      }
++
++      const scope = memory.scope;
++      await memoryManager.delete(id);
++
++      // Refresh the memory list for the appropriate scope
++      await this.handleGetMemories(scope);
++    } catch (error) {
++      logger.both.error('ChatController: Failed to delete memory', error);
++      this.context.postMessage({
++        command: 'showNotification',
++        type: 'error',
++        message: `Failed to delete memory: ${error instanceof Error ? error.message : String(error)}`,
++      });
++    }
++  }
++
+   private async postThreads(): Promise<void> {
+     const threads = await this.threadRepository.getThreads(this.repoId);
+     this.context.postMessage({
+@@ -225,6 +508,146 @@ export class ChatController extends BaseController {
+     });
+   }
+ 
++  private async postPendingBatchStatuses(threadId: string): Promise<void> {
++    const pending = await this.batchManager.getPendingBatches(threadId);
++    for (const job of pending) {
++      this.context.postMessage({
++        command: 'batchStatus',
++        batchJobId: job.batchJobId,
++        status: job.status === 'processing' ? 'processing' : 'pending',
++        estimatedCompletionTime: 'Batch processing in progress.',
++      });
++    }
++  }
++
++  private mapPackage(job: BatchJob) {
++    const promptPayload = job.promptPayload as {
++      package?: {
++        goal: string;
++        contextFiles: Array<{ path: string; content: string }>;
++        outputInstruction: PackageType;
++      };
++    };
++    const pkg = promptPayload?.package;
++
++    return {
++      id: job.id,
++      threadId: job.threadId,
++      batchApiId: job.batchApiId,
++      status: job.status,
++      packageType: job.packageType,
++      goal: pkg?.goal ?? '',
++      contextFileCount: Array.isArray(pkg?.contextFiles) ? pkg.contextFiles.length : 0,
++      estimatedTokens: this.estimatePackageTokens(pkg?.goal ?? '', pkg?.contextFiles ?? []),
++      tokensInput: job.tokensInput,
++      tokensOutput: job.tokensOutput,
++      costUsd: job.costUsd,
++      createdAt: job.createdAt,
++      submittedAt: job.submittedAt,
++      completedAt: job.completedAt,
++      errorMessage: job.errorMessage,
++    };
++  }
++
++  private estimatePackageTokens(
++    goal: string,
++    contextFiles: Array<{ path: string; content: string }>
++  ): number {
++    const goalTokens = Math.ceil(goal.length / 4);
++    const contextTokens = contextFiles.reduce(
++      (sum, file) => sum + Math.ceil((file.content?.length ?? 0) / 4),
++      0
++    );
++    return goalTokens + contextTokens + 500;
++  }
++
++  private async handleListPackages(status?: BatchJobStatus, packageType?: PackageType) {
++    const jobs = await this.batchManager.listPackages({ status, packageType });
++    this.context.postMessage({
++      command: 'packageList',
++      packages: jobs.map((job) => this.mapPackage(job)),
++    });
++  }
++
++  private async handleGetPackagePreview(packageId: string) {
++    const job = await this.batchManager.getPackagePreview(packageId);
++    if (!job) {
++      this.context.postMessage({
++        command: 'showNotification',
++        type: 'error',
++        message: 'Package not found.',
++      });
++      return;
++    }
++
++    const promptPayload = job.promptPayload as {
++      package?: {
++        goal: string;
++        contextFiles: Array<{ path: string; content: string }>;
++        repoArchitecture: string;
++        dependencies: Record<string, string>;
++        outputInstruction: PackageType;
++      };
++      assembledPrompt?: string;
++    };
++
++    const pkg = promptPayload.package;
++    const contextFiles = pkg?.contextFiles ?? [];
++    this.context.postMessage({
++      command: 'packagePreview',
++      package: {
++        ...this.mapPackage(job),
++        contextFiles: contextFiles.map((file) => ({
++          path: file.path,
++          tokenCount: Math.ceil((file.content?.length ?? 0) / 4),
++          content: file.content,
++        })),
++        repoArchitecture: pkg?.repoArchitecture ?? '',
++        dependencies: pkg?.dependencies ?? {},
++        outputInstruction: pkg?.outputInstruction ?? job.packageType,
++        rawPrompt: promptPayload.assembledPrompt ?? '',
++      },
++    });
++  }
++
++  private async handleViewBatchStatus(packageId: string) {
++    const completion = await this.batchManager.pollBatchJob(packageId);
++    this.context.postMessage({
++      command: 'batchStatus',
++      batchJobId: completion.batchJobId,
++      status: completion.status === 'submitted' ? 'pending' : completion.status,
++      estimatedCompletionTime:
++        completion.status === 'processing' || completion.status === 'submitted'
++          ? 'Batch processing in progress.'
++          : undefined,
++    });
++    await this.handleListPackages();
++  }
++
++  /**
++   * Gets or creates the compiled graph.
++   */
++  private async getGraph() {
++    if (!this.compiledGraph) {
++      const onProgress = (message: string) => {
++        this.context.postMessage({
++          command: 'chatProgress',
++          text: message,
++        });
++      };
++      this.compiledGraph = await createHitlChatGraph(
++        this.extensionContext,
++        this.pgPool,
++        this.batchManager,
++        onProgress
++      );
++    }
++    return this.compiledGraph;
++  }
++
++  /**
++   * Runs the HITL chat graph with the given input.
++   */
+   private async runChatGraph(input: string) {
+     try {
+       if (!this.activeThreadId) {
+@@ -238,6 +661,7 @@ export class ChatController extends BaseController {
+ 
+       logger.both.info(`ChatController: Processing user input: "${input}"`);
+ 
++      // Save user message
+       const userMessage: ThreadMessage = {
+         id: randomUUID(),
+         role: 'user',
+@@ -246,89 +670,303 @@ export class ChatController extends BaseController {
+       };
+       await this.messageRepository.saveMessage(this.activeThreadId, userMessage);
+ 
++      // Load message history
+       const messages = await this.messageRepository.getMessages(this.activeThreadId);
+       const history = messages.map((message) => ({
+         role: message.role,
+         content: message.content,
+       }));
+ 
+-      const onProgress = (message: string) => {
++      // Get the compiled graph
++      const graph = await this.getGraph();
++      const config = createGraphConfig(this.activeThreadId);
++
++      // Invoke the graph
++      const result = await graph.invoke(
++        {
++          userQuery: input,
++          threadId: this.activeThreadId,
++          messages: history,
++        },
++        config
++      );
++
++      // Handle the result (may be an interrupt or final response)
++      await this.handleGraphResult(result);
++    } catch (error) {
++      logger.both.error('ChatController: Error running chat graph:', error);
++      this.context.postMessage({
++        command: 'chatResponse',
++        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
++      });
++    }
++  }
++
++  /**
++   * Resumes the graph with user-provided data after an interrupt.
++   */
++  private async resumeGraph(resumeValue: unknown) {
++    try {
++      if (!this.activeThreadId) {
++        logger.both.warn('ChatController: No active thread for resume');
++        return;
++      }
++
++      const graph = await this.getGraph();
++      const config = createGraphConfig(this.activeThreadId);
++
++      // Resume the graph with the user's input
++      const result = await graph.invoke(new Command({ resume: resumeValue }), config);
++
++      // Handle the result
++      await this.handleGraphResult(result);
++    } catch (error) {
++      logger.both.error('ChatController: Error resuming graph:', error);
++      this.context.postMessage({
++        command: 'chatResponse',
++        text: `Error resuming: ${error instanceof Error ? error.message : 'Unknown error'}`,
++      });
++    }
++  }
++
++  /**
++   * Handles the result from graph.invoke(), detecting interrupts vs final responses.
++   */
++  private async handleGraphResult(result: any) {
++    // Check if this is an interrupt
++    // LangGraph returns interrupt data in a specific format
++    // The exact format depends on how interrupt() was called
++    if (this.isInterrupt(result)) {
++      await this.handleInterrupt(result);
++      return;
++    }
++
++    // Final response - save and post to webview
++    await this.handleFinalResponse(result);
++  }
++
++  /**
++   * Checks if the result is an interrupt.
++   */
++  private isInterrupt(result: any): boolean {
++    // LangGraph may signal interrupts in different ways depending on version
++    // Check for common interrupt indicators
++    return (
++      result?.__interrupt__ !== undefined ||
++      result?.type === 'goal_review' ||
++      result?.type === 'send_review' ||
++      result?.type === 'batch_pending' ||
++      result?.type === 'edit_review' ||
++      result?.type === 'code_review'
++    );
++  }
++
++  /**
++   * Handles an interrupt by dispatching the appropriate UI card.
++   */
++  private async handleInterrupt(result: any) {
++    const interruptData = (result.__interrupt__ || result) as InterruptPayload;
++
++    logger.both.info(`ChatController: Handling interrupt of type: ${interruptData.type}`);
++
++    switch (interruptData.type) {
++      case 'goal_review': {
++        const data = interruptData as GoalReviewInterrupt;
+         this.context.postMessage({
+-          command: 'chatProgress',
+-          text: message,
++          command: 'goalReview',
++          goal: data.goal,
++          contextFiles: data.contextFiles,
++          dependencies: data.dependencies,
+         });
+-      };
++        break;
++      }
+ 
+-      const graph = createChatGraph(this.extensionContext, onProgress);
+-      const result = await graph.invoke({
+-        userQuery: input,
+-        threadId: this.activeThreadId,
+-        messages: history,
+-      });
++      case 'send_review': {
++        const data = interruptData as SendReviewInterrupt;
++        const packageId = this.activeThreadId
++          ? await this.batchManager.createDraftPackage(
++              this.activeThreadId,
++              data.package,
++              data.estimatedTokens
++            )
++          : undefined;
++        this.context.postMessage({
++          command: 'packageReview',
++          packageId,
++          package: data.package,
++          estimatedTokens: data.estimatedTokens,
++        });
++        this.context.postMessage({
++          command: 'packageReady',
++          packageId,
++          package: data.package,
++          estimatedTokens: data.estimatedTokens,
++        });
++        await this.handleListPackages();
++        break;
++      }
++
++      case 'batch_pending': {
++        const data = interruptData as BatchPendingInterrupt;
++        this.batchPoller.startPolling(data.batchJobId, this.handleBatchTerminalState);
++        this.context.postMessage({
++          command: 'batchStatus',
++          batchJobId: data.batchJobId,
++          status: 'pending',
++          estimatedCompletionTime: data.estimatedCompletionTime,
++        });
++        break;
++      }
++
++      case 'edit_review': {
++        const data = interruptData as EditReviewInterrupt;
++        this.context.postMessage({
++          command: 'editReview',
++          edits: data.edits,
++        });
++        break;
++      }
++
++      case 'code_review': {
++        const data = interruptData as CodeReviewInterrupt;
++        this.context.postMessage({
++          command: 'codeReview',
++          appliedFiles: data.appliedFiles,
++        });
++        break;
++      }
++
++      default:
++        logger.both.warn(`ChatController: Unknown interrupt type: ${(interruptData as any).type}`);
++    }
++  }
++
++  /**
++   * Handles the final response from the graph.
++   */
++  private async handleFinalResponse(result: any) {
++    if (!this.activeThreadId) return;
+ 
+-      logger.both.info(`ChatController: Graph returned response: "${result.aiResponse}"`);
++    logger.both.info(`ChatController: Graph returned response: "${result.aiResponse}"`);
+ 
+-      const toolCalls: NonNullable<ThreadMessage['toolCalls']> = [];
+-      if (result.planUpdated) {
+-        const fullPlanPath = this.planService.getPlanPath(this.activeThreadId);
+-        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+-        const relativePath = workspacePath
+-          ? path.relative(workspacePath, fullPlanPath)
+-          : fullPlanPath;
++    const toolCalls: NonNullable<ThreadMessage['toolCalls']> = [];
++    if (result.planUpdated) {
++      const fullPlanPath = this.planService.getPlanPath(this.activeThreadId);
++      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
++      const relativePath = workspacePath
++        ? path.relative(workspacePath, fullPlanPath)
++        : fullPlanPath;
+ 
++      toolCalls.push({
++        name: 'update_plan',
++        args: {
++          path: fullPlanPath,
++          relativePath,
++          isNew: Boolean(result.planIsNew),
++        },
++      });
++    }
++
++    // Add file edit tool calls if present
++    if (result.fileEdits && result.fileEdits.length > 0) {
++      const approvedEdits = result.fileEdits.filter((e: any) => e.approved);
++      for (const edit of approvedEdits) {
+         toolCalls.push({
+-          name: 'update_plan',
++          name: `file_${edit.action}`,
+           args: {
+-            path: fullPlanPath,
+-            relativePath,
+-            isNew: Boolean(result.planIsNew),
++            path: edit.filePath,
+           },
+         });
+       }
++    }
+ 
+-      const assistantMessage: ThreadMessage = {
+-        id: randomUUID(),
+-        role: 'assistant',
+-        content: result.aiResponse,
+-        timestamp: Date.now(),
+-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+-        tokens:
+-          typeof result.inputTokens === 'number' || typeof result.outputTokens === 'number'
+-            ? {
+-                input: result.inputTokens ?? 0,
+-                output: result.outputTokens ?? 0,
+-                total:
+-                  result.tokensUsed ?? (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+-              }
+-            : undefined,
+-        contextFiles: Array.isArray(result.retrievedContext)
+-          ? [
+-              ...new Set(
+-                result.retrievedContext
+-                  .map((ctx: { filePath?: string }) => ctx.filePath)
+-                  .filter((filePath): filePath is string => Boolean(filePath))
+-              ),
+-            ]
++    const assistantMessage: ThreadMessage = {
++      id: randomUUID(),
++      role: 'assistant',
++      content: result.aiResponse || 'Workflow completed.',
++      timestamp: Date.now(),
++      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
++      tokens:
++        typeof result.inputTokens === 'number' || typeof result.outputTokens === 'number'
++          ? {
++              input: result.inputTokens ?? 0,
++              output: result.outputTokens ?? 0,
++              total: result.tokensUsed ?? (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
++            }
+           : undefined,
+-      };
+-      await this.messageRepository.saveMessage(this.activeThreadId, assistantMessage);
+-      await this.postThreads();
++      contextFiles: Array.isArray(result.retrievedContext)
++        ? ([
++            ...new Set(
++              (result.retrievedContext as Array<{ filePath?: string }>)
++                .map((ctx) => ctx.filePath)
++                .filter((filePath): filePath is string => Boolean(filePath))
++            ),
++          ] as string[])
++        : undefined,
++    };
+ 
++    await this.messageRepository.saveMessage(this.activeThreadId, assistantMessage);
++    await this.postThreads();
++
++    this.context.postMessage({
++      command: 'chatResponse',
++      text: result.aiResponse || 'Workflow completed.',
++      toolCalls: assistantMessage.toolCalls,
++      tokensUsed: result.tokensUsed,
++      inputTokens: result.inputTokens,
++      outputTokens: result.outputTokens,
++      costUsd: result.costUsd,
++      workflowPhase: result.workflowPhase,
++    });
++  }
++
++  private readonly handleBatchTerminalState = async (
++    completion: BatchCompletionResult
++  ): Promise<void> => {
++    if (completion.status === 'completed') {
+       this.context.postMessage({
+-        command: 'chatResponse',
+-        text: result.aiResponse,
+-        toolCalls: assistantMessage.toolCalls,
+-        tokensUsed: result.tokensUsed,
+-        inputTokens: result.inputTokens,
+-        outputTokens: result.outputTokens,
+-        costUsd: result.costUsd,
++        command: 'batchStatus',
++        batchJobId: completion.batchJobId,
++        status: 'completed',
+       });
+-    } catch (error) {
+-      logger.both.error('ChatController: Error running chat graph:', error);
++      await this.handleListPackages();
++
++      await this.resumeGraph({
++        completed: true,
++        responseContent: completion.responseText ?? '',
++      } as BatchPendingResume);
++      return;
++    }
++
++    if (completion.status === 'cancelled') {
+       this.context.postMessage({
+-        command: 'chatResponse',
+-        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
++        command: 'batchStatus',
++        batchJobId: completion.batchJobId,
++        status: 'cancelled',
+       });
++      await this.handleListPackages();
++      return;
+     }
++
++    const message =
++      completion.errorMessage ??
++      `Batch ended with status ${completion.status}. Open .repomix/incoming for raw output.`;
++
++    this.context.postMessage({
++      command: 'batchStatus',
++      batchJobId: completion.batchJobId,
++      status: 'failed',
++    });
++    await this.handleListPackages();
++
++    await this.resumeGraph({
++      completed: false,
++      error: message,
++    } as BatchPendingResume);
++  };
++
++  dispose(): void {
++    this.batchPoller.dispose();
++    super.dispose();
+   }
+ }
+diff --git a/src/webview/controllers/ConfigController.ts b/src/webview/controllers/ConfigController.ts
+index f53d1a0..2b4b3a9 100644
+--- a/src/webview/controllers/ConfigController.ts
++++ b/src/webview/controllers/ConfigController.ts
+@@ -11,6 +11,9 @@ import { BlueprintService, initBlueprintService, getBlueprintService } from '../
+ const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
+ const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
+ const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
++const SECRET_ANTHROPIC = 'repomix.chat.anthropicApiKey';
++export const SECRET_POSTGRES_CONNECTION = 'repomix.chat.postgresConnectionString';
++type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
+ 
+ export class ConfigController extends BaseController {
+   private migrationService: MigrationService;
+@@ -39,6 +42,17 @@ export class ConfigController extends BaseController {
+         await this.handleSaveSecret(message.key, message.value);
+         return true;
+ 
++      // --- PostgreSQL Connection Management ---
++      case 'checkPostgresConnection':
++        await this.handleCheckPostgresConnection();
++        return true;
++      case 'savePostgresConnection':
++        await this.handleSavePostgresConnection(message.value);
++        return true;
++      case 'deletePostgresConnection':
++        await this.handleDeletePostgresConnection();
++        return true;
++
+       // --- Pinecone Index Management ---
+       case 'fetchPineconeIndexes':
+         await this.handleFetchPineconeIndexes(message.apiKey);
+@@ -146,14 +160,16 @@ export class ConfigController extends BaseController {
+ 
+   // --- Handlers ---
+ 
+-  private async handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey') {
++  private async handleCheckSecret(key: SecretKey) {
+     try {
+       const storageKey =
+         key === 'googleApiKey'
+           ? SECRET_GOOGLE_GEMINI
+           : key === 'pineconeApiKey'
+             ? SECRET_PINECONE
+-            : SECRET_QDRANT;
++            : key === 'qdrantApiKey'
++              ? SECRET_QDRANT
++              : SECRET_ANTHROPIC;
+       const secret = await this.extensionContext.secrets.get(storageKey);
+       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
+     } catch (err) {
+@@ -161,19 +177,27 @@ export class ConfigController extends BaseController {
+     }
+   }
+ 
+-  private async handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey', value: string) {
++  private async handleSaveSecret(key: SecretKey, value: string) {
+     try {
+       const storageKey =
+         key === 'googleApiKey'
+           ? SECRET_GOOGLE_GEMINI
+           : key === 'pineconeApiKey'
+             ? SECRET_PINECONE
+-            : SECRET_QDRANT;
++            : key === 'qdrantApiKey'
++              ? SECRET_QDRANT
++              : SECRET_ANTHROPIC;
+       await this.extensionContext.secrets.store(storageKey, value);
+       this.context.postMessage({ command: 'secretStatus', key, exists: true });
+ 
+       const label =
+-        key === 'googleApiKey' ? 'Google' : key === 'pineconeApiKey' ? 'Pinecone' : 'Qdrant';
++        key === 'googleApiKey'
++          ? 'Google'
++          : key === 'pineconeApiKey'
++            ? 'Pinecone'
++            : key === 'qdrantApiKey'
++              ? 'Qdrant'
++              : 'Anthropic';
+       vscode.window.showInformationMessage(`${label} API Key saved successfully!`);
+     } catch (err) {
+       console.error('Failed to save secret:', err);
+@@ -181,6 +205,47 @@ export class ConfigController extends BaseController {
+     }
+   }
+ 
++  // --- PostgreSQL Connection Management ---
++
++  private async handleCheckPostgresConnection() {
++    try {
++      const secret = await this.extensionContext.secrets.get(SECRET_POSTGRES_CONNECTION);
++      this.context.postMessage({ 
++        command: 'postgresConnectionStatus', 
++        exists: !!secret 
++      });
++    } catch (err) {
++      console.error('Failed to check postgres connection:', err);
++    }
++  }
++
++  private async handleSavePostgresConnection(value: string) {
++    try {
++      await this.extensionContext.secrets.store(SECRET_POSTGRES_CONNECTION, value);
++      this.context.postMessage({ 
++        command: 'postgresConnectionStatus', 
++        exists: true 
++      });
++      vscode.window.showInformationMessage('PostgreSQL connection string saved successfully!');
++    } catch (err) {
++      console.error('Failed to save postgres connection:', err);
++      vscode.window.showErrorMessage('Failed to save PostgreSQL connection string.');
++    }
++  }
++
++  private async handleDeletePostgresConnection() {
++    try {
++      await this.extensionContext.secrets.delete(SECRET_POSTGRES_CONNECTION);
++      this.context.postMessage({ 
++        command: 'postgresConnectionStatus', 
++        exists: false 
++      });
++      vscode.window.showInformationMessage('PostgreSQL connection string removed.');
++    } catch (err) {
++      console.error('Failed to delete postgres connection:', err);
++    }
++  }
++
+   // --- Pinecone Index Logic ---
+   private async handleFetchPineconeIndexes(explicitKey?: string) {
+     try {
+@@ -1318,4 +1383,4 @@ export class ConfigController extends BaseController {
+       vscode.window.showErrorMessage(`Failed to update settings: ${errorMsg}`);
+     }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/webview/messageSchemas.ts b/src/webview/messageSchemas.ts
+index ec7bd7b..c707ee7 100644
+--- a/src/webview/messageSchemas.ts
++++ b/src/webview/messageSchemas.ts
+@@ -44,13 +44,13 @@ export const SaveApiKeySchema = z.object({
+ 
+ export const SaveSecretSchema = z.object({
+   command: z.literal('saveSecret'),
+-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
++  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
+   value: z.string().min(1),
+ });
+ 
+ export const CheckSecretSchema = z.object({
+   command: z.literal('checkSecret'),
+-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
++  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
+ });
+ 
+ export const GetAgentHistorySchema = z.object({
+@@ -370,10 +370,14 @@ export const GetEmbeddingConfigSchema = z.object({
+ 
+ export const SetEmbeddingConfigSchema = z.object({
+   command: z.literal('setEmbeddingConfig'),
+-  provider: z.enum(['gemini', 'ollama']),
+-  ollamaUrl: z.string().min(1, "Ollama URL is required"),
+-  ollamaModel: z.string().min(1, "Ollama model is required"),
+-  ollamaDimension: z.number().int().positive(),
++  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
++  ollamaUrl: z.string().min(1, "Ollama URL is required").optional(),
++  ollamaModel: z.string().min(1, "Ollama model is required").optional(),
++  ollamaDimension: z.number().int().positive().optional(),
++  lmstudioBaseUrl: z.string().min(1, 'LM Studio base URL is required').optional(),
++  lmstudioApiKey: z.string().optional(),
++  lmstudioModel: z.string().optional(),
++  lmstudioDimension: z.number().int().positive().optional(),
+ });
+ 
+ export const FetchOllamaModelsSchema = z.object({
+@@ -415,10 +419,14 @@ export const OllamaDimensionResultSchema = z.object({
+ 
+ export const EmbeddingConfigSchema = z.object({
+   command: z.literal('embeddingConfig'),
+-  provider: z.enum(['gemini', 'ollama']),
+-  ollamaUrl: z.string(),
+-  ollamaModel: z.string(),
+-  ollamaDimension: z.number().int().positive(),
++  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
++  ollamaUrl: z.string().optional(),
++  ollamaModel: z.string().optional(),
++  ollamaDimension: z.number().int().positive().optional(),
++  lmstudioBaseUrl: z.string().optional(),
++  lmstudioApiKey: z.string().optional(),
++  lmstudioModel: z.string().optional(),
++  lmstudioDimension: z.number().int().positive().optional(),
+ });
+ 
+ export const EmbeddingTestResultSchema = z.object({
+@@ -621,6 +629,221 @@ export const ChatProgressSchema = z.object({
+   text: z.string(),
+ });
+ 
++// --- HITL Workflow Schemas ---
++
++// Goal review (extension → webview)
++export const GoalReviewSchema = z.object({
++  command: z.literal('goalReview'),
++  goal: z.string(),
++  contextFiles: z.array(z.string()),
++  dependencies: z.record(z.string()),
++});
++
++// Resume goal review (webview → extension)
++export const ResumeGoalReviewSchema = z.object({
++  command: z.literal('resumeGoalReview'),
++  goalText: z.string(),
++  contextFiles: z.array(z.string()),
++});
++
++// Package review (extension → webview)
++export const PackageReviewSchema = z.object({
++  command: z.literal('packageReview'),
++  packageId: z.string().optional(),
++  package: z.object({
++    goal: z.string(),
++    contextFiles: z.array(z.object({
++      path: z.string(),
++      content: z.string(),
++    })),
++    repoArchitecture: z.string(),
++    dependencies: z.record(z.string()),
++    outputInstruction: z.enum(['plan', 'code_change', 'code_review']),
++  }),
++  estimatedTokens: z.number(),
++});
++
++// Resume package review (webview → extension)
++export const ResumePackageReviewSchema = z.object({
++  command: z.literal('resumePackageReview'),
++  approved: z.boolean(),
++  packageId: z.string().optional(),
++});
++
++// Package ready inline card (extension -> webview)
++export const PackageReadySchema = z.object({
++  command: z.literal('packageReady'),
++  packageId: z.string().optional(),
++  package: z.object({
++    goal: z.string(),
++    contextFiles: z.array(z.object({
++      path: z.string(),
++      content: z.string(),
++    })),
++    repoArchitecture: z.string(),
++    dependencies: z.record(z.string()),
++    outputInstruction: z.enum(['plan', 'code_change', 'code_review']),
++  }),
++  estimatedTokens: z.number(),
++});
++
++const PackageStatusEnum = z.enum([
++  'draft',
++  'pending',
++  'submitted',
++  'processing',
++  'completed',
++  'failed',
++  'cancelled',
++]);
++
++const PackageTypeEnum = z.enum(['plan', 'code_change', 'code_review']);
++
++const PackageSummarySchema = z.object({
++  id: z.string(),
++  threadId: z.string().nullable(),
++  batchApiId: z.string().nullable(),
++  status: PackageStatusEnum,
++  packageType: PackageTypeEnum,
++  goal: z.string(),
++  contextFileCount: z.number().int().nonnegative(),
++  estimatedTokens: z.number().int().nonnegative(),
++  tokensInput: z.number().int().nonnegative().nullable(),
++  tokensOutput: z.number().int().nonnegative().nullable(),
++  costUsd: z.number().nullable(),
++  createdAt: z.number(),
++  submittedAt: z.number().nullable(),
++  completedAt: z.number().nullable(),
++  errorMessage: z.string().nullable(),
++});
++
++// Package list request (webview -> extension)
++export const ListPackagesSchema = z.object({
++  command: z.literal('listPackages'),
++  status: PackageStatusEnum.optional(),
++  packageType: PackageTypeEnum.optional(),
++});
++
++// Package list response (extension -> webview)
++export const PackageListSchema = z.object({
++  command: z.literal('packageList'),
++  packages: z.array(PackageSummarySchema),
++});
++
++// Package actions (webview -> extension)
++export const ApprovePackageSchema = z.object({
++  command: z.literal('approvePackage'),
++  packageId: z.string(),
++});
++
++export const UnapprovePackageSchema = z.object({
++  command: z.literal('unapprovePackage'),
++  packageId: z.string(),
++});
++
++export const SendPackageSchema = z.object({
++  command: z.literal('sendPackage'),
++  packageId: z.string(),
++});
++
++export const SendAllApprovedSchema = z.object({
++  command: z.literal('sendAllApproved'),
++});
++
++export const CancelBatchSchema = z.object({
++  command: z.literal('cancelBatch'),
++  packageId: z.string(),
++});
++
++export const DeletePackageSchema = z.object({
++  command: z.literal('deletePackage'),
++  packageId: z.string(),
++});
++
++export const UpdatePackageDraftSchema = z.object({
++  command: z.literal('updatePackageDraft'),
++  packageId: z.string(),
++  goal: z.string().optional(),
++  outputInstruction: PackageTypeEnum.optional(),
++});
++
++export const GetPackagePreviewSchema = z.object({
++  command: z.literal('getPackagePreview'),
++  packageId: z.string(),
++});
++
++export const ViewBatchStatusSchema = z.object({
++  command: z.literal('viewBatchStatus'),
++  packageId: z.string(),
++});
++
++// Package preview response (extension -> webview)
++export const PackagePreviewSchema = z.object({
++  command: z.literal('packagePreview'),
++  package: PackageSummarySchema.extend({
++    contextFiles: z.array(z.object({
++      path: z.string(),
++      tokenCount: z.number().int().nonnegative(),
++      content: z.string(),
++    })),
++    repoArchitecture: z.string(),
++    dependencies: z.record(z.string()),
++    outputInstruction: PackageTypeEnum,
++    rawPrompt: z.string(),
++  }),
++});
++
++// Bulk send result (extension -> webview)
++export const PackagesBulkSendResultSchema = z.object({
++  command: z.literal('packagesBulkSendResult'),
++  submitted: z.array(z.string()),
++  failed: z.array(z.string()),
++});
++
++// Batch status (extension → webview)
++export const BatchStatusSchema = z.object({
++  command: z.literal('batchStatus'),
++  batchJobId: z.string(),
++  status: z.enum(['pending', 'processing', 'completed', 'failed', 'cancelled']),
++  estimatedCompletionTime: z.string().optional(),
++});
++
++// Resume batch pending (webview → extension)
++export const ResumeBatchPendingSchema = z.object({
++  command: z.literal('resumeBatchPending'),
++  completed: z.boolean(),
++  responseContent: z.string().optional(),
++  error: z.string().optional(),
++});
++
++// Edit review (extension → webview)
++export const EditReviewSchema = z.object({
++  command: z.literal('editReview'),
++  edits: z.array(z.object({
++    filePath: z.string(),
++    action: z.enum(['create', 'edit', 'delete']),
++    preview: z.string(),
++  })),
++});
++
++// Resume edit review (webview → extension)
++export const ResumeEditReviewSchema = z.object({
++  command: z.literal('resumeEditReview'),
++  approvedEdits: z.array(z.string()),
++});
++
++// Code review (extension → webview)
++export const CodeReviewSchema = z.object({
++  command: z.literal('codeReview'),
++  appliedFiles: z.array(z.string()),
++});
++
++// Resume code review (webview → extension)
++export const ResumeCodeReviewSchema = z.object({
++  command: z.literal('resumeCodeReview'),
++  requestReviewCycle: z.boolean(),
++});
++
+ // --- Runner Configuration Schemas ---
+ 
+ export const GetRunnerConfigSchema = z.object({
+@@ -641,6 +864,53 @@ export const RunnerConfigSchema = z.object({
+   }),
+ });
+ 
++// --- Memory Manager Schemas (PRD 004) ---
++
++const MemoryScopeEnum = z.enum(['session', 'repo']);
++const MemorySourceEnum = z.enum(['user', 'auto']);
++
++// Get memories for a scope (webview → extension)
++export const GetMemoriesSchema = z.object({
++  command: z.literal('getMemories'),
++  scope: MemoryScopeEnum,
++});
++
++// Create a new memory (webview → extension)
++export const CreateMemorySchema = z.object({
++  command: z.literal('createMemory'),
++  scope: MemoryScopeEnum,
++  key: z.string().min(1).max(100),
++  value: z.string().min(1).max(10000),
++});
++
++// Update an existing memory (webview → extension)
++export const UpdateMemorySchema = z.object({
++  command: z.literal('updateMemory'),
++  id: z.string().min(1),
++  value: z.string().min(1).max(10000),
++});
++
++// Delete a memory (webview → extension)
++export const DeleteMemorySchema = z.object({
++  command: z.literal('deleteMemory'),
++  id: z.string().min(1),
++});
++
++// Memory list response (extension → webview)
++export const MemoryListSchema = z.object({
++  command: z.literal('memoryList'),
++  scope: MemoryScopeEnum,
++  memories: z.array(z.object({
++    id: z.string(),
++    key: z.string(),
++    value: z.string(),
++    source: MemorySourceEnum,
++    createdAt: z.number(),
++    updatedAt: z.number(),
++    expiresAt: z.number().nullable(),
++  })),
++});
++
+ export const WebviewMessageSchema = z.discriminatedUnion('command', [
+   WebviewLoadedSchema,
+   RunBundleSchema,
+@@ -742,10 +1012,41 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
+   ThreadHistorySchema,
+   ChatResponseSchema,
+   ChatProgressSchema,
++  // HITL Workflow
++  GoalReviewSchema,
++  ResumeGoalReviewSchema,
++  PackageReviewSchema,
++  ResumePackageReviewSchema,
++  PackageReadySchema,
++  ListPackagesSchema,
++  PackageListSchema,
++  ApprovePackageSchema,
++  UnapprovePackageSchema,
++  SendPackageSchema,
++  SendAllApprovedSchema,
++  CancelBatchSchema,
++  DeletePackageSchema,
++  UpdatePackageDraftSchema,
++  GetPackagePreviewSchema,
++  ViewBatchStatusSchema,
++  PackagePreviewSchema,
++  PackagesBulkSendResultSchema,
++  BatchStatusSchema,
++  ResumeBatchPendingSchema,
++  EditReviewSchema,
++  ResumeEditReviewSchema,
++  CodeReviewSchema,
++  ResumeCodeReviewSchema,
+   // Runner Configuration
+   GetRunnerConfigSchema,
+   SetRunnerConfigSchema,
+   RunnerConfigSchema,
++  // Memory Manager (PRD 004)
++  GetMemoriesSchema,
++  CreateMemorySchema,
++  UpdateMemorySchema,
++  DeleteMemorySchema,
++  MemoryListSchema,
+ ]);
+ 
+ export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

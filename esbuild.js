@@ -101,6 +101,8 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/extension.js',
+    // Keep `pg-native` external: it's an optional native dependency used by `pg`.
+    // Leaving it external avoids bundling native artifacts, and `pg` falls back to pure JS when absent.
     external: ['vscode', 'pg-native'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],

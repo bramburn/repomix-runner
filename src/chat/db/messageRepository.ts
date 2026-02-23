@@ -15,6 +15,10 @@ interface MessageRow {
   context_files: string[] | null;
   tool_calls: unknown | null;
   metadata: unknown | null;
+  is_compressed: boolean | null;
+  original_content: string | null;
+  compressed_into: string | null;
+  compression_metadata: unknown | null;
 }
 
 function safePreview(content: string, maxLength = 80): string {
@@ -23,6 +27,14 @@ function safePreview(content: string, maxLength = 80): string {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function assertNonEmpty(value: string, fieldName: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  return trimmed;
 }
 
 function rowToMessage(row: MessageRow): ThreadMessage {
@@ -60,6 +72,17 @@ export class MessageRepository {
   constructor(private readonly pool: Pool) {}
 
   async saveMessage(threadId: string, message: ThreadMessage): Promise<void> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const role = message.role;
+    if (role !== 'user' && role !== 'assistant') {
+      throw new Error('message.role must be either "user" or "assistant".');
+    }
+    assertNonEmpty(message.content, 'message.content');
+    const content = message.content;
+    if (!Number.isFinite(message.timestamp)) {
+      throw new Error('message.timestamp must be a valid epoch milliseconds number.');
+    }
+
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -69,9 +92,9 @@ export class MessageRepository {
          VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000), $6, $7, $8, $9, $10, $11, $12)`,
         [
           message.id,
-          threadId,
-          message.role,
-          message.content,
+          normalizedThreadId,
+          role,
+          content,
           message.timestamp,
           message.model ?? null,
           message.tokens?.input ?? null,
@@ -83,35 +106,23 @@ export class MessageRepository {
         ]
       );
 
-      // Update thread: updated_at, preview, auto-title on first user message, token totals
-      const updates: string[] = ['updated_at = NOW()'];
-      const updateValues: unknown[] = [];
-      let paramIdx = 1;
-
-      // Always update preview
-      updates.push(`preview = $${paramIdx++}`);
-      updateValues.push(safePreview(message.content));
-
-      // Update total_tokens if message has token info
-      if (message.tokens?.total) {
-        updates.push(`total_tokens = total_tokens + $${paramIdx++}`);
-        updateValues.push(message.tokens.total);
-      }
-
-      // Auto-title: set title to first user message content if still default
-      if (message.role === 'user') {
-        updates.push(
-          `title = CASE WHEN title = 'New Chat' THEN $${paramIdx++} ELSE title END`
-        );
-        updateValues.push(safePreview(message.content, 50));
-      }
-
-      updateValues.push(threadId);
-
       await client.query(
-        `UPDATE chat_threads SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
-        updateValues
+        `UPDATE chat_threads
+         SET updated_at = NOW(),
+             preview = $1,
+             total_tokens = total_tokens + $2
+         WHERE id = $3`,
+        [safePreview(content), message.tokens?.total ?? 0, normalizedThreadId]
       );
+
+      if (role === 'user') {
+        await client.query(
+          `UPDATE chat_threads
+           SET title = CASE WHEN title = 'New Chat' THEN $1 ELSE title END
+           WHERE id = $2`,
+          [safePreview(content, 50), normalizedThreadId]
+        );
+      }
 
       await client.query('COMMIT');
     } catch (error) {
@@ -123,16 +134,120 @@ export class MessageRepository {
   }
 
   async getMessages(threadId: string): Promise<ThreadMessage[]> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
     const result = await this.pool.query<MessageRow>(
       `SELECT * FROM chat_messages
        WHERE thread_id = $1
        ORDER BY timestamp ASC`,
-      [threadId]
+      [normalizedThreadId]
     );
     return result.rows.map(rowToMessage);
   }
 
   async deleteMessage(id: string): Promise<void> {
-    await this.pool.query(`DELETE FROM chat_messages WHERE id = $1`, [id]);
+    const normalizedId = assertNonEmpty(id, 'id');
+    await this.pool.query(`DELETE FROM chat_messages WHERE id = $1`, [normalizedId]);
+  }
+
+  /**
+   * Get uncompressed messages for a thread (for prompt building).
+   * Excludes messages that have been compressed into summaries.
+   */
+  async getUncompressedMessages(threadId: string): Promise<ThreadMessage[]> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const result = await this.pool.query<MessageRow>(
+      `SELECT * FROM chat_messages
+       WHERE thread_id = $1
+         AND (is_compressed IS NULL OR is_compressed = false)
+       ORDER BY timestamp ASC`,
+      [normalizedThreadId]
+    );
+    return result.rows.map(rowToMessage);
+  }
+
+  /**
+   * Mark messages as compressed and link them to a summary message.
+   */
+  async markMessagesAsCompressed(
+    messageIds: string[],
+    summaryMessageId: string,
+    metadata?: { tokensSaved?: number; compressionTimestamp?: Date }
+  ): Promise<void> {
+    if (messageIds.length === 0) {
+      return;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const messageId of messageIds) {
+        await client.query(
+          `UPDATE chat_messages
+           SET is_compressed = true,
+               original_content = CASE WHEN original_content IS NULL THEN content ELSE original_content END,
+               compressed_into = $1,
+               compression_metadata = $2
+           WHERE id = $3`,
+          [summaryMessageId, metadata ? JSON.stringify(metadata) : null, messageId]
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Save a summary message (system role) that represents compressed messages.
+   */
+  async saveSummaryMessage(
+    threadId: string,
+    summaryContent: string,
+    originalMessageIds: string[],
+    tokenCount: number
+  ): Promise<string> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const id = crypto.randomUUID();
+    const timestamp = Date.now();
+
+    await this.pool.query(
+      `INSERT INTO chat_messages (id, thread_id, role, content, timestamp, tokens_total, metadata)
+       VALUES ($1, $2, 'system', $3, to_timestamp($4::double precision / 1000), $5, $6)`,
+      [
+        id,
+        normalizedThreadId,
+        summaryContent,
+        timestamp,
+        tokenCount,
+        JSON.stringify({
+          isSummary: true,
+          originalMessageIds,
+          originalMessageCount: originalMessageIds.length,
+        }),
+      ]
+    );
+
+    return id;
+  }
+
+  /**
+   * Get summary messages for a thread.
+   */
+  async getSummaryMessages(threadId: string): Promise<ThreadMessage[]> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const result = await this.pool.query<MessageRow>(
+      `SELECT * FROM chat_messages
+       WHERE thread_id = $1
+         AND role = 'system'
+         AND metadata->>'isSummary' = 'true'
+       ORDER BY timestamp ASC`,
+      [normalizedThreadId]
+    );
+    return result.rows.map(rowToMessage);
   }
 }

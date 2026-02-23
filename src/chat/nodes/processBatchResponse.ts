@@ -2,57 +2,17 @@
  * processBatchResponse node - Parses batch response into file edits.
  */
 import { ChatState, type FileEdit } from '../state.js';
-import { logger } from '../../shared/logger.js';
 import type { ProgressCallback } from './utils.js';
+import { parseBatchResponse } from '../batch/responseParser.js';
 
-/**
- * Expected response format for code changes.
- */
-interface CodeChangeResponse {
-  summary: string;
-  changes: Array<{
-    filePath: string;
-    action: 'create' | 'edit' | 'delete';
-    description: string;
-    content?: string;
-    searchReplace?: Array<{ search: string; replace: string }>;
-  }>;
-}
-
-/**
- * Parses the batch response content into file edits.
- */
-function parseBatchResponse(content: string): FileEdit[] {
-  if (!content.trim()) {
-    return [];
-  }
-
-  try {
-    // Try to extract JSON from the response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.both.warn('processBatchResponse: No JSON found in response');
-      return [];
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as CodeChangeResponse;
-
-    if (!parsed.changes || !Array.isArray(parsed.changes)) {
-      logger.both.warn('processBatchResponse: No changes array in response');
-      return [];
-    }
-
-    return parsed.changes.map((change) => ({
-      filePath: change.filePath,
-      action: change.action,
-      content: change.content || '',
-      searchReplace: change.searchReplace,
-      approved: false, // User must approve each edit
-    }));
-  } catch (error) {
-    logger.both.error('processBatchResponse: Failed to parse response', error);
-    return [];
-  }
+function createRawResponseFallbackEdit(batchJobId: string | null, content: string): FileEdit {
+  const safeJobId = batchJobId ?? 'unknown-batch';
+  return {
+    filePath: `.repomix/incoming/${safeJobId}/manual-review-response.md`,
+    action: 'create',
+    content: `# Manual Review Required\n\nThe batch response could not be parsed into structured edits.\n\n## Raw Response\n\n\`\`\`\n${content}\n\`\`\`\n`,
+    approved: false,
+  };
 }
 
 export async function processBatchResponseNode(
@@ -61,7 +21,13 @@ export async function processBatchResponseNode(
 ) {
   onProgress('Processing batch response...');
 
-  const fileEdits = parseBatchResponse(state.batchResponseContent);
+  const parsed = parseBatchResponse(state.batchResponseContent);
+  let fileEdits = parsed.fileEdits;
+
+  if (fileEdits.length === 0 && state.batchResponseContent.trim()) {
+    // Surface raw output through manual review as requested.
+    fileEdits = [createRawResponseFallbackEdit(state.batchJobId, state.batchResponseContent)];
+  }
 
   if (fileEdits.length === 0) {
     return {
@@ -71,7 +37,11 @@ export async function processBatchResponseNode(
     };
   }
 
-  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...`);
+  const warningSummary = parsed.parseWarnings.length
+    ? ` Parse warnings: ${parsed.parseWarnings.join(' | ')}`
+    : '';
+
+  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...${warningSummary}`);
 
   return {
     fileEdits,

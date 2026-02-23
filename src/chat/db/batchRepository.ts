@@ -105,6 +105,8 @@ export class BatchRepository {
     patch: {
       batchApiId?: string;
       status?: BatchJobStatus;
+      packageType?: PackageType;
+      promptPayload?: object;
       responsePayload?: object;
       tokensInput?: number;
       tokensOutput?: number;
@@ -126,6 +128,14 @@ export class BatchRepository {
     if (patch.status !== undefined) {
       updates.push(`status = $${paramIndex++}`);
       values.push(patch.status);
+    }
+    if (patch.packageType !== undefined) {
+      updates.push(`package_type = $${paramIndex++}`);
+      values.push(patch.packageType);
+    }
+    if (patch.promptPayload !== undefined) {
+      updates.push(`prompt_payload = $${paramIndex++}`);
+      values.push(JSON.stringify(patch.promptPayload));
     }
     if (patch.responsePayload !== undefined) {
       updates.push(`response_payload = $${paramIndex++}`);

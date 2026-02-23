@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FluentProvider,
   webDarkTheme,
@@ -7,11 +7,30 @@ import {
   Tab,
 } from '@fluentui/react-components';
 import { ChatTab } from './components/ai-chat/ChatTab.js';
+import { MemoryPanel } from './components/ai-chat/MemoryPanel.js';
+import { vscode } from './vscode-api.js';
 
 export const AiChatRoot = () => {
   console.log('[AiChatRoot] Component rendered');
   
   const [activeTab, setActiveTab] = useState('Chat');
+  const [chatDisabledMessage, setChatDisabledMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (message?.command === 'chatDisabled' && typeof message.message === 'string') {
+        setChatDisabledMessage(message.message);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    vscode.postMessage({ command: 'webviewLoaded' });
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
 
   return (
     <FluentProvider theme={webDarkTheme} style={{ background: 'transparent' }}>
@@ -31,6 +50,20 @@ export const AiChatRoot = () => {
           </Text>
         </div>
 
+        {chatDisabledMessage && (
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px 12px',
+              border: '1px solid var(--vscode-inputValidation-warningBorder)',
+              background: 'var(--vscode-inputValidation-warningBackground)',
+              borderRadius: '6px',
+            }}
+          >
+            <Text>{chatDisabledMessage}</Text>
+          </div>
+        )}
+
         {/* Tab Navigation */}
         <TabList
           selectedValue={activeTab}
@@ -40,6 +73,7 @@ export const AiChatRoot = () => {
           style={{ marginBottom: '15px' }}
         >
           <Tab value="Chat">Chat</Tab>
+          <Tab value="Memory">Memory</Tab>
           <Tab value="Settings">Settings</Tab>
           <Tab value="History">History</Tab>
         </TabList>
@@ -47,6 +81,8 @@ export const AiChatRoot = () => {
         {/* Content Area */}
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {activeTab === 'Chat' && <ChatTab />}
+
+          {activeTab === 'Memory' && <MemoryPanel />}
           
           {activeTab === 'Settings' && (
             <div style={{ 

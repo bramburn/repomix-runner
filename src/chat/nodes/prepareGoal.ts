@@ -2,15 +2,21 @@
  * prepareGoal node - Gemini synthesizes a goal from user query + context.
  */
 import type { ExtensionContext } from 'vscode';
+import type { Pool } from 'pg';
 import { ChatState } from '../state.js';
 import { logger } from '../../shared/logger.js';
 import * as llmClient from '../../agent/llmClient.js';
 import { buildGoalPrompt, parseGoalResponse } from '../prompts/goalPrompt.js';
 import { getApiKey, calculateGeminiCost, type ProgressCallback } from './utils.js';
+import { MemoryManager } from '../memory/memoryManager.js';
+import { injectMemories } from '../memory/memoryInjector.js';
+import { getRepoId } from '../../utils/repoIdentity.js';
+import { getCwd } from '../../config/getCwd.js';
 
 export async function prepareGoalNode(
   state: typeof ChatState.State,
   extensionContext: ExtensionContext,
+  pgPool: Pool,
   onProgress: ProgressCallback
 ) {
   onProgress('Synthesizing goal from request and context...');
@@ -24,11 +30,25 @@ export async function prepareGoalNode(
     };
   }
 
+  // Inject relevant memories (PRD 004)
+  let memoryContext = '';
+  try {
+    const repoId = await getRepoId(getCwd());
+    const memoryManager = new MemoryManager(pgPool);
+    memoryContext = await injectMemories(state.threadId, repoId, memoryManager);
+    if (memoryContext) {
+      logger.both.debug('prepareGoal: Injecting memory context');
+    }
+  } catch (error) {
+    logger.both.warn('prepareGoal: Memory injection failed (non-blocking):', error);
+  }
+
   const prompt = buildGoalPrompt({
     userQuery: state.userQuery,
     retrievedContext: state.retrievedContext,
     repoArchitecture: state.repoArchitecture,
     dependencies: state.dependencies,
+    memoryContext,
   });
 
   try {

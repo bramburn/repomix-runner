@@ -11,6 +11,9 @@ import { BlueprintService, initBlueprintService, getBlueprintService } from '../
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
+const SECRET_ANTHROPIC = 'repomix.chat.anthropicApiKey';
+export const SECRET_POSTGRES_CONNECTION = 'repomix.chat.postgresConnectionString';
+type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
 
 export class ConfigController extends BaseController {
   private migrationService: MigrationService;
@@ -37,6 +40,17 @@ export class ConfigController extends BaseController {
         return true;
       case 'saveSecret':
         await this.handleSaveSecret(message.key, message.value);
+        return true;
+
+      // --- PostgreSQL Connection Management ---
+      case 'checkPostgresConnection':
+        await this.handleCheckPostgresConnection();
+        return true;
+      case 'savePostgresConnection':
+        await this.handleSavePostgresConnection(message.value);
+        return true;
+      case 'deletePostgresConnection':
+        await this.handleDeletePostgresConnection();
         return true;
 
       // --- Pinecone Index Management ---
@@ -146,14 +160,16 @@ export class ConfigController extends BaseController {
 
   // --- Handlers ---
 
-  private async handleCheckSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey') {
+  private async handleCheckSecret(key: SecretKey) {
     try {
       const storageKey =
         key === 'googleApiKey'
           ? SECRET_GOOGLE_GEMINI
           : key === 'pineconeApiKey'
             ? SECRET_PINECONE
-            : SECRET_QDRANT;
+            : key === 'qdrantApiKey'
+              ? SECRET_QDRANT
+              : SECRET_ANTHROPIC;
       const secret = await this.extensionContext.secrets.get(storageKey);
       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
     } catch (err) {
@@ -161,23 +177,72 @@ export class ConfigController extends BaseController {
     }
   }
 
-  private async handleSaveSecret(key: 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey', value: string) {
+  private async handleSaveSecret(key: SecretKey, value: string) {
     try {
       const storageKey =
         key === 'googleApiKey'
           ? SECRET_GOOGLE_GEMINI
           : key === 'pineconeApiKey'
             ? SECRET_PINECONE
-            : SECRET_QDRANT;
+            : key === 'qdrantApiKey'
+              ? SECRET_QDRANT
+              : SECRET_ANTHROPIC;
       await this.extensionContext.secrets.store(storageKey, value);
       this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
       const label =
-        key === 'googleApiKey' ? 'Google' : key === 'pineconeApiKey' ? 'Pinecone' : 'Qdrant';
+        key === 'googleApiKey'
+          ? 'Google'
+          : key === 'pineconeApiKey'
+            ? 'Pinecone'
+            : key === 'qdrantApiKey'
+              ? 'Qdrant'
+              : 'Anthropic';
       vscode.window.showInformationMessage(`${label} API Key saved successfully!`);
     } catch (err) {
       console.error('Failed to save secret:', err);
       vscode.window.showErrorMessage('Failed to save API Key.');
+    }
+  }
+
+  // --- PostgreSQL Connection Management ---
+
+  private async handleCheckPostgresConnection() {
+    try {
+      const secret = await this.extensionContext.secrets.get(SECRET_POSTGRES_CONNECTION);
+      this.context.postMessage({ 
+        command: 'postgresConnectionStatus', 
+        exists: !!secret 
+      });
+    } catch (err) {
+      console.error('Failed to check postgres connection:', err);
+    }
+  }
+
+  private async handleSavePostgresConnection(value: string) {
+    try {
+      await this.extensionContext.secrets.store(SECRET_POSTGRES_CONNECTION, value);
+      this.context.postMessage({ 
+        command: 'postgresConnectionStatus', 
+        exists: true 
+      });
+      vscode.window.showInformationMessage('PostgreSQL connection string saved successfully!');
+    } catch (err) {
+      console.error('Failed to save postgres connection:', err);
+      vscode.window.showErrorMessage('Failed to save PostgreSQL connection string.');
+    }
+  }
+
+  private async handleDeletePostgresConnection() {
+    try {
+      await this.extensionContext.secrets.delete(SECRET_POSTGRES_CONNECTION);
+      this.context.postMessage({ 
+        command: 'postgresConnectionStatus', 
+        exists: false 
+      });
+      vscode.window.showInformationMessage('PostgreSQL connection string removed.');
+    } catch (err) {
+      console.error('Failed to delete postgres connection:', err);
     }
   }
 

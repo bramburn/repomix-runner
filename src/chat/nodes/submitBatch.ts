@@ -1,18 +1,15 @@
 /**
- * submitBatch node - Creates batch job record (stubbed API).
- * Full Anthropic Batch API integration will be in PRD 005.
+ * submitBatch node - Submits package payload to Anthropic batch API.
  */
-import type { Pool } from 'pg';
 import { ChatState } from '../state.js';
 import { logger } from '../../shared/logger.js';
-import { BatchRepository } from '../db/batchRepository.js';
 import type { ProgressCallback } from './utils.js';
+import type { BatchManager } from '../batch/batchManager.js';
 
-// Global pool reference - will be set by the graph factory
-let pgPool: Pool | null = null;
+let batchManager: BatchManager | null = null;
 
-export function setSubmitBatchPool(pool: Pool) {
-  pgPool = pool;
+export function setSubmitBatchManager(manager: BatchManager) {
+  batchManager = manager;
 }
 
 export async function submitBatchNode(
@@ -30,42 +27,27 @@ export async function submitBatchNode(
     };
   }
 
-  if (!pgPool) {
-    logger.both.warn('submitBatch: No database pool available.');
+  if (!batchManager) {
+    logger.both.warn('submitBatch: Batch manager not initialized.');
     return {
       batchJobId: null,
       workflowPhase: 'complete' as const,
-      aiResponse: 'Database not available for batch submission.',
+      aiResponse: 'Batch manager is not available.',
     };
   }
 
   try {
-    const batchRepo = new BatchRepository(pgPool);
-
-    // Create the batch job record
-    const batchJobId = await batchRepo.createBatchJob({
-      threadId: state.threadId,
-      packageType: state.packagePayload.outputInstruction,
-      promptPayload: state.packagePayload,
-      metadata: {
-        createdBy: 'hitl_workflow',
-        goalPreview: state.goalText.slice(0, 200),
-      },
-    });
-
-    // Mark as pending (in real implementation, this would call Anthropic API)
-    await batchRepo.updateBatchJob(batchJobId, {
-      status: 'pending',
-    });
-
-    onProgress(`Batch job created: ${batchJobId.slice(0, 8)}...`);
+    const result = state.batchJobId
+      ? await batchManager.submitExistingPackage(state.batchJobId)
+      : await batchManager.submitPackage(state.threadId, state.packagePayload);
+    onProgress(`Batch job submitted: ${result.batchJobId.slice(0, 8)}...`);
 
     return {
-      batchJobId,
+      batchJobId: result.batchJobId,
       workflowPhase: 'batch_pending' as const,
     };
   } catch (error) {
-    logger.both.error('submitBatch: Failed to create batch job', error);
+    logger.both.error('submitBatch: Failed to submit batch', error);
     return {
       batchJobId: null,
       workflowPhase: 'complete' as const,

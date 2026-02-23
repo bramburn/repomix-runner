@@ -1,8 +1,11 @@
 /**
  * packagePrompt node - Assembles final prompt payload for batch submission.
+ * Enhanced with token budget validation (PRD 003).
  */
 import { ChatState, type OutputInstruction } from '../state.js';
 import { buildBatchPrompt } from '../prompts/outputInstructions.js';
+import { countTokens, calculateBudget, CLAUDE_OPUS_BUDGET } from '../compression/tokenBudget.js';
+import { logger } from '../../shared/logger.js';
 import type { ProgressCallback } from './utils.js';
 
 /**
@@ -55,9 +58,26 @@ export async function packagePromptNode(
   };
 
   // Also build the full prompt for reference/display
-  const _fullPrompt = buildBatchPrompt(packagePayload);
+  const fullPrompt = buildBatchPrompt(packagePayload);
 
-  onProgress(`Package ready (${outputInstruction} mode). Awaiting approval...`);
+  // Token budget validation (PRD 003)
+  const promptTokens = countTokens(fullPrompt);
+  const modelWindow = state.modelContextWindow || CLAUDE_OPUS_BUDGET.contextWindow;
+  const budget = calculateBudget(modelWindow, state.contextThresholdPercent || 80);
+
+  if (promptTokens > budget.total) {
+    logger.both.warn(
+      `[packagePrompt] Prompt exceeds budget: ${promptTokens} tokens > ${budget.total} budget. ` +
+      `Compression may not have been sufficient.`
+    );
+  } else {
+    logger.both.info(
+      `[packagePrompt] Prompt token usage: ${promptTokens}/${budget.total} ` +
+      `(${Math.round((promptTokens / budget.total) * 100)}% of budget)`
+    );
+  }
+
+  onProgress(`Package ready (${outputInstruction} mode, ${promptTokens} tokens). Awaiting approval...`);
 
   return {
     packagePayload,

@@ -103,7 +103,9 @@ export async function gatherContextNode(
 
     for (const match of rawMatches) {
       const filePath = match.metadata?.filePath as string | undefined;
-      if (!filePath) continue;
+      if (!filePath) {
+        continue;
+      }
 
       const startLine = match.metadata?.startLine as number | undefined;
       const endLine = match.metadata?.endLine as number | undefined;

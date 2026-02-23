@@ -253,3 +253,148 @@ When a batch completes:
 - [ ] Response is correctly parsed into file edit structures
 - [ ] Batch can be cancelled by the user
 - [ ] Error handling for API failures, timeouts, and malformed responses
+
+---
+
+## Draft Implementation Action Plan (Codebase-Aligned)
+
+Date: 2026-02-23
+
+### Current State Snapshot
+
+- `submitBatch`, `awaitBatchResponse`, and `processBatchResponse` are present but stubbed (`src/chat/nodes/*.ts`).
+- `batch_jobs` table and repository exist (`src/chat/db/batchRepository.ts`, `src/chat/db/postgresClient.ts`).
+- No `src/chat/batch/` services exist yet.
+- `@anthropic-ai/sdk` is not installed.
+- Chat UI has interrupt schemas and controller wiring, but no real batch lifecycle UI yet.
+
+### Scope for PRD 005 Implementation Pass
+
+1. Build production-ready batch backend (`src/chat/batch/*`) and integrate it into existing graph nodes.
+2. Add Anthropic credential/config plumbing (secrets + workspace settings).
+3. Implement resilient poller that resumes pending work after restart and updates chat workflow state.
+4. Persist raw responses and parsed artifacts for PRD 009 consumers.
+5. Add tests for assembler, parser, manager, and poller behavior.
+
+### Assumptions
+
+- We keep using existing HITL interrupts in `ChatController` (no full Packages tab work in this PRD; PRD 006 handles major UX).
+- First implementation uses one batch request per approved package group, mapped by `custom_id = batch_jobs.id`.
+- Parsed output shape must support both current JSON response handling and the planned `<file_change>` format.
+
+### Dependency-Ordered Tasks
+
+#### Phase 0: Contracts and Configuration
+
+1. Add `@anthropic-ai/sdk` dependency in `package.json`.
+2. Add batch settings in `package.json` contributes section:
+   - `repomix.chat.batchModel`
+   - `repomix.chat.batchMaxTokens`
+   - `repomix.chat.batchThinkingBudget`
+   - `repomix.chat.batchPollIntervalSeconds`
+3. Extend secret handling for Anthropic key:
+   - add secret constant in `src/webview/controllers/ConfigController.ts`
+   - extend message schema enums in `src/webview/messageSchemas.ts` if using shared secret save/check command path.
+
+#### Phase 1: Batch Domain Layer (`src/chat/batch/`)
+
+1. Create `src/chat/batch/types.ts` with:
+   - package/request/result/status DTOs
+   - parser result shape for PRD 009 (`FileEdit`-compatible).
+2. Create `src/chat/batch/outputTemplates.ts` and keep templates centralized (plan/code/review).
+3. Create `src/chat/batch/packageAssembler.ts`:
+   - deterministic prompt assembly
+   - optional token estimate helper for UI/status.
+
+#### Phase 2: Anthropic Adapter and Parsing
+
+1. Create `src/chat/batch/anthropicBatchClient.ts`:
+   - `submitBatch`
+   - `getBatch`
+   - `getBatchResults`
+   - `cancelBatch`
+   - normalize API errors into typed internal errors.
+2. Create `src/chat/batch/responseParser.ts`:
+   - parse `<file_change>` blocks
+   - keep JSON fallback parser (backward compatibility with current node expectations)
+   - return structured parse diagnostics for malformed outputs.
+
+#### Phase 3: Orchestration and Polling
+
+1. Create `src/chat/batch/batchManager.ts`:
+   - create/update `batch_jobs`
+   - map local IDs to Anthropic `custom_id`
+   - store raw result payload and parsed artifact metadata.
+2. Create `src/chat/batch/batchPoller.ts`:
+   - polling loop with backoff
+   - `resumeAllPending()` on startup
+   - completion callback that hands parsed result to workflow resume path.
+3. Add incoming artifact persistence (`.repomix/incoming/{batchId}/`) in manager completion path.
+
+#### Phase 4: Graph and Extension Integration
+
+1. Update `src/chat/nodes/submitBatch.ts` to call `batchManager.submitApproved(...)` instead of stub DB write.
+2. Update `src/chat/nodes/awaitBatchResponse.ts` to reflect real ETA/status info from poller state.
+3. Update `src/chat/nodes/processBatchResponse.ts` to use `responseParser`.
+4. Update `src/chat/graph.ts` injection path so nodes receive manager/poller dependencies cleanly.
+5. Update `src/webview/controllers/ChatController.ts`:
+   - handle async batch completion signal and resume graph with `BatchPendingResume`.
+6. Update `src/webview/AiChatWebviewProvider.ts` and `src/extension.ts`:
+   - initialize poller once
+   - wire lifecycle/disposal
+   - resume pending batches on activation.
+
+#### Phase 5: Tests and Hardening
+
+1. Add tests:
+   - `src/test/chat/batch/packageAssembler.test.ts`
+   - `src/test/chat/batch/responseParser.test.ts`
+   - `src/test/chat/batch/batchManager.test.ts`
+   - `src/test/chat/batch/batchPoller.test.ts`
+2. Add integration-level test for node flow:
+   - `submitBatch -> awaitBatchResponse -> processBatchResponse`.
+3. Validate with:
+   - `npm run check-types`
+   - `npm run lint`
+   - `npm run test`.
+
+### File-Level Change Map
+
+| File | Change | Reason |
+|------|--------|--------|
+| `package.json` | update | add Anthropic SDK + batch settings |
+| `src/chat/batch/types.ts` | create | shared contracts for pipeline |
+| `src/chat/batch/outputTemplates.ts` | create | canonical output instructions |
+| `src/chat/batch/packageAssembler.ts` | create | deterministic prompt builder |
+| `src/chat/batch/anthropicBatchClient.ts` | create | API wrapper and transport logic |
+| `src/chat/batch/responseParser.ts` | create | parse model output into edits |
+| `src/chat/batch/batchManager.ts` | create | job lifecycle orchestrator |
+| `src/chat/batch/batchPoller.ts` | create | background polling + restart recovery |
+| `src/chat/nodes/submitBatch.ts` | update | replace stub path |
+| `src/chat/nodes/awaitBatchResponse.ts` | update | real pending/completion semantics |
+| `src/chat/nodes/processBatchResponse.ts` | update | parser integration |
+| `src/chat/graph.ts` | update | dependency injection for manager/poller |
+| `src/webview/controllers/ChatController.ts` | update | resume graph on completion signal |
+| `src/webview/controllers/ConfigController.ts` | update | Anthropic secret handling |
+| `src/webview/messageSchemas.ts` | update | optional secret enum/config message support |
+| `src/extension.ts` | update | initialize poller and resume pending jobs |
+| `src/webview/AiChatWebviewProvider.ts` | update | provider-level wiring for batch callbacks |
+
+### Risks and Mitigations
+
+- Risk: Poller and graph resume can desync if webview is closed.
+  Mitigation: persist completion payload in DB and allow idempotent resume by thread/job.
+- Risk: Model output format drift breaks parser.
+  Mitigation: dual parser strategy + diagnostics + fallback to raw artifact review.
+- Risk: long-running polls on many jobs can leak timers.
+  Mitigation: centralized poller registry + disposal hooks + max polling lifetime guard.
+
+### Open Questions
+
+1. Should Anthropic API key be handled only in secrets (recommended), or also through plaintext setting fallback?
+2. For PRD 005 completion, do we require automatic graph resume while chat view is closed, or is resume-on-open acceptable for v1?
+3. Should `processBatchResponse` treat non-parseable output as hard failure, or surface raw response to manual review step?
+
+### Review Checkpoint
+
+If this plan is approved, implementation can start immediately in the same phase order above.

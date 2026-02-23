@@ -44,13 +44,13 @@ export const SaveApiKeySchema = z.object({
 
 export const SaveSecretSchema = z.object({
   command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
   value: z.string().min(1),
 });
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey']),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
 });
 
 export const GetAgentHistorySchema = z.object({
@@ -370,10 +370,14 @@ export const GetEmbeddingConfigSchema = z.object({
 
 export const SetEmbeddingConfigSchema = z.object({
   command: z.literal('setEmbeddingConfig'),
-  provider: z.enum(['gemini', 'ollama']),
-  ollamaUrl: z.string().min(1, "Ollama URL is required"),
-  ollamaModel: z.string().min(1, "Ollama model is required"),
-  ollamaDimension: z.number().int().positive(),
+  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
+  ollamaUrl: z.string().min(1, "Ollama URL is required").optional(),
+  ollamaModel: z.string().min(1, "Ollama model is required").optional(),
+  ollamaDimension: z.number().int().positive().optional(),
+  lmstudioBaseUrl: z.string().min(1, 'LM Studio base URL is required').optional(),
+  lmstudioApiKey: z.string().optional(),
+  lmstudioModel: z.string().optional(),
+  lmstudioDimension: z.number().int().positive().optional(),
 });
 
 export const FetchOllamaModelsSchema = z.object({
@@ -415,10 +419,14 @@ export const OllamaDimensionResultSchema = z.object({
 
 export const EmbeddingConfigSchema = z.object({
   command: z.literal('embeddingConfig'),
-  provider: z.enum(['gemini', 'ollama']),
-  ollamaUrl: z.string(),
-  ollamaModel: z.string(),
-  ollamaDimension: z.number().int().positive(),
+  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
+  ollamaUrl: z.string().optional(),
+  ollamaModel: z.string().optional(),
+  ollamaDimension: z.number().int().positive().optional(),
+  lmstudioBaseUrl: z.string().optional(),
+  lmstudioApiKey: z.string().optional(),
+  lmstudioModel: z.string().optional(),
+  lmstudioDimension: z.number().int().positive().optional(),
 });
 
 export const EmbeddingTestResultSchema = z.object({
@@ -621,6 +629,221 @@ export const ChatProgressSchema = z.object({
   text: z.string(),
 });
 
+// --- HITL Workflow Schemas ---
+
+// Goal review (extension → webview)
+export const GoalReviewSchema = z.object({
+  command: z.literal('goalReview'),
+  goal: z.string(),
+  contextFiles: z.array(z.string()),
+  dependencies: z.record(z.string()),
+});
+
+// Resume goal review (webview → extension)
+export const ResumeGoalReviewSchema = z.object({
+  command: z.literal('resumeGoalReview'),
+  goalText: z.string(),
+  contextFiles: z.array(z.string()),
+});
+
+// Package review (extension → webview)
+export const PackageReviewSchema = z.object({
+  command: z.literal('packageReview'),
+  packageId: z.string().optional(),
+  package: z.object({
+    goal: z.string(),
+    contextFiles: z.array(z.object({
+      path: z.string(),
+      content: z.string(),
+    })),
+    repoArchitecture: z.string(),
+    dependencies: z.record(z.string()),
+    outputInstruction: z.enum(['plan', 'code_change', 'code_review']),
+  }),
+  estimatedTokens: z.number(),
+});
+
+// Resume package review (webview → extension)
+export const ResumePackageReviewSchema = z.object({
+  command: z.literal('resumePackageReview'),
+  approved: z.boolean(),
+  packageId: z.string().optional(),
+});
+
+// Package ready inline card (extension -> webview)
+export const PackageReadySchema = z.object({
+  command: z.literal('packageReady'),
+  packageId: z.string().optional(),
+  package: z.object({
+    goal: z.string(),
+    contextFiles: z.array(z.object({
+      path: z.string(),
+      content: z.string(),
+    })),
+    repoArchitecture: z.string(),
+    dependencies: z.record(z.string()),
+    outputInstruction: z.enum(['plan', 'code_change', 'code_review']),
+  }),
+  estimatedTokens: z.number(),
+});
+
+const PackageStatusEnum = z.enum([
+  'draft',
+  'pending',
+  'submitted',
+  'processing',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+const PackageTypeEnum = z.enum(['plan', 'code_change', 'code_review']);
+
+const PackageSummarySchema = z.object({
+  id: z.string(),
+  threadId: z.string().nullable(),
+  batchApiId: z.string().nullable(),
+  status: PackageStatusEnum,
+  packageType: PackageTypeEnum,
+  goal: z.string(),
+  contextFileCount: z.number().int().nonnegative(),
+  estimatedTokens: z.number().int().nonnegative(),
+  tokensInput: z.number().int().nonnegative().nullable(),
+  tokensOutput: z.number().int().nonnegative().nullable(),
+  costUsd: z.number().nullable(),
+  createdAt: z.number(),
+  submittedAt: z.number().nullable(),
+  completedAt: z.number().nullable(),
+  errorMessage: z.string().nullable(),
+});
+
+// Package list request (webview -> extension)
+export const ListPackagesSchema = z.object({
+  command: z.literal('listPackages'),
+  status: PackageStatusEnum.optional(),
+  packageType: PackageTypeEnum.optional(),
+});
+
+// Package list response (extension -> webview)
+export const PackageListSchema = z.object({
+  command: z.literal('packageList'),
+  packages: z.array(PackageSummarySchema),
+});
+
+// Package actions (webview -> extension)
+export const ApprovePackageSchema = z.object({
+  command: z.literal('approvePackage'),
+  packageId: z.string(),
+});
+
+export const UnapprovePackageSchema = z.object({
+  command: z.literal('unapprovePackage'),
+  packageId: z.string(),
+});
+
+export const SendPackageSchema = z.object({
+  command: z.literal('sendPackage'),
+  packageId: z.string(),
+});
+
+export const SendAllApprovedSchema = z.object({
+  command: z.literal('sendAllApproved'),
+});
+
+export const CancelBatchSchema = z.object({
+  command: z.literal('cancelBatch'),
+  packageId: z.string(),
+});
+
+export const DeletePackageSchema = z.object({
+  command: z.literal('deletePackage'),
+  packageId: z.string(),
+});
+
+export const UpdatePackageDraftSchema = z.object({
+  command: z.literal('updatePackageDraft'),
+  packageId: z.string(),
+  goal: z.string().optional(),
+  outputInstruction: PackageTypeEnum.optional(),
+});
+
+export const GetPackagePreviewSchema = z.object({
+  command: z.literal('getPackagePreview'),
+  packageId: z.string(),
+});
+
+export const ViewBatchStatusSchema = z.object({
+  command: z.literal('viewBatchStatus'),
+  packageId: z.string(),
+});
+
+// Package preview response (extension -> webview)
+export const PackagePreviewSchema = z.object({
+  command: z.literal('packagePreview'),
+  package: PackageSummarySchema.extend({
+    contextFiles: z.array(z.object({
+      path: z.string(),
+      tokenCount: z.number().int().nonnegative(),
+      content: z.string(),
+    })),
+    repoArchitecture: z.string(),
+    dependencies: z.record(z.string()),
+    outputInstruction: PackageTypeEnum,
+    rawPrompt: z.string(),
+  }),
+});
+
+// Bulk send result (extension -> webview)
+export const PackagesBulkSendResultSchema = z.object({
+  command: z.literal('packagesBulkSendResult'),
+  submitted: z.array(z.string()),
+  failed: z.array(z.string()),
+});
+
+// Batch status (extension → webview)
+export const BatchStatusSchema = z.object({
+  command: z.literal('batchStatus'),
+  batchJobId: z.string(),
+  status: z.enum(['pending', 'processing', 'completed', 'failed', 'cancelled']),
+  estimatedCompletionTime: z.string().optional(),
+});
+
+// Resume batch pending (webview → extension)
+export const ResumeBatchPendingSchema = z.object({
+  command: z.literal('resumeBatchPending'),
+  completed: z.boolean(),
+  responseContent: z.string().optional(),
+  error: z.string().optional(),
+});
+
+// Edit review (extension → webview)
+export const EditReviewSchema = z.object({
+  command: z.literal('editReview'),
+  edits: z.array(z.object({
+    filePath: z.string(),
+    action: z.enum(['create', 'edit', 'delete']),
+    preview: z.string(),
+  })),
+});
+
+// Resume edit review (webview → extension)
+export const ResumeEditReviewSchema = z.object({
+  command: z.literal('resumeEditReview'),
+  approvedEdits: z.array(z.string()),
+});
+
+// Code review (extension → webview)
+export const CodeReviewSchema = z.object({
+  command: z.literal('codeReview'),
+  appliedFiles: z.array(z.string()),
+});
+
+// Resume code review (webview → extension)
+export const ResumeCodeReviewSchema = z.object({
+  command: z.literal('resumeCodeReview'),
+  requestReviewCycle: z.boolean(),
+});
+
 // --- Runner Configuration Schemas ---
 
 export const GetRunnerConfigSchema = z.object({
@@ -639,6 +862,53 @@ export const RunnerConfigSchema = z.object({
   config: z.object({
     respectGitignoreInMarkdown: z.boolean(),
   }),
+});
+
+// --- Memory Manager Schemas (PRD 004) ---
+
+const MemoryScopeEnum = z.enum(['session', 'repo']);
+const MemorySourceEnum = z.enum(['user', 'auto']);
+
+// Get memories for a scope (webview → extension)
+export const GetMemoriesSchema = z.object({
+  command: z.literal('getMemories'),
+  scope: MemoryScopeEnum,
+});
+
+// Create a new memory (webview → extension)
+export const CreateMemorySchema = z.object({
+  command: z.literal('createMemory'),
+  scope: MemoryScopeEnum,
+  key: z.string().min(1).max(100),
+  value: z.string().min(1).max(10000),
+});
+
+// Update an existing memory (webview → extension)
+export const UpdateMemorySchema = z.object({
+  command: z.literal('updateMemory'),
+  id: z.string().min(1),
+  value: z.string().min(1).max(10000),
+});
+
+// Delete a memory (webview → extension)
+export const DeleteMemorySchema = z.object({
+  command: z.literal('deleteMemory'),
+  id: z.string().min(1),
+});
+
+// Memory list response (extension → webview)
+export const MemoryListSchema = z.object({
+  command: z.literal('memoryList'),
+  scope: MemoryScopeEnum,
+  memories: z.array(z.object({
+    id: z.string(),
+    key: z.string(),
+    value: z.string(),
+    source: MemorySourceEnum,
+    createdAt: z.number(),
+    updatedAt: z.number(),
+    expiresAt: z.number().nullable(),
+  })),
 });
 
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
@@ -742,10 +1012,41 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   ThreadHistorySchema,
   ChatResponseSchema,
   ChatProgressSchema,
+  // HITL Workflow
+  GoalReviewSchema,
+  ResumeGoalReviewSchema,
+  PackageReviewSchema,
+  ResumePackageReviewSchema,
+  PackageReadySchema,
+  ListPackagesSchema,
+  PackageListSchema,
+  ApprovePackageSchema,
+  UnapprovePackageSchema,
+  SendPackageSchema,
+  SendAllApprovedSchema,
+  CancelBatchSchema,
+  DeletePackageSchema,
+  UpdatePackageDraftSchema,
+  GetPackagePreviewSchema,
+  ViewBatchStatusSchema,
+  PackagePreviewSchema,
+  PackagesBulkSendResultSchema,
+  BatchStatusSchema,
+  ResumeBatchPendingSchema,
+  EditReviewSchema,
+  ResumeEditReviewSchema,
+  CodeReviewSchema,
+  ResumeCodeReviewSchema,
   // Runner Configuration
   GetRunnerConfigSchema,
   SetRunnerConfigSchema,
   RunnerConfigSchema,
+  // Memory Manager (PRD 004)
+  GetMemoriesSchema,
+  CreateMemorySchema,
+  UpdateMemorySchema,
+  DeleteMemorySchema,
+  MemoryListSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

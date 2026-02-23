@@ -1,4 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
+import type { CompressedSegment, CompressionLevel } from './compression/types.js';
 
 // --- Type Definitions for HITL Workflow ---
 
@@ -226,5 +227,51 @@ export const ChatState = Annotation.Root({
   batchResponseContent: Annotation<string>({
     reducer: (_, y) => y,
     default: () => '',
+  }),
+
+  // --- Memory State (PRD 004) ---
+
+  // Formatted memory context for debugging/display
+  activeMemories: Annotation<string>({
+    reducer: (_, y) => y,
+    default: () => '',
+  }),
+
+  // --- Context Compression State (PRD 003) ---
+
+  // Percentage of context window that triggers compression (from settings)
+  contextThresholdPercent: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 80,
+  }),
+
+  // Current total token count across all context
+  currentTokenCount: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 0,
+  }),
+
+  // Whether compression was applied in this workflow run
+  compressionApplied: Annotation<boolean>({
+    reducer: (_, y) => y,
+    default: () => false,
+  }),
+
+  // Compressed history segments (summaries of older messages)
+  compressedHistory: Annotation<CompressedSegment[]>({
+    reducer: (_, y) => y,
+    default: () => [],
+  }),
+
+  // Maximum recent messages to keep in full before summarizing
+  maxRecentMessages: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 10,
+  }),
+
+  // Model context window size in tokens
+  modelContextWindow: Annotation<number>({
+    reducer: (_, y) => y,
+    default: () => 200_000,
   }),
 });

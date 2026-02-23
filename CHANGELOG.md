@@ -5,6 +5,15 @@ All notable changes to the "Repomix Runner Plus" extension will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **PostgreSQL Connection String Storage**: Migrated from plaintext VS Code settings to encrypted `extensionContext.secrets` storage. This fixes a critical security vulnerability where database credentials (username, password, host, port) were exposed in `settings.json` files.
+  - **Breaking Change**: If you previously configured `repomix.chat.postgresConnectionString` in settings.json, you must now re-enter it in the Repomix Runner Control Panel → Settings tab → "PostgreSQL Connection String" section.
+  - The connection string is now stored securely using VS Code's encrypted secrets storage, following the same pattern as API keys.
+  - Updated error messages to reference the new configuration location.
+
 ## [1.0.0] - 2025-01-08
 
 ### Changed
@@ -178,3 +187,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.1] - 2024-01-30
 
 - Private beta release
+
