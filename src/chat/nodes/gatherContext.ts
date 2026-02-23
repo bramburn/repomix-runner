@@ -11,6 +11,7 @@ import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 import { getRepoId } from '../../utils/repoIdentity.js';
 import { GitService } from '../../git/GitService.js';
+import { ArchitectureRepository } from '../db/architectureRepository.js';
 import {
   getWorkspaceRoot,
   loadSnippet,
@@ -136,9 +137,21 @@ export async function gatherContextNode(
     logger.both.error('gatherContext: Vector search failed', error);
   }
 
-  // TODO: Load repo architecture from ArchitectureRepository when implemented (PRD 008)
-  // For now, return empty string
-  const repoArchitecture = '';
+  // Load repo architecture from ArchitectureRepository (PRD 008)
+  let repoArchitecture = '';
+  try {
+    const architectureRepo = new ArchitectureRepository((global as any).chatPgPool);
+    const archData = await architectureRepo.getArchitectureByRepoId(repoId);
+    
+    if (archData) {
+      repoArchitecture = archData.markdownTree;
+      logger.both.info(`gatherContext: Loaded architecture document (${archData.markdownTree.length} chars)`);
+    } else {
+      logger.both.info('gatherContext: No architecture document found in DB');
+    }
+  } catch (error) {
+    logger.both.warn('gatherContext: Failed to load architecture document', error);
+  }
 
   return {
     retrievedContext,

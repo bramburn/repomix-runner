@@ -414,6 +414,14 @@
             "minimum": 500,
             "maximum": 60000,
             "description": "Maximum delay in milliseconds for Anthropic batch API retry backoff"
+          },
+          "repomix.chat.architectureRefreshHours": {
+            "order": 11,
+            "type": "number",
+            "default": 24,
+            "minimum": 1,
+            "maximum": 168,
+            "description": "🏛️ How often (in hours) to regenerate the architecture document"
           }
         }
       }

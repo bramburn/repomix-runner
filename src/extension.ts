@@ -53,6 +53,7 @@ import { SECRET_POSTGRES_CONNECTION } from './webview/controllers/ConfigControll
 import { BatchManager } from './chat/batch/batchManager.js';
 import { BatchPoller } from './chat/batch/batchPoller.js';
 import type { BatchCompletionResult } from './chat/batch/types.js';
+import { executeArchitectureGeneration } from './chat/architecture/architectureGraph.js';
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -588,6 +589,52 @@ export async function activate(context: vscode.ExtensionContext) {
   const aiChatProvider = new AiChatWebviewProvider(context.extensionUri, context, chatPgPool);
   console.log('[quick-repomix] AiChatWebviewProvider created');
 
+  // ==============================================================================
+  // AUTO-TRIGGER ARCHITECTURE GENERATION ON WORKSPACE OPEN
+  // ==============================================================================
+  // Check if architecture document needs regeneration when workspace opens.
+  // This ensures the document is available for chat context gathering.
+  // ==============================================================================
+  if (chatPgPool) {
+    const workspaceFolder = getCwd();
+    if (workspaceFolder) {
+      // Defer to avoid blocking activation
+      setTimeout(async () => {
+        try {
+          const repoId = await getRepoId(workspaceFolder);
+          
+          // Check freshness by attempting to load existing document
+          const { ArchitectureRepository } = await import('./chat/db/architectureRepository.js');
+          const archRepo = new ArchitectureRepository(chatPgPool);
+          const existingArch = await archRepo.getArchitectureByRepoId(repoId);
+          
+          const needsRefresh = !existingArch || (existingArch.expiresAt && Date.now() > existingArch.expiresAt);
+          
+          if (needsRefresh) {
+            console.log('[Architecture] Auto-trigger: Document missing or expired, generating...');
+            
+            // Generate in background without blocking UI
+            executeArchitectureGeneration(
+              workspaceFolder,
+              repoId,
+              (message: string) => {
+                console.log(`[Architecture] Auto-trigger: ${message}`);
+              }
+            ).then(() => {
+              console.log('[Architecture] Auto-trigger: Generation complete');
+            }).catch((error) => {
+              console.error('[Architecture] Auto-trigger: Generation failed:', error);
+            });
+          } else {
+            console.log('[Architecture] Auto-trigger: Document is fresh, skipping generation');
+          }
+        } catch (error) {
+          console.error('[Architecture] Auto-trigger: Failed to check freshness:', error);
+        }
+      }, 3000); // Wait 3 seconds after activation
+    }
+  }
+
   console.log('[quick-repomix] Registering webview view providers...');
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
     RepomixWebviewProvider.viewType,
@@ -998,6 +1045,48 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // Architecture refresh command
+  const refreshArchitectureCommand = vscode.commands.registerCommand(
+    'repomixRunner.refreshArchitecture',
+    async () => {
+      if (!chatPgPool) {
+        vscode.window.showErrorMessage('PostgreSQL not configured - architecture generation disabled');
+        return;
+      }
+
+      const workspaceFolder = getCwd();
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+      }
+
+      try {
+        const repoId = await getRepoId(workspaceFolder);
+        
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: 'Generating Architecture Document',
+          cancellable: false,
+        }, async (progress) => {
+          progress.report({ message: 'Scanning repository...' });
+          
+          await executeArchitectureGeneration(
+            workspaceFolder,
+            repoId,
+            (message: string) => {
+              progress.report({ message });
+            }
+          );
+        });
+
+        vscode.window.showInformationMessage(`Architecture document generated for ${path.basename(workspaceFolder)}`);
+      } catch (error) {
+        logger.both.error('Failed to generate architecture document', error);
+        vscode.window.showErrorMessage(`Architecture generation failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
 
   // Ajouter toutes les souscriptions au contexte
   context.subscriptions.push(
@@ -1030,6 +1119,7 @@ export async function activate(context: vscode.ExtensionContext) {
     copyFromScmCommand,
     copyAllGitChangesCommand,
     testPostgresConnectionCommand,
+    refreshArchitectureCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
 }
