@@ -382,6 +382,38 @@
             "minimum": 10,
             "maximum": 600,
             "description": "Polling interval (seconds) while awaiting Anthropic batch completion"
+          },
+          "repomix.chat.batchSendAllLimit": {
+            "order": 7,
+            "type": "number",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Maximum number of approved packages submitted by one Send All action"
+          },
+          "repomix.chat.batchApiMaxRetries": {
+            "order": 8,
+            "type": "number",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Retry attempts for transient Anthropic batch API failures"
+          },
+          "repomix.chat.batchApiRetryBaseMs": {
+            "order": 9,
+            "type": "number",
+            "default": 1000,
+            "minimum": 100,
+            "maximum": 10000,
+            "description": "Base delay in milliseconds for Anthropic batch API retry backoff"
+          },
+          "repomix.chat.batchApiRetryMaxMs": {
+            "order": 10,
+            "type": "number",
+            "default": 8000,
+            "minimum": 500,
+            "maximum": 60000,
+            "description": "Maximum delay in milliseconds for Anthropic batch API retry backoff"
           }
         }
       }

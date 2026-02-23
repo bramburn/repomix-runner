@@ -576,6 +576,19 @@ export const LoadThreadSchema = z.object({
   threadId: z.string().min(1),
 });
 
+export const GetThreadHistoryPageSchema = z.object({
+  command: z.literal('getThreadHistoryPage'),
+  threadId: z.string().min(1),
+  before: z
+    .object({
+      timestamp: z.number().int().nonnegative(),
+      id: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
 export const DeleteThreadSchema = z.object({
   command: z.literal('deleteThread'),
   threadId: z.string().min(1),
@@ -609,9 +622,29 @@ export const ThreadListSchema = z.object({
 export const ThreadHistorySchema = z.object({
   command: z.literal('threadHistory'),
   threadId: z.string().min(1),
+  append: z.boolean().optional(),
+  hasMore: z.boolean().optional(),
+  nextCursor: z
+    .object({
+      timestamp: z.number().int().nonnegative(),
+      id: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
   messages: z.array(z.object({
+    id: z.string().optional(),
     role: z.enum(['user', 'assistant']),
     content: z.string(),
+    timestamp: z.number().int().nonnegative().optional(),
+    toolCalls: z
+      .array(
+        z.object({
+          name: z.string(),
+          args: z.record(z.unknown()).optional(),
+          result: z.string().optional(),
+        })
+      )
+      .optional(),
   })),
 });
 
@@ -763,7 +796,7 @@ export const DeletePackageSchema = z.object({
 export const UpdatePackageDraftSchema = z.object({
   command: z.literal('updatePackageDraft'),
   packageId: z.string(),
-  goal: z.string().optional(),
+  goal: z.string().trim().min(1).max(8000).optional(),
   outputInstruction: PackageTypeEnum.optional(),
 });
 
@@ -798,6 +831,7 @@ export const PackagesBulkSendResultSchema = z.object({
   command: z.literal('packagesBulkSendResult'),
   submitted: z.array(z.string()),
   failed: z.array(z.string()),
+  skipped: z.array(z.string()).optional(),
 });
 
 // Batch status (extension → webview)
@@ -911,6 +945,68 @@ export const MemoryListSchema = z.object({
   })),
 });
 
+// --- Message Queue Schemas (PRD 007) ---
+
+// Force send message (webview → extension)
+export const ChatForceSubmitSchema = z.object({
+  command: z.literal('chatForceSubmit'),
+  text: z.string().min(1),
+});
+
+// Stop current execution (webview → extension)
+export const ChatStopSchema = z.object({
+  command: z.literal('chatStop'),
+});
+
+// Cancel queued message (webview → extension)
+export const ChatCancelQueuedSchema = z.object({
+  command: z.literal('chatCancelQueued'),
+  entryId: z.string(),
+});
+
+// Clear entire queue (webview → extension)
+export const ChatClearQueueSchema = z.object({
+  command: z.literal('chatClearQueue'),
+});
+
+// Get queue status (webview → extension)
+export const GetQueueStatusSchema = z.object({
+  command: z.literal('getQueueStatus'),
+});
+
+// Queue status response (extension → webview)
+const QueueEntrySchema = z.object({
+  id: z.string(),
+  threadId: z.string(),
+  text: z.string(),
+  priority: z.enum(['normal', 'force']),
+  status: z.enum(['queued', 'processing', 'completed', 'cancelled', 'failed']),
+  createdAt: z.number(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+  error: z.string().optional(),
+});
+
+export const QueueStatusSchema = z.object({
+  command: z.literal('queueStatus'),
+  queueLength: z.number(),
+  currentlyProcessing: QueueEntrySchema.nullable(),
+  entries: z.array(QueueEntrySchema),
+});
+
+// Queue processing started (extension → webview)
+export const QueueProcessingStartedSchema = z.object({
+  command: z.literal('queueProcessingStarted'),
+  entryId: z.string(),
+});
+
+// Queue processing completed (extension → webview)
+export const QueueProcessingCompletedSchema = z.object({
+  command: z.literal('queueProcessingCompleted'),
+  entryId: z.string(),
+  success: z.boolean(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('command', [
   WebviewLoadedSchema,
   RunBundleSchema,
@@ -1005,6 +1101,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CreateThreadSchema,
   SetActiveThreadSchema,
   LoadThreadSchema,
+  GetThreadHistoryPageSchema,
   DeleteThreadSchema,
   RenameThreadSchema,
   ExportThreadSchema,
@@ -1047,6 +1144,15 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   UpdateMemorySchema,
   DeleteMemorySchema,
   MemoryListSchema,
+  // Message Queue (PRD 007)
+  ChatForceSubmitSchema,
+  ChatStopSchema,
+  ChatCancelQueuedSchema,
+  ChatClearQueueSchema,
+  GetQueueStatusSchema,
+  QueueStatusSchema,
+  QueueProcessingStartedSchema,
+  QueueProcessingCompletedSchema,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

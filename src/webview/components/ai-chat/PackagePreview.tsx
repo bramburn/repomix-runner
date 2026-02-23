@@ -3,6 +3,8 @@ import { Button, Text } from '@fluentui/react-components';
 import { CostEstimator } from './CostEstimator.js';
 import type { PackagePreviewData } from './packageTypes.js';
 
+const MAX_GOAL_LENGTH = 8000;
+
 interface PackagePreviewProps {
   preview: PackagePreviewData;
   onClose: () => void;
@@ -12,6 +14,15 @@ interface PackagePreviewProps {
 export const PackagePreview: React.FC<PackagePreviewProps> = ({ preview, onClose, onSaveDraft }) => {
   const [goal, setGoal] = useState(preview.goal);
   const [outputInstruction, setOutputInstruction] = useState(preview.outputInstruction);
+  const trimmedGoal = goal.trim();
+  const isGoalTooLong = goal.length > MAX_GOAL_LENGTH;
+  const isGoalEmpty = trimmedGoal.length === 0;
+  const goalError =
+    isGoalTooLong
+      ? `Goal cannot exceed ${MAX_GOAL_LENGTH} characters.`
+      : isGoalEmpty
+        ? 'Goal cannot be empty.'
+        : null;
 
   const sortedFiles = useMemo(
     () => [...preview.contextFiles].sort((a, b) => b.tokenCount - a.tokenCount),
@@ -51,6 +62,7 @@ export const PackagePreview: React.FC<PackagePreviewProps> = ({ preview, onClose
         <textarea
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
+          maxLength={MAX_GOAL_LENGTH}
           disabled={preview.status !== 'draft'}
           style={{
             width: '100%',
@@ -62,6 +74,13 @@ export const PackagePreview: React.FC<PackagePreviewProps> = ({ preview, onClose
             color: 'var(--vscode-input-foreground)',
           }}
         />
+        <Text
+          block
+          size={200}
+          style={{ opacity: 0.75, marginTop: '4px', color: goalError ? 'var(--vscode-errorForeground)' : undefined }}
+        >
+          {goalError ?? `${goal.length}/${MAX_GOAL_LENGTH}`}
+        </Text>
         <Text block size={200} style={{ opacity: 0.8, marginTop: '8px', marginBottom: '4px' }}>
           Output Type
         </Text>
@@ -87,7 +106,8 @@ export const PackagePreview: React.FC<PackagePreviewProps> = ({ preview, onClose
           <div style={{ marginTop: '10px' }}>
             <Button
               appearance="primary"
-              onClick={() => onSaveDraft({ goal, outputInstruction })}
+              disabled={Boolean(goalError)}
+              onClick={() => onSaveDraft({ goal: trimmedGoal, outputInstruction })}
             >
               Save Draft Changes
             </Button>

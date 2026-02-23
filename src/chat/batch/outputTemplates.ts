@@ -34,7 +34,8 @@ Rules:
 - Include all required imports
 - Preserve project style
 - ALWAYS wrap content in CDATA: <content><![CDATA[...]]></content>
-- CDATA prevents XML parsing issues with special characters like <, >, &`};
+- CDATA prevents XML parsing issues with special characters like <, >, &
+`;
 
 export const codeReviewTemplate = `You are an expert code reviewer. Compare implementation against the plan.
 

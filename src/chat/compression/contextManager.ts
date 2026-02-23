@@ -19,6 +19,108 @@ import type {
 } from './types.js';
 import { logger } from '../../shared/logger.js';
 
+const MIN_FILE_TOKENS = 40;
+const MIN_SUMMARY_TOKENS = 30;
+
+function truncateTextToTokenBudget(text: string, tokenBudget: number): string {
+  if (tokenBudget <= 0) {
+    return '';
+  }
+  if (countTokens(text) <= tokenBudget) {
+    return text;
+  }
+
+  let low = 0;
+  let high = text.length;
+  let best = '';
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = text.slice(0, mid);
+    const tokens = countTokens(candidate);
+    if (tokens <= tokenBudget) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
+}
+
+function aggressivelyTrimCompressedFiles(
+  files: CompressedFile[],
+  maxTotalTokens: number
+): CompressedFile[] {
+  const adjusted = files.map((file) => ({ ...file }));
+  let total = adjusted.reduce((sum, file) => sum + file.compressedTokens, 0);
+  if (total <= maxTotalTokens) {
+    return adjusted;
+  }
+
+  const sortedIndexes = adjusted
+    .map((file, index) => ({ index, tokens: file.compressedTokens }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .map((entry) => entry.index);
+
+  for (const index of sortedIndexes) {
+    if (total <= maxTotalTokens) {
+      break;
+    }
+    const file = adjusted[index];
+    const overflow = total - maxTotalTokens;
+    const reducible = Math.max(0, file.compressedTokens - MIN_FILE_TOKENS);
+    if (reducible <= 0) {
+      continue;
+    }
+
+    const targetTokens = Math.max(MIN_FILE_TOKENS, file.compressedTokens - overflow);
+    const truncated = truncateTextToTokenBudget(file.compressedContent, targetTokens);
+    const truncatedTokens = countTokens(truncated);
+    total -= Math.max(0, file.compressedTokens - truncatedTokens);
+    file.compressedContent = truncated;
+    file.compressedTokens = truncatedTokens;
+  }
+
+  return adjusted;
+}
+
+function aggressivelyTrimSummaries(
+  summaries: CompressedSegment[],
+  maxTotalTokens: number
+): CompressedSegment[] {
+  const adjusted = summaries.map((summary) => ({ ...summary }));
+  let total = adjusted.reduce((sum, summary) => sum + summary.tokenCount, 0);
+  if (total <= maxTotalTokens) {
+    return adjusted;
+  }
+
+  const sortedIndexes = adjusted
+    .map((summary, index) => ({ index, tokens: summary.tokenCount }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .map((entry) => entry.index);
+
+  for (const index of sortedIndexes) {
+    if (total <= maxTotalTokens) {
+      break;
+    }
+    const summary = adjusted[index];
+    const overflow = total - maxTotalTokens;
+    const reducible = Math.max(0, summary.tokenCount - MIN_SUMMARY_TOKENS);
+    if (reducible <= 0) {
+      continue;
+    }
+
+    const targetTokens = Math.max(MIN_SUMMARY_TOKENS, summary.tokenCount - overflow);
+    const truncated = truncateTextToTokenBudget(summary.summary, targetTokens);
+    const truncatedTokens = countTokens(truncated);
+    total -= Math.max(0, summary.tokenCount - truncatedTokens);
+    summary.summary = truncated;
+    summary.tokenCount = truncatedTokens;
+  }
+
+  return adjusted;
+}
+
 /**
  * Manage context compression for a workflow state.
  *
@@ -132,14 +234,31 @@ export async function manageContext(
   }
 
   // Calculate final total
-  const compressedHistoryTotal = compressedHistory.reduce((sum, s) => sum + s.tokenCount, 0);
+  let compressedHistoryTotal = compressedHistory.reduce((sum, s) => sum + s.tokenCount, 0);
   const recentMessagesTotal = messages
     .slice(Math.max(0, messages.length - config.maxRecentMessages))
     .reduce((sum, m) => sum + countTokens(m.content), 0);
-  const compressedFilesTotal = compressedFiles.reduce((sum, f) => sum + f.compressedTokens, 0);
-  const totalTokens =
+  let compressedFilesTotal = compressedFiles.reduce((sum, f) => sum + f.compressedTokens, 0);
+  let totalTokens =
     systemPromptTokens + compressedHistoryTotal + recentMessagesTotal +
     compressedFilesTotal + architectureTokens + goalTokens;
+
+  if (totalTokens > budget.total) {
+    logger.both.warn(
+      `[ContextManager] Post-compression total ${totalTokens} still exceeds budget ${budget.total}. Applying aggressive trimming.`
+    );
+
+    compressedFiles = aggressivelyTrimCompressedFiles(compressedFiles, budget.fileContext);
+    compressedFilesTotal = compressedFiles.reduce((sum, f) => sum + f.compressedTokens, 0);
+
+    // Keep summary tokens within configured history budget as a second pass.
+    compressedHistory = aggressivelyTrimSummaries(compressedHistory, budget.conversationSummaries);
+    compressedHistoryTotal = compressedHistory.reduce((sum, s) => sum + s.tokenCount, 0);
+
+    totalTokens =
+      systemPromptTokens + compressedHistoryTotal + recentMessagesTotal +
+      compressedFilesTotal + architectureTokens + goalTokens;
+  }
 
   logger.both.info(
     `[ContextManager] Compression complete. ` +

@@ -1,24 +1,36 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button } from '@fluentui/react-components';
-
-// Paper plane icon (inline SVG for reliable bundling)
-const PaperPlaneIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 512 512"
-    style={{ width: '16px', height: '16px', fill: 'white' }}
-  >
-    <path d="M0 288L512 0 448 480 271.8 404.5 208 512l-48-16V416 384L384 160 133 345 0 288z" />
-  </svg>
-);
+import { Button, Tooltip } from '@fluentui/react-components';
+import { MessageQueueIndicator } from './MessageQueueIndicator';
+import { QueuePanel } from './QueuePanel';
+import type { QueueEntry } from '../../../chat/queue/types';
 
 interface ChatInputProps {
   onSend: (text: string) => void;
+  onForceSend?: (text: string) => void;
+  onStop?: () => void;
+  onCancelQueued?: (entryId: string) => void;
+  onClearQueue?: () => void;
   disabled?: boolean;
+  queueLength?: number;
+  isProcessing?: boolean;
+  queuedEntries?: QueueEntry[];
+  currentlyProcessing?: QueueEntry | null;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }) => {
+export const ChatInput: React.FC<ChatInputProps> = ({
+  onSend,
+  onForceSend,
+  onStop,
+  onCancelQueued,
+  onClearQueue,
+  disabled = false,
+  queueLength = 0,
+  isProcessing = false,
+  queuedEntries = [],
+  currentlyProcessing = null,
+}) => {
   const [inputValue, setInputValue] = useState('');
+  const [showQueuePanel, setShowQueuePanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-expand textarea based on content
@@ -40,12 +52,39 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }
     }
   };
 
+  const handleForceSend = () => {
+    if (inputValue.trim() && onForceSend) {
+      onForceSend(inputValue.trim());
+      setInputValue('');
+    }
+  };
+
+  const handleStop = () => {
+    if (onStop) {
+      onStop();
+    }
+  };
+
+  const handleCancelEntry = (entryId: string) => {
+    if (onCancelQueued) {
+      onCancelQueued(entryId);
+    }
+  };
+
+  const handleClearQueue = () => {
+    if (onClearQueue) {
+      onClearQueue();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
+
+  const hasQueueUI = queueLength > 0 || isProcessing;
 
   return (
     <div
@@ -57,6 +96,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }
         marginBottom: '10px',
       }}
     >
+      {/* Queue Panel */}
+      {showQueuePanel && (
+        <QueuePanel
+          entries={queuedEntries}
+          currentlyProcessing={currentlyProcessing}
+          onCancelEntry={handleCancelEntry}
+          onClearQueue={handleClearQueue}
+          isVisible={showQueuePanel}
+          onClose={() => setShowQueuePanel(false)}
+        />
+      )}
+
       {/* Input Area */}
       <div
         style={{
@@ -65,6 +116,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }
           gap: '8px',
         }}
       >
+        {/* Queue Indicator */}
+        {hasQueueUI && (
+          <MessageQueueIndicator
+            queueLength={queueLength}
+            isProcessing={isProcessing}
+            onTogglePanel={() => setShowQueuePanel(!showQueuePanel)}
+          />
+        )}
+
         <textarea
           ref={textareaRef}
           value={inputValue}
@@ -87,9 +147,74 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }
           placeholder="Type a message..."
           rows={1}
         />
+
+        {/* Stop Button (visible when processing) */}
+        {isProcessing && onStop && (
+          <Tooltip content="Stop" relationship="label">
+            <Button
+              appearance="secondary"
+              icon={
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  style={{ width: '16px', height: '16px' }}
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              }
+              onClick={handleStop}
+              style={{
+                minWidth: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                backgroundColor: '#ef4444',
+                border: 'none',
+              }}
+            />
+          </Tooltip>
+        )}
+
+        {/* Force Send Button */}
+        {onForceSend && (
+          <Tooltip content="Force Send (skip queue)" relationship="label">
+            <Button
+              appearance="secondary"
+              icon={
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  style={{ width: '16px', height: '16px' }}
+                >
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+              }
+              onClick={handleForceSend}
+              disabled={disabled || !inputValue.trim()}
+              style={{
+                minWidth: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                backgroundColor: '#f59e0b',
+                border: 'none',
+              }}
+            />
+          </Tooltip>
+        )}
+
+        {/* Normal Send Button */}
         <Button
           appearance="primary"
-          icon={<PaperPlaneIcon />}
+          icon={
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 512 512"
+              style={{ width: '16px', height: '16px', fill: 'white' }}
+            >
+              <path d="M0 288L512 0 448 480 271.8 404.5 208 512l-48-16V416 384L384 160 133 345 0 288z" />
+            </svg>
+          }
           onClick={handleSend}
           disabled={disabled || !inputValue.trim()}
           style={{
@@ -101,7 +226,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled = false }
           }}
         />
       </div>
-
     </div>
   );
 };

@@ -17,8 +17,14 @@ export async function prepareGoalNode(
   state: typeof ChatState.State,
   extensionContext: ExtensionContext,
   pgPool: Pool,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  signal?: AbortSignal
 ) {
+  // Check abort signal before starting
+  if (signal?.aborted) {
+    throw new Error('AbortError: Operation cancelled');
+  }
+
   onProgress('Synthesizing goal from request and context...');
 
   const apiKey = await getApiKey(extensionContext);
@@ -52,6 +58,11 @@ export async function prepareGoalNode(
   });
 
   try {
+    // Check abort signal before LLM call
+    if (signal?.aborted) {
+      throw new Error('AbortError: Operation cancelled');
+    }
+    
     const { content, totalTokens, promptTokens, completionTokens } = await llmClient.generateText(
       apiKey,
       prompt,

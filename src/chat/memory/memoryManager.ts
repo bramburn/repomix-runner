@@ -17,9 +17,28 @@ import type {
  */
 export class MemoryManager {
   private readonly repository: MemoryRepository;
+  private static readonly THREAD_ID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   constructor(pool: Pool) {
     this.repository = new MemoryRepository(pool);
+  }
+
+  private normalizeScopeId(scope: MemoryScope, scopeId: string): string {
+    const normalizedScopeId = (scopeId ?? '').trim();
+    if (!normalizedScopeId) {
+      throw new Error('Memory scopeId cannot be empty');
+    }
+
+    if (scope === 'session' && !MemoryManager.THREAD_ID_REGEX.test(normalizedScopeId)) {
+      throw new Error('Session memories require a valid threadId UUID as scopeId');
+    }
+
+    if (scope === 'global' && normalizedScopeId !== 'global') {
+      throw new Error('Global memories must use scopeId "global"');
+    }
+
+    return normalizedScopeId;
   }
 
   /**
@@ -40,9 +59,11 @@ export class MemoryManager {
       throw new Error('Memory value cannot exceed 10000 characters');
     }
 
+    const scopeId = this.normalizeScopeId(input.scope, input.scopeId);
+
     return this.repository.createMemory({
       scope: input.scope,
-      scopeId: input.scopeId,
+      scopeId,
       key: input.key.trim(),
       value: input.value.trim(),
       source: input.source,
@@ -62,7 +83,8 @@ export class MemoryManager {
    * Excludes expired memories.
    */
   async list(scope: MemoryScope, scopeId: string): Promise<MemoryEntry[]> {
-    return this.repository.listMemoryByScope(scope, scopeId, false);
+    const normalizedScopeId = this.normalizeScopeId(scope, scopeId);
+    return this.repository.listMemoryByScope(scope, normalizedScopeId, false);
   }
 
   /**
@@ -95,17 +117,19 @@ export class MemoryManager {
    * Searches memories by keyword matching on key and value.
    */
   async search(scope: MemoryScope, scopeId: string, query: string): Promise<MemoryEntry[]> {
+    const normalizedScopeId = this.normalizeScopeId(scope, scopeId);
     if (!query || query.trim().length === 0) {
-      return this.list(scope, scopeId);
+      return this.list(scope, normalizedScopeId);
     }
-    return this.repository.searchByKeyword(scope, scopeId, query.trim());
+    return this.repository.searchByKeyword(scope, normalizedScopeId, query.trim());
   }
 
   /**
    * Checks if a memory with the given key exists in the specified scope.
    */
   async exists(scope: MemoryScope, scopeId: string, key: string): Promise<boolean> {
-    return this.repository.existsByKey(scope, scopeId, key);
+    const normalizedScopeId = this.normalizeScopeId(scope, scopeId);
+    return this.repository.existsByKey(scope, normalizedScopeId, key);
   }
 
   /**
@@ -128,6 +152,7 @@ export class MemoryManager {
    * Deletes all memories for a given scope and scope ID.
    */
   async deleteAllByScope(scope: MemoryScope, scopeId: string): Promise<number> {
-    return this.repository.deleteAllByScope(scope, scopeId);
+    const normalizedScopeId = this.normalizeScopeId(scope, scopeId);
+    return this.repository.deleteAllByScope(scope, normalizedScopeId);
   }
 }

@@ -20,9 +20,11 @@ import type {
   BatchPendingView,
   BatchResultItem,
   BatchSubmitRequest,
+  BatchResultMetadata,
 } from './types.js';
 
 export const SECRET_ANTHROPIC_API_KEY = 'repomix.chat.anthropicApiKey';
+const MAX_PACKAGE_GOAL_LENGTH = 8000;
 
 function getBatchModelConfig(): BatchModelConfig {
   const config = vscode.workspace.getConfiguration('repomix.chat');
@@ -30,6 +32,21 @@ function getBatchModelConfig(): BatchModelConfig {
     model: config.get<string>('batchModel', 'claude-opus-4-20250514'),
     maxTokens: config.get<number>('batchMaxTokens', 16384),
     thinkingBudgetTokens: config.get<number>('batchThinkingBudget', 10000),
+  };
+}
+
+function getBatchOperationalConfig(): {
+  sendAllApprovedLimit: number;
+  apiMaxRetries: number;
+  apiBaseRetryMs: number;
+  apiMaxRetryMs: number;
+} {
+  const config = vscode.workspace.getConfiguration('repomix.chat');
+  return {
+    sendAllApprovedLimit: config.get<number>('batchSendAllLimit', 100),
+    apiMaxRetries: config.get<number>('batchApiMaxRetries', 3),
+    apiBaseRetryMs: config.get<number>('batchApiRetryBaseMs', 1000),
+    apiMaxRetryMs: config.get<number>('batchApiRetryMaxMs', 8000),
   };
 }
 
@@ -66,10 +83,15 @@ export class BatchManager {
     const apiKey = await this.extensionContext.secrets.get(SECRET_ANTHROPIC_API_KEY);
     if (!apiKey) {
       throw new Error(
-        'Anthropic API key is not configured. Save it in secrets under repomix.chat.anthropicApiKey.'
+        'Anthropic API key is not configured. Set it in the Repomix Runner Control Panel → Settings tab.'
       );
     }
-    return new AnthropicBatchClient(apiKey);
+    const config = getBatchOperationalConfig();
+    return new AnthropicBatchClient(apiKey, {
+      maxRetries: config.apiMaxRetries,
+      baseDelayMs: config.apiBaseRetryMs,
+      maxDelayMs: config.apiMaxRetryMs,
+    });
   }
 
   private extractPackageFromPayload(payload: object): PackagePayload | null {
@@ -206,12 +228,22 @@ export class BatchManager {
     await this.batchRepository.updateBatchJob(batchJobId, { status: 'draft' });
   }
 
-  async sendAllApproved(): Promise<{ submitted: string[]; failed: string[] }> {
+  async sendAllApproved(): Promise<{ submitted: string[]; failed: string[]; skipped: string[] }> {
     const approved = await this.batchRepository.getBatchesByStatus('pending');
+    const { sendAllApprovedLimit } = getBatchOperationalConfig();
+    const boundedLimit = Math.max(1, sendAllApprovedLimit);
+    const selected = approved.slice(0, boundedLimit);
+    const skipped = approved.slice(boundedLimit).map((job) => job.id);
     const submitted: string[] = [];
     const failed: string[] = [];
 
-    for (const job of approved) {
+    if (skipped.length > 0) {
+      logger.both.warn(
+        `BatchManager: sendAllApproved limited to ${boundedLimit} jobs; skipped ${skipped.length} pending package(s).`
+      );
+    }
+
+    for (const job of selected) {
       try {
         const result = await this.submitExistingPackage(job.id);
         submitted.push(result.batchJobId);
@@ -221,7 +253,7 @@ export class BatchManager {
       }
     }
 
-    return { submitted, failed };
+    return { submitted, failed, skipped };
   }
 
   async cancelBatch(batchJobId: string): Promise<void> {
@@ -274,9 +306,21 @@ export class BatchManager {
       throw new Error('Package payload is missing or invalid.');
     }
 
+    let nextGoal = payload.goal;
+    if (patch.goal !== undefined) {
+      const trimmedGoal = patch.goal.trim();
+      if (!trimmedGoal) {
+        throw new Error('Goal cannot be empty.');
+      }
+      if (trimmedGoal.length > MAX_PACKAGE_GOAL_LENGTH) {
+        throw new Error(`Goal cannot exceed ${MAX_PACKAGE_GOAL_LENGTH} characters.`);
+      }
+      nextGoal = trimmedGoal;
+    }
+
     const nextPayload: PackagePayload = {
       ...payload,
-      goal: patch.goal ?? payload.goal,
+      goal: nextGoal,
       outputInstruction: patch.outputInstruction ?? payload.outputInstruction,
     };
     const nextPrompt = assemblePromptFromPayload(nextPayload);
@@ -300,6 +344,7 @@ export class BatchManager {
         threadId: job.threadId,
         batchApiId: job.batchApiId!,
         status: job.status,
+        startedAtMs: job.submittedAt ?? job.createdAt,
       }));
   }
 
@@ -364,10 +409,14 @@ export class BatchManager {
       };
     }
 
-    const results = await client.getBatchResults(job.batchApiId);
-    const targetResult = results.find((item) => item.customId === job.id) ?? results[0];
+    // Stream results directly to disk to avoid memory bloat
+    const incomingDir = path.join(getCwd(), '.repomix', 'incoming', job.batchApiId);
+    const metadataList = await client.streamBatchResults(job.batchApiId, incomingDir);
 
-    if (!targetResult) {
+    // Find the result matching our job
+    const targetMetadata = metadataList.find((item) => item.customId === job.id) ?? metadataList[0];
+
+    if (!targetMetadata) {
       await this.batchRepository.updateBatchJob(job.id, {
         status: 'failed',
         completedAt: new Date(),
@@ -381,55 +430,80 @@ export class BatchManager {
       };
     }
 
-    return this.finalizeCompletedResult(job.id, job.batchApiId, targetResult);
+    return this.finalizeCompletedResult(job.id, job.batchApiId, targetMetadata, incomingDir);
   }
 
   private async finalizeCompletedResult(
     batchJobId: string,
     batchApiId: string,
-    resultItem: BatchResultItem
+    metadata: BatchResultMetadata,
+    incomingDir: string
   ): Promise<BatchCompletionResult> {
-    const parseResult = parseBatchResponse(resultItem.responseText);
+    // Read response text from disk (streamed by streamBatchResults)
+    let responseText: string;
+    try {
+      responseText = await fs.readFile(metadata.responseFilePath, 'utf-8');
+    } catch (error) {
+      logger.both.error(`Failed to read response file: ${metadata.responseFilePath}`, error);
+      await this.batchRepository.updateBatchJob(batchJobId, {
+        status: 'failed',
+        completedAt: new Date(),
+        errorMessage: `Failed to read response file: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      return {
+        batchJobId,
+        batchApiId,
+        status: 'failed',
+        errorMessage: `Failed to read response file: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
 
+    const parseResult = parseBatchResponse(responseText);
+
+    // Store only lightweight metadata in DB, not the full response text
     await this.batchRepository.updateBatchJob(batchJobId, {
-      status: resultItem.type === 'succeeded' ? 'completed' : 'failed',
+      status: metadata.type === 'succeeded' ? 'completed' : 'failed',
       responsePayload: {
-        rawResult: resultItem.raw,
-        responseText: resultItem.responseText,
+        responseFilePath: metadata.responseFilePath,
+        incomingDir,
         parseWarnings: parseResult.parseWarnings,
         parsedEditsCount: parseResult.fileEdits.length,
+        tokensInput: metadata.tokensInput,
+        tokensOutput: metadata.tokensOutput,
       },
+      tokensInput: metadata.tokensInput,
+      tokensOutput: metadata.tokensOutput,
       completedAt: new Date(),
-      errorMessage: resultItem.type === 'succeeded' ? undefined : resultItem.errorMessage,
+      errorMessage: metadata.type === 'succeeded' ? undefined : metadata.errorMessage,
     });
 
-    await this.persistIncomingArtifacts(batchApiId, resultItem.responseText, resultItem.raw, parseResult.parseWarnings);
+    await this.persistParseWarnings(batchApiId, parseResult.parseWarnings, parseResult.parseDiagnostics);
 
     return {
       batchJobId,
       batchApiId,
-      status: resultItem.type === 'succeeded' ? 'completed' : 'failed',
-      responseText: resultItem.responseText,
+      status: metadata.type === 'succeeded' ? 'completed' : 'failed',
+      responseText,
       parseWarnings: parseResult.parseWarnings,
-      rawResult: resultItem.raw,
-      errorMessage: resultItem.errorMessage,
+      errorMessage: metadata.errorMessage,
     };
   }
 
-  private async persistIncomingArtifacts(
+  private async persistParseWarnings(
     batchApiId: string,
-    responseText: string,
-    rawResult: unknown,
-    parseWarnings: string[]
+    parseWarnings: string[],
+    parseDiagnostics?: Array<{ stage: string; details: string }>
   ): Promise<void> {
     try {
       const incomingDir = path.join(getCwd(), '.repomix', 'incoming', batchApiId);
       await fs.mkdir(incomingDir, { recursive: true });
-      await fs.writeFile(path.join(incomingDir, 'response.txt'), responseText, 'utf-8');
-      await fs.writeFile(path.join(incomingDir, 'raw.json'), JSON.stringify(rawResult, null, 2), 'utf-8');
-      await fs.writeFile(path.join(incomingDir, 'parse-warnings.json'), JSON.stringify(parseWarnings, null, 2), 'utf-8');
+      await fs.writeFile(
+        path.join(incomingDir, 'parse-warnings.json'),
+        JSON.stringify({ warnings: parseWarnings, diagnostics: parseDiagnostics }, null, 2),
+        'utf-8'
+      );
     } catch (error) {
-      logger.both.warn('BatchManager: Failed to persist incoming artifacts', error);
+      logger.both.warn('BatchManager: Failed to persist parse warnings', error);
     }
   }
 }

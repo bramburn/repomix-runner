@@ -41,8 +41,14 @@ async function extractDependencies(workspaceRoot: string): Promise<Record<string
 export async function gatherContextNode(
   state: typeof ChatState.State,
   extensionContext: ExtensionContext,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  signal?: AbortSignal
 ) {
+  // Check abort signal before starting
+  if (signal?.aborted) {
+    throw new Error('AbortError: Operation cancelled');
+  }
+
   onProgress('Gathering context from codebase...');
 
   const workspaceFolder = getWorkspaceRoot();
@@ -86,6 +92,11 @@ export async function gatherContextNode(
 
     const allResults = await Promise.all(
       queries.map(async (query) => {
+        // Check abort signal before each search
+        if (signal?.aborted) {
+          throw new Error('AbortError: Operation cancelled');
+        }
+        
         const vector = await embeddingService.embedText(query, 'chat', true);
         return adapter.queryVectors({
           repoId,

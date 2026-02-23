@@ -68,6 +68,17 @@ function rowToMessage(row: MessageRow): ThreadMessage {
   return message;
 }
 
+interface MessagePageCursor {
+  timestamp: number;
+  id: string;
+}
+
+interface MessagePage {
+  messages: ThreadMessage[];
+  nextCursor: MessagePageCursor | null;
+  hasMore: boolean;
+}
+
 export class MessageRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -134,14 +145,70 @@ export class MessageRepository {
   }
 
   async getMessages(threadId: string): Promise<ThreadMessage[]> {
+    const allMessages: ThreadMessage[] = [];
+    let cursor: MessagePageCursor | null = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      const page = await this.getMessagesPage(threadId, {
+        limit: 500,
+        before: cursor,
+      });
+      allMessages.push(...page.messages);
+      cursor = page.nextCursor;
+      hasMore = page.hasMore;
+    }
+
+    return allMessages;
+  }
+
+  async getMessagesPage(
+    threadId: string,
+    options?: { limit?: number; before?: MessagePageCursor | null }
+  ): Promise<MessagePage> {
     const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const requestedLimit = options?.limit ?? 50;
+    const limit = Math.max(1, Math.min(500, requestedLimit));
+    const before = options?.before ?? null;
+    const params: unknown[] = [normalizedThreadId];
+    let whereClause = 'WHERE thread_id = $1';
+
+    if (before) {
+      params.push(before.timestamp, before.id);
+      whereClause +=
+        ` AND (` +
+        `timestamp < to_timestamp($${params.length - 1}::double precision / 1000)` +
+        ` OR (` +
+        `timestamp = to_timestamp($${params.length - 1}::double precision / 1000)` +
+        ` AND id < $${params.length}` +
+        `)` +
+        `)`;
+    }
+
+    params.push(limit + 1);
     const result = await this.pool.query<MessageRow>(
       `SELECT * FROM chat_messages
-       WHERE thread_id = $1
-       ORDER BY timestamp ASC`,
-      [normalizedThreadId]
+       ${whereClause}
+       ORDER BY timestamp DESC, id DESC
+       LIMIT $${params.length}`,
+      params
     );
-    return result.rows.map(rowToMessage);
+
+    const hasMore = result.rows.length > limit;
+    const pageRows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    const oldestRow = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null;
+    const nextCursor = hasMore && oldestRow
+      ? {
+          timestamp: new Date(oldestRow.timestamp).getTime(),
+          id: oldestRow.id,
+        }
+      : null;
+
+    return {
+      messages: pageRows.reverse().map(rowToMessage),
+      nextCursor,
+      hasMore,
+    };
   }
 
   async deleteMessage(id: string): Promise<void> {

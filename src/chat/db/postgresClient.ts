@@ -463,7 +463,7 @@ export async function testConnection(): Promise<{ success: boolean; message: str
     return {
       success: false,
       message:
-        'PostgreSQL is not configured yet. Add a PostgreSQL connection string in Repomix Runner settings first.',
+        'PostgreSQL is not configured yet. Set the connection string in the Repomix Runner Control Panel → Settings tab.',
     };
   }
 

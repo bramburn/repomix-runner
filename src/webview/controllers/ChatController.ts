@@ -35,6 +35,12 @@ import type {
   CodeReviewInterrupt,
   CodeReviewResume,
 } from '../../chat/nodes/index.js';
+import { MessageQueue, GraphExecutor } from '../../chat/queue/index.js';
+import type {
+  ProcessingCompletedEvent,
+  ProcessingStartedEvent,
+  QueueEntry,
+} from '../../chat/queue/index.js';
 
 /**
  * Union type for all interrupt payloads.
@@ -45,6 +51,8 @@ type InterruptPayload =
   | BatchPendingInterrupt
   | EditReviewInterrupt
   | CodeReviewInterrupt;
+
+const THREAD_HISTORY_PAGE_SIZE = 50;
 
 /**
  * ChatController handles chat messages from the webview and executes the HITL chat graph.
@@ -60,6 +68,9 @@ export class ChatController extends BaseController {
   private activeThreadId: string | null = null;
   private repoId: string = '';
   private compiledGraph: Awaited<ReturnType<typeof createHitlChatGraph>> | null = null;
+  private messageQueue: MessageQueue;
+  private graphExecutor: GraphExecutor | null = null;
+  private queueProcessing: boolean = false;
 
   constructor(
     context: IWebviewContext,
@@ -77,12 +88,37 @@ export class ChatController extends BaseController {
         .getConfiguration('repomix.chat')
         .get<number>('batchPollIntervalSeconds', 60),
     });
+    this.messageQueue = new MessageQueue();
+    this.setupQueueListeners();
     this.ready = this.initializeService();
+  }
+
+  private setupQueueListeners(): void {
+    this.messageQueue.on('queueChanged', () => {
+      this.postQueueStatus();
+    });
+    
+    this.messageQueue.on('processingStarted', (event: ProcessingStartedEvent) => {
+      this.context.postMessage({
+        command: 'queueProcessingStarted',
+        entryId: event.entry.id,
+      });
+    });
+    
+    this.messageQueue.on('processingCompleted', (event: ProcessingCompletedEvent) => {
+      this.context.postMessage({
+        command: 'queueProcessingCompleted',
+        entryId: event.entry.id,
+        success: event.success,
+      });
+    });
   }
 
   async onWebviewLoaded(): Promise<void> {
     await this.ready;
     await this.postThreads();
+    await this.restoreQueueState(); // Restore queue state from persistence (PRD 007)
+    
     if (this.activeThreadId) {
       await this.postThreadHistory(this.activeThreadId);
       await this.postPendingBatchStatuses(this.activeThreadId);
@@ -97,7 +133,27 @@ export class ChatController extends BaseController {
     await this.ready;
 
     if (message.command === 'chatSubmit') {
-      await this.runChatGraph(message.text);
+      await this.enqueueMessage(message.text, 'normal');
+      return true;
+    }
+    if (message.command === 'chatForceSubmit') {
+      await this.enqueueMessage(message.text, 'force');
+      return true;
+    }
+    if (message.command === 'chatStop') {
+      this.stopCurrentExecution();
+      return true;
+    }
+    if (message.command === 'chatCancelQueued') {
+      this.cancelQueuedMessage(message.entryId);
+      return true;
+    }
+    if (message.command === 'chatClearQueue') {
+      this.clearQueue();
+      return true;
+    }
+    if (message.command === 'getQueueStatus') {
+      await this.postQueueStatus();
       return true;
     }
     if (message.command === 'getThreads') {
@@ -118,6 +174,15 @@ export class ChatController extends BaseController {
     }
     if (message.command === 'loadThread') {
       await this.setActiveThread(message.threadId);
+      return true;
+    }
+    if (message.command === 'getThreadHistoryPage') {
+      await this.postThreadHistory(
+        message.threadId,
+        typeof message.limit === 'number' ? message.limit : THREAD_HISTORY_PAGE_SIZE,
+        message.before ?? null,
+        true
+      );
       return true;
     }
     if (message.command === 'deleteThread') {
@@ -223,6 +288,7 @@ export class ChatController extends BaseController {
         command: 'packagesBulkSendResult',
         submitted: result.submitted,
         failed: result.failed,
+        skipped: result.skipped,
       });
       return true;
     }
@@ -495,14 +561,24 @@ export class ChatController extends BaseController {
     });
   }
 
-  private async postThreadHistory(threadId: string): Promise<void> {
-    const messages = await this.messageRepository.getMessages(threadId);
+  private async postThreadHistory(
+    threadId: string,
+    limit: number = THREAD_HISTORY_PAGE_SIZE,
+    before?: { timestamp: number; id: string } | null,
+    append: boolean = false
+  ): Promise<void> {
+    const page = await this.messageRepository.getMessagesPage(threadId, { limit, before });
     this.context.postMessage({
       command: 'threadHistory',
       threadId,
-      messages: messages.map((message) => ({
+      append,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      messages: page.messages.map((message) => ({
+        id: message.id,
         role: message.role,
         content: message.content,
+        timestamp: message.timestamp,
         toolCalls: message.toolCalls,
       })),
     });
@@ -845,7 +921,9 @@ export class ChatController extends BaseController {
    * Handles the final response from the graph.
    */
   private async handleFinalResponse(result: any) {
-    if (!this.activeThreadId) return;
+    if (!this.activeThreadId) {
+      return;
+    }
 
     logger.both.info(`ChatController: Graph returned response: "${result.aiResponse}"`);
 
@@ -965,8 +1043,181 @@ export class ChatController extends BaseController {
     } as BatchPendingResume);
   };
 
+  // --- Message Queue Methods (PRD 007) ---
+
+  /**
+   * Enqueues a message for processing.
+   */
+  private async enqueueMessage(text: string, priority: 'normal' | 'force'): Promise<void> {
+    if (!this.activeThreadId) {
+      const thread = await this.threadRepository.createThread(this.repoId);
+      this.activeThreadId = thread.id;
+      await this.extensionContext.workspaceState.update(
+        'repomix.chat.activeThreadId',
+        thread.id
+      );
+    }
+
+    const entry = this.messageQueue.enqueue(this.activeThreadId, text, priority);
+    logger.both.info(`ChatController: Enqueued message ${entry.id} with priority ${priority}`);
+
+    // Save user message to history immediately
+    const userMessage: ThreadMessage = {
+      id: randomUUID(),
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+    };
+    await this.messageRepository.saveMessage(this.activeThreadId, userMessage);
+
+    // Start processing if not already running
+    this.processQueue();
+  }
+
+  /**
+   * Processes the queue sequentially.
+   */
+  private async processQueue(): Promise<void> {
+    if (this.queueProcessing) {
+      return;
+    }
+
+    this.queueProcessing = true;
+
+    try {
+      while (true) {
+        const entry = this.messageQueue.dequeue();
+        if (!entry) {
+          break; // Queue is empty
+        }
+
+        // Initialize graph executor if needed
+        if (!this.graphExecutor) {
+          this.graphExecutor = new GraphExecutor(
+            this.extensionContext,
+            this.pgPool,
+            async () => {
+              const graph = await this.getGraph();
+              return graph;
+            }
+          );
+        }
+
+        // Execute the message
+        const result = await this.graphExecutor.execute(entry);
+
+        // Mark as complete/failed
+        this.messageQueue.complete(entry.id, result.success, result.error);
+
+        if (result.wasCancelled) {
+          logger.both.info('ChatController: Queue processing cancelled by user');
+          break;
+        }
+
+        if (!result.success) {
+          logger.both.error(`ChatController: Message ${entry.id} failed: ${result.error}`);
+          // Continue to next message even if this one failed
+        }
+      }
+    } finally {
+      this.queueProcessing = false;
+    }
+  }
+
+  /**
+   * Stops the currently executing message.
+   */
+  private stopCurrentExecution(): void {
+    if (this.graphExecutor) {
+      this.graphExecutor.stop();
+      logger.both.info('ChatController: Stopped current execution');
+    } else {
+      logger.both.warn('ChatController: No active execution to stop');
+    }
+  }
+
+  /**
+   * Cancels a queued message.
+   */
+  private cancelQueuedMessage(entryId: string): void {
+    const cancelled = this.messageQueue.cancel(entryId);
+    if (cancelled) {
+      logger.both.info(`ChatController: Cancelled queued message ${entryId}`);
+    } else {
+      logger.both.warn(`ChatController: Failed to cancel message ${entryId}`);
+    }
+  }
+
+  /**
+   * Clears all queued messages.
+   */
+  private clearQueue(): void {
+    this.messageQueue.cancelAll();
+    logger.both.info('ChatController: Cleared message queue');
+  }
+
+  /**
+   * Posts the current queue status to the webview.
+   */
+  private async postQueueStatus(): Promise<void> {
+    const status = this.messageQueue.getStatus();
+    this.context.postMessage({
+      command: 'queueStatus',
+      queueLength: status.queueLength,
+      currentlyProcessing: status.currentlyProcessing,
+      entries: status.entries,
+    });
+  }
+
   dispose(): void {
+    // Save queue state before disposal (PRD 007)
+    this.saveQueueState();
+    
+    if (this.graphExecutor) {
+      this.graphExecutor.stop();
+    }
+    
+    this.messageQueue.removeAllListeners();
     this.batchPoller.dispose();
     super.dispose();
+  }
+
+  /**
+   * Saves the queue state for persistence across restarts.
+   * TODO: Implement PostgreSQL persistence
+   */
+  private async saveQueueState(): Promise<void> {
+    const serialized = this.messageQueue.serialize();
+    await this.extensionContext.workspaceState.update(
+      'repomix.chat.queueState',
+      JSON.stringify(serialized)
+    );
+    logger.both.debug('ChatController: Saved queue state');
+  }
+
+  /**
+   * Restores the queue state from persistence.
+   * TODO: Implement PostgreSQL persistence
+   */
+  private async restoreQueueState(): Promise<void> {
+    const saved = await this.extensionContext.workspaceState.get<string>(
+      'repomix.chat.queueState'
+    );
+    
+    if (saved) {
+      try {
+        const serialized = JSON.parse(saved);
+        this.messageQueue.deserialize(serialized);
+        logger.both.info('ChatController: Restored queue state');
+        
+        // Resume processing if there are queued messages
+        const status = this.messageQueue.getStatus();
+        if (status.queueLength > 0) {
+          this.processQueue();
+        }
+      } catch (error) {
+        logger.both.error('ChatController: Failed to restore queue state', error);
+      }
+    }
   }
 }

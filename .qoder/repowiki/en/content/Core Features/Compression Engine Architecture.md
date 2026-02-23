@@ -2,22 +2,26 @@
 
 <cite>
 **Referenced Files in This Document**
-- [index.ts](file://src/core/compression/index.ts)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts)
+- [targetedExtractor.ts](file://src/chat/compression/targetedExtractor.ts)
+- [types.ts](file://src/chat/compression/types.ts)
+- [compressContext.ts](file://src/chat/nodes/compressContext.ts)
 - [compressFile.ts](file://src/core/compression/compressFile.ts)
 - [LanguageParser.ts](file://src/core/compression/LanguageParser.ts)
-- [types.ts](file://src/core/compression/types.ts)
-- [BaseParseStrategy.ts](file://src/core/compression/strategies/BaseParseStrategy.ts)
-- [TypeScriptParseStrategy.ts](file://src/core/compression/strategies/TypeScriptParseStrategy.ts)
-- [CsharpParseStrategy.ts](file://src/core/compression/strategies/CsharpParseStrategy.ts)
-- [DartParseStrategy.ts](file://src/core/compression/strategies/DartParseStrategy.ts)
-- [PythonParseStrategy.ts](file://src/core/compression/strategies/PythonParseStrategy.ts)
-- [RustParseStrategy.ts](file://src/core/compression/strategies/RustParseStrategy.ts)
-- [queryTypescript.ts](file://src/core/compression/queries/queryTypescript.ts)
-- [queryPython.ts](file://src/core/compression/queries/queryPython.ts)
-- [queryDart.ts](file://src/core/compression/queries/queryDart.ts)
-- [queryCsharp.ts](file://src/core/compression/queries/queryCsharp.ts)
-- [queryRust.ts](file://src/core/compression/queries/queryRust.ts)
+- [index.ts](file://src/core/compression/index.ts)
+- [003_context_compression_strategy.md](file://PRDs/003_context_compression_strategy.md)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added comprehensive documentation for the new reactive context compression system
+- Integrated ContextManager, TokenBudget, and intelligent compression strategies
+- Documented conversation history summarization and targeted file extraction
+- Added binary content detection for efficient token budget management
+- Updated architecture diagrams to reflect the new multi-layer compression pipeline
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -25,405 +29,490 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+6. [Reactive Context Management](#reactive-context-management)
+7. [Multi-Level Compression Strategies](#multi-level-compression-strategies)
+8. [Dependency Analysis](#dependency-analysis)
+9. [Performance Considerations](#performance-considerations)
+10. [Troubleshooting Guide](#troubleshooting-guide)
+11. [Conclusion](#conclusion)
 
 ## Introduction
-The Compression Engine is a sophisticated code compression system built on Tree-Sitter syntax parsing technology. It intelligently analyzes source code files and generates compressed representations by extracting structural elements while preserving essential semantic meaning. The engine supports multiple programming languages including TypeScript, JavaScript, Dart, Python, C#, and Rust, each with specialized parsing strategies and language-specific optimizations.
+The Compression Engine has evolved into a sophisticated reactive context compression system that intelligently manages token usage in AI-assisted development workflows. The new system introduces a ContextManager that monitors conversation context against configurable thresholds and applies multi-level compression strategies to maintain optimal performance while preserving essential information.
 
-The system operates by leveraging Tree-Sitter's high-performance parsing capabilities combined with custom capture queries to identify code constructs such as functions, classes, imports, exports, and other structural elements. It then applies language-specific strategies to compress these constructs into concise representations suitable for AI processing and analysis.
+The system combines advanced token budget management with intelligent compression strategies including conversation history summarization, targeted file extraction, and binary content detection. This reactive approach ensures that long-running conversations and complex code analysis sessions remain functional without manual intervention.
+
+**Updated** The system now includes conversation history summarization, targeted file extraction, and binary content detection for efficient token budget management, representing a significant evolution from the original static compression approach.
 
 ## Project Structure
-The compression engine follows a modular architecture organized around language support, parsing strategies, and Tree-Sitter integration:
+The compression engine now operates as a layered system with reactive context management at the core:
 
 ```mermaid
 graph TB
-subgraph "Compression Engine Core"
+subgraph "Reactive Context Management Layer"
+CM[contextManager.ts]
+TB[tokenBudget.ts]
+HS[historySummarizer.ts]
+FC[fileCompressor.ts]
+TE[targetedExtractor.ts]
+CT[compressContext.ts]
+end
+subgraph "Core Compression Engine"
 CF[compressFile.ts]
 LP[LanguageParser.ts]
 TYPES[types.ts]
 end
-subgraph "Language Strategies"
-BASE[BaseParseStrategy.ts]
-TS[TypeScriptParseStrategy.ts]
-CS[CsharpParseStrategy.ts]
-DT[DartParseStrategy.ts]
-PY[PythonParseStrategy.ts]
-RS[RustParseStrategy.ts]
+subgraph "Integration Layer"
+NODES[compressContext.ts]
+STATE[Chat State]
 end
-subgraph "Tree-Sitter Queries"
-QT[queryTypescript.ts]
-QP[queryPython.ts]
-QD[queryDart.ts]
-QC[queryCsharp.ts]
-QR[queryRust.ts]
+subgraph "Model Configurations"
+GEMINI[GEMINI_FLASH_BUDGET]
+CLAUDE[CLAUDE_OPUS_BUDGET]
 end
-subgraph "Exports & Types"
-IDX[index.ts]
-end
+CM --> TB
+CM --> HS
+CM --> FC
+CM --> TE
+FC --> CF
+FC --> TE
+HS --> GEMINI
+FC --> CLAUDE
 CF --> LP
-LP --> BASE
-LP --> TS
-LP --> CS
-LP --> DT
-LP --> PY
-LP --> RS
-LP --> QT
-LP --> QP
-LP --> QD
-LP --> QC
-LP --> QR
-IDX --> CF
-IDX --> TYPES
+CT --> CM
+CT --> NODES
+CT --> STATE
 ```
 
 **Diagram sources**
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L1-L85)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
-- [BaseParseStrategy.ts](file://src/core/compression/strategies/BaseParseStrategy.ts#L1-L75)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L209)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L1-L212)
+- [compressContext.ts](file://src/chat/nodes/compressContext.ts#L1-L125)
 
 **Section sources**
-- [index.ts](file://src/core/compression/index.ts#L1-L3)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L1-L85)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L209)
+- [compressContext.ts](file://src/chat/nodes/compressContext.ts#L1-L125)
 
 ## Core Components
 
-### LanguageParser Service
-The LanguageParser serves as the central coordinator for all compression operations. It implements a singleton pattern with lazy initialization and maintains caches for parsers, languages, and queries to optimize performance across multiple compression operations.
+### ContextManager - Reactive Orchestrator
+The ContextManager serves as the central coordinator for all compression operations, implementing a reactive monitoring system that triggers compression when token usage exceeds configurable thresholds.
 
 Key responsibilities include:
-- **Language Detection**: Automatic file extension-based language identification
-- **Tree-Sitter Initialization**: Dynamic loading and initialization of Tree-Sitter parsers
-- **Resource Management**: Caching mechanisms for parsers, languages, and queries
-- **WASM Resolution**: Intelligent path resolution for Tree-Sitter grammar files
+- **Token Usage Monitoring**: Real-time tracking of conversation history, file context, and system prompt token counts
+- **Compression Decision Logic**: Intelligent determination of when compression is needed based on model context windows and user-configurable thresholds
+- **Multi-Level Compression Coordination**: Orchestration of history summarization and file compression strategies
+- **Aggressive Trimming**: Final safety net that reduces content to meet budget constraints when needed
 
-### Compression Pipeline
-The compression process follows a multi-stage pipeline:
+### TokenBudget System
+Advanced token budget calculation and allocation system with model-specific configurations:
 
-1. **Language Detection**: File extension analysis determines appropriate parser
-2. **Tree-Sitter Parsing**: Syntax tree generation using language-specific grammars
-3. **Capture Extraction**: Query-based identification of code constructs
-4. **Strategy Application**: Language-specific processing of identified constructs
-5. **Body Replacement**: Generation of compressed representations
+- **Model-Aware Budgeting**: Predefined configurations for Gemini 2.5 Flash and Claude Opus 4 models
+- **Dynamic Allocation**: Percentage-based distribution of remaining budget across conversation summaries, recent messages, and file context
+- **Threshold-Based Triggering**: Configurable percentage thresholds that determine when compression activates
+- **Safety Reserves**: Fixed allocations for system prompts and output buffers to prevent overflow
 
-### Strategy Pattern Implementation
-Each supported language implements a dedicated parsing strategy extending the BaseParseStrategy. This design enables:
-- **Consistent Interface**: Unified API across all language implementations
-- **Specialized Logic**: Language-specific compression algorithms
-- **Extensibility**: Easy addition of new language support
+### HistorySummarizer - Conversation Intelligence
+Intelligent conversation history compression using Gemini 2.5 Flash:
+
+- **Selective Preservation**: Keeps recent messages in full while summarizing older conversation segments
+- **Structured Summaries**: Preserves key decisions, file paths, code changes, and user preferences
+- **Batch Processing**: Groups messages into configurable sizes for efficient summarization
+- **Fallback Mechanisms**: Heuristic-based summarization when LLM calls fail
+
+### FileCompressor - Multi-Level Content Management
+Progressive file compression system with four distinct levels:
+
+- **Level 0**: Full content for small files (< 200 tokens)
+- **Level 1**: AST skeleton extraction for supported languages
+- **Level 2**: Targeted extraction of specific symbols mentioned in goals
+- **Level 3**: LLM-generated summaries for unsupported languages or oversized content
 
 **Section sources**
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L26-L218)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L25-L85)
-- [BaseParseStrategy.ts](file://src/core/compression/strategies/BaseParseStrategy.ts#L11-L75)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L138-L279)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L91-L163)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L36-L84)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L32-L122)
 
 ## Architecture Overview
 
 ```mermaid
 sequenceDiagram
-participant Client as "Client Code"
-participant CF as "compressFile"
+participant Client as "Chat Workflow"
+participant CM as "ContextManager"
+participant TB as "TokenBudget"
+participant HS as "HistorySummarizer"
+participant FC as "FileCompressor"
 participant LP as "LanguageParser"
-participant TS as "Tree-Sitter Parser"
-participant QS as "Query Strategy"
-participant PS as "Parse Strategy"
-Client->>CF : compressFile(filePath, content, options)
-CF->>CF : detectLanguage(filePath)
-CF->>LP : getParserForLang(language)
-LP->>TS : initialize & load grammar
-LP-->>CF : parser instance
-CF->>LP : getQueryForLang(language)
-LP-->>CF : query instance
-CF->>LP : getStrategyForLang(language)
-LP-->>CF : parse strategy
-CF->>TS : parser.parse(content)
-TS-->>CF : syntax tree
-CF->>QS : query.captures(rootNode)
-QS-->>CF : capture list
-CF->>PS : process each capture
-PS-->>CF : compressed chunks
-CF->>CF : apply replacements
-CF-->>Client : compressed content
-Note over CF,PS : Compression completed successfully
+participant API as "Gemini API"
+Client->>CM : manageContext(params, config, apiKey)
+CM->>TB : calculateBudget(contextWindow, threshold)
+TB-->>CM : TokenBudget allocation
+CM->>CM : countTokens(all context)
+CM->>CM : isCompressionNeeded(current, threshold)
+alt Compression Needed
+CM->>HS : summarizeHistory(messages, budget)
+HS->>API : generateText(summarization)
+API-->>HS : compressed segments
+HS-->>CM : summaries + recent messages
+CM->>FC : compressFilesForContext(files, budget)
+FC->>FC : compressFileForContext(level 1)
+FC->>LP : compressFileWithTokens()
+LP-->>FC : AST skeleton
+FC->>FC : compressFileForContext(level 2)
+FC->>LP : extractTargetedSymbols()
+LP-->>FC : targeted extraction
+FC->>API : generateText(summary)
+API-->>FC : LLM summary
+FC-->>CM : compressed files
+CM->>CM : aggressivelyTrimCompressedFiles()
+CM->>CM : aggressivelyTrimSummaries()
+end
+CM-->>Client : CompressionResult
 ```
 
 **Diagram sources**
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L25-L85)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L95-L173)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L138-L279)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L91-L163)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L36-L84)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L177-L197)
 
-The architecture demonstrates a clean separation of concerns with clear boundaries between parsing, querying, and strategy application phases. The use of caching and lazy initialization ensures optimal performance for repeated compression operations.
+The architecture demonstrates a sophisticated reactive compression system that intelligently manages token usage while preserving conversation context and code information. The system operates as a closed-loop feedback mechanism that continuously monitors and adjusts compression strategies based on real-time usage patterns.
 
 ## Detailed Component Analysis
 
-### LanguageParser Implementation
+### ContextManager Implementation
 
 ```mermaid
 classDiagram
-class LanguageParser {
--instance : LanguageParser
--initialized : boolean
--parserClass : TreeSitterModule
--wasmDirectory : string
--parserCache : Map~string, ParserInstance~
--languageCache : Map~string, LanguageInstance~
--queryCache : Map~string, QueryInstance~
--configs : Record~string, LanguageConfig~
-+getInstance() : LanguageParser
-+setWasmDirectory(wasmDirectory) : void
-+init() : Promise~void~
-+getParserForLang(language) : Promise~ParserInstance|null~
-+getQueryForLang(language) : Promise~QueryInstance|null~
-+getStrategyForLang(language) : ParseStrategy|null
--normalizeLanguage(language) : string|null
--loadLanguage(language, wasmPath) : Promise~LanguageInstance|null~
--resolveWasmPath(wasmFile) : string|null
+class ContextManager {
++manageContext(params, config, apiKey) : Promise~CompressionResult~
++aggressivelyTrimCompressedFiles(files, maxTokens) : CompressedFile[]
++aggressivelyTrimSummaries(summaries, maxTokens) : CompressedSegment[]
++truncateTextToTokenBudget(text, tokenBudget) : string
 }
-class BaseParseStrategy {
-<<abstract>>
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
-#getNodeText(node, sourceCode) : string
-#collapseWhitespace(text) : string
-#findSignatureEnd(text) : number
-#ensureTerminal(text) : string
-#cleanFunctionSignature(text) : string
+class TokenBudget {
++calculateBudget(contextWindow, thresholdPercent, modelConfig) : TokenBudget
++isCompressionNeeded(currentTokens, contextWindow, thresholdPercent) : boolean
++allocateFileBudget(totalFileBudget, fileCount, minPerFile) : number
++countTokens(text) : number
 }
-class TypeScriptParseStrategy {
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
--findBodyRange(node, nodeText) : {start, end}|null
--extractNodeName(node) : string|null
--createClassSkeleton(text) : string
--parseExport(text, startIndex, endIndex) : ParsedChunk|null
+class HistorySummarizer {
++summarizeHistory(messages, maxRecentMessages, groupSize, maxTokens, apiKey) : Promise~Result~
++segmentsToSystemMessages(segments) : SystemMessage[]
 }
-class CsharpParseStrategy {
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
--findBodyRange(node, nodeText) : {start, end}|null
--extractNodeName(node) : string|null
--createClassSkeleton(text) : string
+class FileCompressor {
++compressFilesForContext(files, totalBudget, goalText, apiKey) : Promise~CompressedFile[]~
++compressFileForContext(filePath, content, maxTokens, targetSymbols, apiKey) : Promise~CompressedFile~
++isBinaryContent(content) : boolean
 }
-class DartParseStrategy {
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
--findBodyRange(node, nodeText) : {start, end}|null
--extractNodeName(node) : string|null
--createClassSkeleton(text) : string
+class TargetedExtractor {
++parseGoalForSymbols(goalText) : string[]
++extractTargetedSymbols(filePath, content, targetSymbols) : Promise~string~
 }
-class PythonParseStrategy {
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
--findBlockNode(node) : SyntaxNodeLike|null
--resolveDecoratedType(node) : CaptureType|null
--extractNodeName(node) : string|null
--extractSignature(node, sourceCode) : string
--formatSignature(signature) : string
-}
-class RustParseStrategy {
-+parseCapture(capture, context, options) : ParsedChunk|null
-+getBodyReplacement(capture, context, options) : BodyReplacement|null
--findBodyRange(node, nodeText) : {start, end}|null
--extractNodeName(node) : string|null
--createClassSkeleton(text) : string
-}
-LanguageParser --> BaseParseStrategy : "uses"
-TypeScriptParseStrategy --|> BaseParseStrategy
-CsharpParseStrategy --|> BaseParseStrategy
-DartParseStrategy --|> BaseParseStrategy
-PythonParseStrategy --|> BaseParseStrategy
-RustParseStrategy --|> BaseParseStrategy
+ContextManager --> TokenBudget : "uses"
+ContextManager --> HistorySummarizer : "orchestrates"
+ContextManager --> FileCompressor : "coordinates"
+FileCompressor --> TargetedExtractor : "uses"
+FileCompressor --> LanguageParser : "uses"
 ```
 
 **Diagram sources**
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L26-L218)
-- [BaseParseStrategy.ts](file://src/core/compression/strategies/BaseParseStrategy.ts#L11-L75)
-- [TypeScriptParseStrategy.ts](file://src/core/compression/strategies/TypeScriptParseStrategy.ts#L12-L208)
-- [CsharpParseStrategy.ts](file://src/core/compression/strategies/CsharpParseStrategy.ts#L12-L195)
-- [DartParseStrategy.ts](file://src/core/compression/strategies/DartParseStrategy.ts#L12-L182)
-- [PythonParseStrategy.ts](file://src/core/compression/strategies/PythonParseStrategy.ts#L12-L238)
-- [RustParseStrategy.ts](file://src/core/compression/strategies/RustParseStrategy.ts#L12-L193)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L138-L279)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L91-L163)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L177-L197)
+- [targetedExtractor.ts](file://src/chat/compression/targetedExtractor.ts#L99-L155)
 
 ### Compression Process Flow
 
 ```mermaid
 flowchart TD
-START([Compression Request]) --> DETECT[Detect Language from File Path]
-DETECT --> VALIDATE{Language Supported?}
-VALIDATE --> |No| RETURN_NULL[Return null]
-VALIDATE --> |Yes| INIT_PARSER[Initialize LanguageParser]
-INIT_PARSER --> GET_PARSER[Get Parser Instance]
-GET_PARSER --> GET_QUERY[Get Query Instance]
-GET_QUERY --> GET_STRATEGY[Get Parse Strategy]
-GET_STRATEGY --> PARSE_CODE[Parse Source Code]
-PARSE_CODE --> EXTRACT_CAPTURES[Extract Captures via Tree-Sitter]
-EXTRACT_CAPTURES --> HAS_CAPTURES{Any Captures?}
-HAS_CAPTURES --> |No| RETURN_ORIGINAL[Return Original Content]
-HAS_CAPTURES --> |Yes| SORT_CAPTURES[Sort Captures by Position]
-SORT_CAPTURES --> PROCESS_CAPTURES[Process Each Capture]
-PROCESS_CAPTURES --> APPLY_REPLACEMENTS[Apply Body Replacements]
-APPLY_REPLACEMENTS --> CHECK_RESULT[Check Compression Result]
-CHECK_RESULT --> RETURN_COMPRESSED[Return Compressed Content]
-RETURN_NULL --> END([End])
-RETURN_ORIGINAL --> END
+START([Context Evaluation]) --> CALCULATE[Budget Calculation]
+CALCULATE --> TOKEN_COUNT[Token Usage Count]
+TOKEN_COUNT --> CHECK_THRESHOLD{Compression Needed?}
+CHECK_THRESHOLD --> |No| RETURN_ORIGINAL[Return Original Context]
+CHECK_THRESHOLD --> |Yes| HISTORY_COMPRESSION[History Compression]
+HISTORY_COMPRESSION --> SUMMARIZE[Summarize Older Messages]
+SUMMARIZE --> FILTER_BINARY[Filter Binary Content]
+FILTER_BINARY --> FILE_COMPRESSION[File Compression]
+FILE_COMPRESSION --> LEVEL_0[Level 0: Small Files]
+LEVEL_0 --> LEVEL_1[Level 1: AST Skeleton]
+LEVEL_1 --> TARGETED_EXTRACT[Level 2: Targeted Extraction]
+TARGETED_EXTRACT --> LLM_SUMMARY[Level 3: LLM Summary]
+LEVEL_1 --> TRIM_CHECK{Within Budget?}
+TRIM_CHECK --> |Yes| FINAL_CHECK[Final Token Check]
+TRIM_CHECK --> |No| AGGRESSIVE_TRIM[Aggressive Trimming]
+AGGRESSIVE_TRIM --> FINAL_CHECK
+FINAL_CHECK --> RETURN_COMPRESSED[Return Compressed Context]
+RETURN_ORIGINAL --> END([End])
 RETURN_COMPRESSED --> END
 ```
 
 **Diagram sources**
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L25-L85)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L138-L279)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L32-L122)
 
-### Language-Specific Strategy Patterns
+### Token Budget Allocation Strategy
 
-Each language strategy implements specialized compression logic tailored to that language's syntax and conventions:
+The system implements sophisticated token budget allocation with model-specific configurations:
 
-#### TypeScript/JavaScript Strategy
-Focuses on preserving function signatures, class skeletons, and import/export statements while compressing method bodies to `{ ... }`.
+```mermaid
+graph LR
+subgraph "Model Context Window"
+WINDOW[200K tokens (Opus)]
+END
+subgraph "Fixed Allocations"
+SYSTEM[2K system prompt]
+OUTPUT[16K output buffer]
+ARCH[1K repo architecture]
+END
+subgraph "Remaining Budget"
+REMAINING[181K remaining]
+END
+subgraph "Percentage Allocations"
+HISTORY[10% = 18.1K for summaries]
+RECENT[20% = 36.2K for recent messages]
+FILES[65% = 117.65K for file context]
+END
+WINDOW --> SYSTEM
+WINDOW --> OUTPUT
+WINDOW --> ARCH
+WINDOW --> REMAINING
+REMAINING --> HISTORY
+REMAINING --> RECENT
+REMAINING --> FILES
+```
 
-#### C# Strategy  
-Handles properties differently from methods, treating property declarations as class-like structures with skeleton compression.
-
-#### Dart Strategy
-Supports function declarations, method declarations, constructor declarations, and getter/setter signatures with consistent skeleton compression.
-
-#### Python Strategy
-Complex handling for decorated functions and classes, extracting signature information while preserving decorators and async keywords.
-
-#### Rust Strategy
-Manages function items, struct items, trait items, and macro definitions with specialized skeleton creation for different construct types.
+**Diagram sources**
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L34-L81)
 
 **Section sources**
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L37-L69)
-- [TypeScriptParseStrategy.ts](file://src/core/compression/strategies/TypeScriptParseStrategy.ts#L12-L208)
-- [PythonParseStrategy.ts](file://src/core/compression/strategies/PythonParseStrategy.ts#L12-L238)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L209)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L1-L192)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L1-L212)
+
+## Reactive Context Management
+
+### Threshold-Based Compression Triggering
+The system implements intelligent compression triggering based on configurable thresholds:
+
+- **Configurable Threshold**: Users can set compression activation at 50-95% of model context window
+- **Real-Time Monitoring**: Continuous token usage tracking across conversation history, file context, and system prompts
+- **Adaptive Response**: Compression applied only when necessary to minimize computational overhead
+
+### Multi-Layered Compression Coordination
+The ContextManager coordinates multiple compression layers in a strategic sequence:
+
+1. **History Compression**: Summarizes older conversation segments while preserving recent context
+2. **File Compression**: Applies progressive compression levels to context files
+3. **Safety Net**: Aggressive trimming ensures final compliance with budget constraints
+
+### Binary Content Detection
+Intelligent filtering of binary content prevents unnecessary processing:
+
+- **Null Byte Detection**: Immediate identification of binary files
+- **Non-Printable Character Analysis**: Statistical detection of binary content
+- **Performance Optimization**: Excludes binary files from compression pipeline
+
+**Section sources**
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L165-L182)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L219-L234)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L202-L211)
+
+## Multi-Level Compression Strategies
+
+### Conversation History Summarization
+Advanced summarization preserves critical context while dramatically reducing token usage:
+
+- **Selective Preservation**: Recent messages (default 10) maintained in full
+- **Structured Summaries**: Gemini 2.5 Flash generates comprehensive summaries
+- **Key Information Extraction**: Preserves decisions, file paths, code changes, and user preferences
+- **Fallback Mechanisms**: Heuristic-based summarization when LLM calls fail
+
+### Targeted File Extraction
+Intelligent symbol extraction focuses on relevant code sections:
+
+- **Goal-Based Extraction**: Identifies symbols mentioned in user goals
+- **Language-Aware Parsing**: Leverages Tree-Sitter for precise symbol location
+- **Import Preservation**: Maintains necessary import statements
+- **Cross-Language Support**: Extends to TypeScript, JavaScript, Python, Rust, C#, and Dart
+
+### Progressive Compression Levels
+Four-tier compression system with intelligent fallback:
+
+```mermaid
+graph TD
+A[File Context] --> B{Token Count}
+B --> |< 200| C[Level 0: Full Content]
+B --> |≥ 200| D[Level 1: AST Skeleton]
+D --> E{Within Budget?}
+E --> |Yes| F[Use AST Skeleton]
+E --> |No| G[Level 2: Targeted Extraction]
+G --> H{Target Symbols Found?}
+H --> |Yes| I[Use Targeted Extraction]
+H --> |No| J[Level 3: LLM Summary]
+C --> K[Compression Complete]
+F --> K
+I --> K
+J --> K
+```
+
+**Diagram sources**
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L32-L122)
+
+**Section sources**
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L14-L24)
+- [targetedExtractor.ts](file://src/chat/compression/targetedExtractor.ts#L49-L67)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L53-L91)
 
 ## Dependency Analysis
 
-The compression engine exhibits excellent modularity with clear dependency relationships:
+The compression system exhibits sophisticated interdependencies with clear separation of concerns:
 
 ```mermaid
 graph TB
 subgraph "External Dependencies"
-TS[Tree-Sitter]
-WASM[WASM Grammar Files]
-end
-subgraph "Core Engine"
-LP[LanguageParser]
+TOKEN[gpt-tokenizer]
+GEMINI[Gemini API]
+TREE_SITTER[Tree-Sitter]
+END
+subgraph "Context Management Layer"
+CM[ContextManager]
+TB[TokenBudget]
+HS[HistorySummarizer]
+FC[FileCompressor]
+TE[TargetedExtractor]
+END
+subgraph "Core Compression Engine"
 CF[compressFile]
+LP[LanguageParser]
 TYPES[Types & Interfaces]
-end
-subgraph "Language Support"
-TS_STRAT[TypeScript Strategy]
-CS_STRAT[C# Strategy]
-DT_STRAT[Dart Strategy]
-PY_STRAT[Python Strategy]
-RS_STRAT[Rust Strategy]
-end
-subgraph "Query Definitions"
-QT[TypeScript Queries]
-QP[Python Queries]
-QD[Dart Queries]
-QC[C# Queries]
-QR[Rust Queries]
-end
-TS --> LP
-WASM --> LP
+END
+subgraph "Integration Layer"
+CC[compressContext Node]
+STATE[Chat State]
+END
+TOKEN --> TB
+TOKEN --> HS
+TOKEN --> FC
+GEMINI --> HS
+GEMINI --> FC
+TREE_SITTER --> LP
+TREE_SITTER --> TE
 LP --> CF
-LP --> TS_STRAT
-LP --> CS_STRAT
-LP --> DT_STRAT
-LP --> PY_STRAT
-LP --> RS_STRAT
-LP --> QT
-LP --> QP
-LP --> QD
-LP --> QC
-LP --> QR
-CF --> TYPES
-TS_STRAT --> TYPES
-CS_STRAT --> TYPES
-DT_STRAT --> TYPES
-PY_STRAT --> TYPES
-RS_STRAT --> TYPES
+TE --> LP
+CM --> TB
+CM --> HS
+CM --> FC
+CC --> CM
+CC --> STATE
 ```
 
 **Diagram sources**
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L1-L85)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L9-L20)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L6-L7)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L12-L17)
 
-The dependency structure shows minimal coupling between components, with LanguageParser acting as the central hub that manages all external dependencies and internal component coordination. This design facilitates easy maintenance and future language additions.
+The dependency structure shows a clean layered architecture where the ContextManager acts as the central orchestrator, coordinating between token budget management, content compression, and integration with the broader chat workflow.
 
 **Section sources**
-- [types.ts](file://src/core/compression/types.ts#L1-L66)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
+- [types.ts](file://src/chat/compression/types.ts#L1-L168)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
 
 ## Performance Considerations
 
-### Caching Strategy
-The engine implements a three-tier caching system:
-- **Parser Cache**: Prevents reloading Tree-Sitter parsers for the same language
-- **Language Cache**: Caches compiled grammar modules
-- **Query Cache**: Stores parsed query instances
+### Reactive Compression Efficiency
+The new system optimizes performance through intelligent compression triggering:
 
-### Memory Management
-- Lazy initialization ensures resources are loaded only when needed
-- Automatic cleanup of unused parser instances
-- Efficient string manipulation using slice operations instead of regex replacements where possible
+- **Lazy Evaluation**: Compression only applied when token usage exceeds threshold
+- **Parallel Processing**: Asynchronous operations for LLM calls and file compression
+- **Caching Strategies**: Results cached to avoid redundant computations
+- **Early Termination**: Quick exit when context remains within budget
 
-### Parallel Processing
-While individual compression operations are synchronous, the caching mechanism enables concurrent operations across different files without parser reload overhead.
+### Memory Management Optimizations
+Advanced memory management for large-scale operations:
 
-### Optimization Opportunities
-- Implement worker threads for CPU-intensive parsing operations
-- Add batch processing capabilities for multiple files
-- Consider incremental parsing for large files
-- Implement compression result caching for identical content
+- **Streaming Processing**: Large files processed in chunks to prevent memory overflow
+- **Incremental Summarization**: Conversation segments processed individually
+- **Efficient Data Structures**: Optimized arrays and maps for compression tracking
+- **Garbage Collection**: Automatic cleanup of temporary compression artifacts
+
+### Model-Specific Optimizations
+Tailored configurations for different AI models:
+
+- **Context Window Awareness**: Budget calculations adapt to model capabilities
+- **Output Buffer Management**: Reserve tokens for model responses
+- **Processing Priority**: Recent messages prioritized for preservation
+- **Fallback Strategies**: Graceful degradation when model limitations reached
+
+### Compression Strategy Optimization
+Intelligent selection of compression methods:
+
+- **Language Detection**: Automatic recognition of supported compression languages
+- **Content Analysis**: Binary content detection prevents wasted processing
+- **Symbol Extraction**: Targeted extraction maximizes information retention
+- **Budget Distribution**: Dynamic allocation based on content characteristics
+
+**Section sources**
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L22-L23)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L133-L146)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L177-L197)
 
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
 
-**Language Not Supported**
-- Verify file extension matches supported languages
-- Check WASM grammar files are accessible in configured directories
-- Ensure Tree-Sitter initialization completes successfully
+**Compression Not Triggering**
+- Verify context threshold percentage is set appropriately (50-95%)
+- Check model context window configuration matches actual model capabilities
+- Ensure token counting functions are working correctly
+- Monitor log output for compression decision rationale
 
-**Compression Returns Null**
-- Occurs when no captures are found or parser fails
-- Verify Tree-Sitter grammar compatibility
-- Check source code syntax validity
+**History Summarization Failures**
+- Verify Gemini API key is configured and valid
+- Check network connectivity for LLM calls
+- Review summarization prompt quality and length
+- Implement fallback mechanisms for summarization failures
 
-**Memory Issues with Large Files**
-- Consider streaming approaches for very large files
-- Implement file size limits
-- Monitor cache growth for long-running processes
+**File Compression Performance Issues**
+- Monitor token budget allocation for file context
+- Verify Tree-Sitter parser initialization success
+- Check language support for target files
+- Review compression level selection logic
 
-**Performance Degradation**
-- Clear parser caches periodically
-- Limit concurrent compression operations
-- Optimize query patterns for specific use cases
+**Memory Usage Problems**
+- Implement file size limits for compression
+- Monitor compression result sizes
+- Check for memory leaks in compression pipelines
+- Optimize chunk sizes for large files
 
 ### Debugging Strategies
-- Enable verbose logging for Tree-Sitter operations
-- Monitor cache hit rates
-- Profile memory usage during compression operations
-- Test with representative samples of target codebases
+Enhanced debugging capabilities for the new system:
+
+- **Compression Decision Logging**: Track threshold calculations and trigger points
+- **Token Budget Tracking**: Monitor allocation and utilization across categories
+- **Compression Level Analysis**: Log compression effectiveness by level
+- **Performance Metrics**: Track processing times and resource usage
+- **Error Handling**: Comprehensive error logging with recovery attempts
 
 **Section sources**
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L80-L85)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L113-L120)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L160-L182)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L72-L78)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L86-L110)
 
 ## Conclusion
 
-The Compression Engine represents a sophisticated approach to code compression that leverages modern parsing technology and language-specific strategies. Its modular architecture enables extensible support for new programming languages while maintaining high performance through intelligent caching and resource management.
+The Compression Engine has evolved into a sophisticated reactive context management system that represents a significant advancement in AI-assisted development tooling. The new ContextManager, TokenBudget, and multi-level compression strategies provide intelligent, automated context management that maintains system performance while preserving essential information.
 
-The engine successfully balances compression effectiveness with preservation of semantic meaning, making it suitable for AI-assisted code analysis and documentation generation. The clean separation of concerns and well-defined interfaces facilitate maintenance and future enhancements.
+Key achievements include:
+- **Reactive Compression**: Intelligent triggering based on real-time token usage monitoring
+- **Multi-Layered Strategy**: Progressive compression levels with sophisticated fallback mechanisms
+- **Model-Aware Design**: Configurations optimized for different AI models and capabilities
+- **Performance Optimization**: Efficient processing with minimal computational overhead
+- **Extensible Architecture**: Clean separation of concerns enabling future enhancements
 
-Key strengths include:
-- **Robust Language Support**: Comprehensive coverage of major programming languages
-- **High Performance**: Optimized caching and lazy initialization
-- **Extensible Design**: Clean architecture supporting new language additions
-- **Reliable Operation**: Comprehensive error handling and fallback mechanisms
+The system successfully addresses the challenges of long-running conversations and complex code analysis by providing automatic context management that scales with usage patterns. The integration with existing compression infrastructure ensures backward compatibility while adding powerful new capabilities for modern AI-assisted development workflows.
 
-The system provides an excellent foundation for advanced code analysis tools and AI-assisted development environments, with clear pathways for performance optimization and feature expansion.
+Future enhancements could include adaptive threshold tuning, machine learning-based compression strategy selection, and enhanced binary content detection for improved performance in diverse codebases.

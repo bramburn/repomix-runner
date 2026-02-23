@@ -17,7 +17,17 @@
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts)
 - [utils.ts](file://src/commands/utils.ts)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts)
+- [extension.ts](file://src/extension.ts)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added comprehensive documentation for VS Code secrets storage integration
+- Updated PostgreSQL connection string management section with secure storage patterns
+- Enhanced security considerations and best practices
+- Added troubleshooting guidance for secrets storage issues
+- Updated configuration loading process to reflect secure credential handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -25,28 +35,31 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Security and Secrets Management](#security-and-secrets-management)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
-This document explains the Configuration Management system used by the extension. It covers how VS Code settings and repomix.config.json files combine to form a unified configuration, the precedence rules, inheritance patterns, and override mechanisms. It also documents the configuration schema validation, supported properties, default values, environment-specific behavior (workspace vs user settings, per-project overrides, global defaults), and practical examples for common scenarios such as custom output directories, bundle definitions, and AI provider settings. Finally, it describes the configuration loading process, validation errors, troubleshooting steps, migration guidance, and consistency practices across team environments.
+This document explains the Configuration Management system used by the extension. It covers how VS Code settings and repomix.config.json files combine to form a unified configuration, the precedence rules, inheritance patterns, and override mechanisms. The system now includes enhanced security through VS Code secrets storage for sensitive credentials like PostgreSQL connection strings. It also documents the configuration schema validation, supported properties, default values, environment-specific behavior (workspace vs user settings, per-project overrides, global defaults), and practical examples for common scenarios such as custom output directories, bundle definitions, and AI provider settings. Finally, it describes the configuration loading process, validation errors, troubleshooting steps, migration guidance, and consistency practices across team environments.
 
 ## Project Structure
-The configuration system spans several modules:
+The configuration system spans several modules with enhanced security integration:
 - Schema definitions and validation
 - Configuration loaders and merging logic
 - VS Code contribution declarations
 - Bundle-level configuration and output naming
 - Webview settings and embedding provider configuration
 - CLI flag compatibility checks
+- Secure secrets storage for sensitive credentials
 
 ```mermaid
 graph TB
 subgraph "VS Code Settings"
 PJSON["package.json<br/>contributes.configuration"]
+ENDSEC["extension.ts<br/>context.secrets integration"]
 end
 subgraph "Config Files"
 RCFG["repomix.config.json"]
@@ -65,9 +78,10 @@ BTYP["types.ts<br/>Bundle.configPath"]
 GFNM["generateOutputFilename.ts"]
 end
 subgraph "UI & Providers"
-SETAB["SettingsTab.tsx"]
+SETAB["SettingsTab.tsx<br/>secure credential UI"]
 EMB["embeddingService.ts"]
-CCTL["ConfigController.ts"]
+CCTL["ConfigController.ts<br/>secrets management"]
+PGCLIENT["postgresClient.ts<br/>secure connection handling"]
 end
 PJSON --> CLDR
 RCFG --> CLDR
@@ -77,6 +91,7 @@ CLDR --> BMGR
 BTYP --> GFNM
 SETAB --> CCTL
 CCTL --> EMB
+ENDSEC --> PGCLIENT
 ```
 
 **Diagram sources**
@@ -89,9 +104,11 @@ CCTL --> EMB
 - [bundleManager.ts](file://src/core/bundles/bundleManager.ts)
 - [types.ts](file://src/core/bundles/types.ts#L3-L12)
 - [generateOutputFilename.ts](file://src/utils/generateOutputFilename.ts#L4-L38)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L450-L479)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1084-L1093)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
 
 **Section sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L1-L230)
@@ -106,6 +123,7 @@ CCTL --> EMB
 - mergeConfigs applies precedence and produces a validated MergedConfig.
 - Bundle-level configPath allows per-bundle overrides.
 - Output filename generation integrates bundle names and configuration paths.
+- **Enhanced Security**: VS Code secrets storage API manages sensitive credentials with encryption and secure storage patterns.
 
 **Section sources**
 - [configSchema.ts](file://src/config/configSchema.ts#L15-L165)
@@ -116,12 +134,13 @@ CCTL --> EMB
 - [generateOutputFilename.ts](file://src/utils/generateOutputFilename.ts#L4-L38)
 
 ## Architecture Overview
-The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides.
+The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides. **Enhanced security** ensures sensitive credentials are stored securely using VS Code's secrets storage API.
 
 ```mermaid
 sequenceDiagram
 participant User as "User"
 participant VSCode as "VS Code Settings"
+participant Secrets as "VS Code Secrets Storage"
 participant FS as "File System"
 participant Loader as "configLoader.mergeConfigs()"
 participant Schema as "configSchema"
@@ -133,11 +152,13 @@ FS-->>Loader : "RepomixConfigFile or void"
 Loader->>Schema : "merge and validate"
 Schema-->>Output : "MergedConfig"
 Output-->>User : "Effective configuration applied"
+Note over Secrets : "Sensitive credentials stored securely"
 ```
 
 **Diagram sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L145-L229)
 - [configSchema.ts](file://src/config/configSchema.ts#L138-L149)
+- [extension.ts](file://src/extension.ts#L75-L106)
 
 ## Detailed Component Analysis
 
@@ -255,6 +276,11 @@ Ctrl-->>UI : "Show result + trigger compatibility check"
   - For Gemini: set provider to gemini and supply the API key.
   - For Ollama: set provider to ollama and supply URL, model, and dimension.
 
+- **Enhanced Security**: PostgreSQL connection management:
+  - Store connection strings securely in VS Code secrets storage.
+  - Use the Repomix Runner settings panel to configure and manage connections.
+  - Connection strings are automatically encrypted and decrypted as needed.
+
 Note: These examples describe behaviors implemented by the configuration system and UI; refer to the linked sources for precise property names and defaults.
 
 **Section sources**
@@ -292,13 +318,62 @@ CLI flags builder validates whether configuration keys are supported by CLI. Som
 **Section sources**
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L168-L214)
 
+## Security and Secrets Management
+
+### Enhanced Security Through VS Code Secrets Storage
+The configuration system now uses VS Code's secrets storage API to securely manage sensitive credentials. This migration replaces plaintext storage in VS Code settings with encrypted, platform-protected storage.
+
+#### PostgreSQL Connection String Security
+- **Migration**: Connection strings previously stored in VS Code settings are now managed through the secrets API.
+- **Storage Location**: Credentials are stored in VS Code's secure secrets vault, encrypted at rest.
+- **Access Pattern**: Connection strings are retrieved on-demand using `context.secrets.get()` during extension activation.
+- **UI Integration**: The settings panel provides secure input fields with masking and confirmation dialogs.
+
+#### Secrets Management Implementation
+The system implements a comprehensive secrets management strategy:
+
+```mermaid
+flowchart TD
+Start(["Extension Activation"]) --> CheckSecrets["Check for existing secrets"]
+CheckSecrets --> HasSecret{"Secret exists?"}
+HasSecret --> |Yes| LoadSecret["Load from context.secrets.get()"]
+HasSecret --> |No| PromptUser["Prompt user for credentials"]
+LoadSecret --> InitDB["Initialize database connection"]
+PromptUser --> StoreSecret["Store via context.secrets.store()"]
+StoreSecret --> InitDB
+InitDB --> Success["Database ready for use"]
+```
+
+**Diagram sources**
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+
+#### Security Benefits
+- **Encryption**: All secrets are automatically encrypted using platform-specific key derivation.
+- **Platform Protection**: Leverages OS-level keychain integration (Windows Credential Manager, macOS Keychain, Linux Secret Service).
+- **Scope Isolation**: Secrets are scoped to the extension and cannot be accessed by other extensions.
+- **Automatic Rotation**: Supports seamless credential rotation without manual intervention.
+
+#### Best Practices for Teams
+- **Consistent Storage**: All sensitive credentials should be migrated to secrets storage.
+- **Backup Strategy**: Secrets are automatically backed up with VS Code settings synchronization.
+- **Access Control**: Only authorized users with access to the development machine can access stored credentials.
+- **Audit Trail**: Changes to secrets are tracked through the extension lifecycle.
+
+**Section sources**
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L15-L15)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1084-L1093)
+
 ## Dependency Analysis
-The configuration system exhibits clear separation of concerns:
+The configuration system exhibits clear separation of concerns with enhanced security integration:
 - Schemas define contracts and defaults.
 - Loaders orchestrate reading and merging.
 - VS Code contributes defaults and UI.
 - Bundles integrate per-bundle configuration.
 - UI components manage provider configuration and compatibility checks.
+- **Enhanced Security**: Secrets management handles sensitive credential storage and retrieval.
 
 ```mermaid
 graph LR
@@ -309,6 +384,8 @@ CLDR --> BMGR["bundleManager.ts"]
 BTYP["types.ts"] --> GFNM["generateOutputFilename.ts"]
 SETAB["SettingsTab.tsx"] --> CCTL["ConfigController.ts"]
 CCTL --> EMB["embeddingService.ts"]
+EXT["extension.ts"] --> PGCLIENT["postgresClient.ts"]
+CCTL --> EXT
 ```
 
 **Diagram sources**
@@ -322,6 +399,8 @@ CCTL --> EMB["embeddingService.ts"]
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L450-L479)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
 
 **Section sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L145-L229)
@@ -333,6 +412,7 @@ CCTL --> EMB["embeddingService.ts"]
 - Limit output.style to the least verbose format that meets your needs to reduce token count.
 - Avoid excessive customPatterns; leverage built-in defaults where possible.
 - When using embedding providers, choose appropriate models and dimensions to balance accuracy and performance.
+- **Enhanced Security**: Secrets storage operations are optimized for minimal overhead during extension activation.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -366,6 +446,16 @@ Common issues and resolutions:
   - Resolution: Review runner.useTargetAsOutput and include patterns; confirm cwd and output.filePath.
   - Reference: [configLoader.ts](file://src/config/configLoader.ts#L167-L176)
 
+- **Enhanced Security Issues**:
+  - Symptom: PostgreSQL connection fails despite correct credentials.
+  - Resolution: Verify credentials are stored in secrets storage, not VS Code settings. Check extension logs for secrets API errors.
+  - Reference: [extension.ts](file://src/extension.ts#L75-L106), [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+
+- **Secrets Storage Problems**:
+  - Symptom: Cannot save or retrieve secrets, connection string appears empty.
+  - Resolution: Check VS Code version compatibility with secrets API, verify extension permissions, restart VS Code to refresh secrets cache.
+  - Reference: [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L15-L15)
+
 **Section sources**
 - [configLoader.ts](file://src/config/configLoader.ts#L121-L129)
 - [getCwd.ts](file://src/config/getCwd.ts#L11-L14)
@@ -373,9 +463,11 @@ Common issues and resolutions:
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L30-L41)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
 - [cliFlagsBuilder.ts](file://src/core/cli/cliFlagsBuilder.ts#L168-L214)
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
 
 ## Conclusion
-The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. It supports environment-specific behavior, per-bundle overrides, and provider configuration for AI indexing. By following the documented precedence, defaults, and troubleshooting steps, teams can maintain consistent and reliable configurations across diverse development environments.
+The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. **Enhanced security** through VS Code secrets storage ensures sensitive credentials like PostgreSQL connection strings are protected with automatic encryption and platform-level security. The system supports environment-specific behavior, per-bundle overrides, and provider configuration for AI indexing. By following the documented precedence, defaults, security practices, and troubleshooting steps, teams can maintain consistent and secure configurations across diverse development environments.
 
 ## Appendices
 
@@ -410,8 +502,14 @@ Highest to lowest:
   - Commit repomix.config.json to version control.
   - Define a shared .vscode/settings.json for common defaults across the team.
   - Use bundle.configPath for per-bundle overrides to keep the root config minimal.
+- **Enhanced Security Migration**:
+  - Migrate existing PostgreSQL connection strings from VS Code settings to secrets storage.
+  - Use the Repomix Runner settings panel to re-enter credentials securely.
+  - Remove plaintext connection strings from VS Code settings to prevent accidental exposure.
 
 **Section sources**
 - [repomix.config.json](file://repomix.config.json#L1-L43)
 - [types.ts](file://src/core/bundles/types.ts#L3-L12)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L10-L69)
+- [extension.ts](file://src/extension.ts#L75-L106)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)

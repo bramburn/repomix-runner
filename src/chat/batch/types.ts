@@ -81,4 +81,5 @@ export interface BatchPendingView {
   threadId: string | null;
   batchApiId: string;
   status: BatchJobStatus;
+  startedAtMs?: number;
 }

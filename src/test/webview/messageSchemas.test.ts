@@ -89,4 +89,18 @@ suite('Webview Message Schemas', () => {
     const result = WebviewMessageSchema.safeParse(data);
     assert.strictEqual(result.success, false);
 });
+
+  test('Valid getThreadHistoryPage message', () => {
+    const data = {
+      command: 'getThreadHistoryPage',
+      threadId: 'thread-1',
+      before: {
+        timestamp: Date.now(),
+        id: '00000000-0000-0000-0000-000000000000'
+      },
+      limit: 25
+    };
+    const result = WebviewMessageSchema.safeParse(data);
+    assert.strictEqual(result.success, true);
+  });
 });

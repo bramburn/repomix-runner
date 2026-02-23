@@ -17,6 +17,10 @@
 - [retryService.ts](file://src/core/indexing/retryService.ts)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx)
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts)
@@ -25,18 +29,18 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the enhanced state restoration functionality
-- Documented the new `hydrate` message command for indexing state hydration
-- Updated SearchTab.tsx analysis to include state persistence and restoration mechanisms
-- Enhanced architecture overview to reflect improved state management patterns
-- Added new sections covering state restoration and UI continuity features
+- Enhanced repository indexing with comprehensive gitignore filtering throughout the file expansion and indexing processes
+- Added filteredFileExpander utility for accurate context selection with gitignore rule application
+- Integrated gitignoreUtils for recursive .gitignore pattern discovery and proper path scoping
+- Updated file expansion commands to respect gitignore filtering for clipboard operations
+- Improved accuracy of context selection by applying gitignore rules consistently across the entire system
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
-5. [Enhanced State Restoration System](#enhanced-state-restoration-system)
+5. [Enhanced Gitignore Filtering System](#enhanced-gitignore-filtering-system)
 6. [Detailed Component Analysis](#detailed-component-analysis)
 7. [Dependency Analysis](#dependency-analysis)
 8. [Performance Considerations](#performance-considerations)
@@ -47,18 +51,18 @@
 ## Introduction
 This document describes the Indexing and Search System that powers semantic search over repositories. It covers the vector database integration architecture, the file embedding pipeline from text chunking through embedding generation to vector storage, repository indexing and incremental updates, monitoring mechanisms, provider abstractions for embeddings and vector databases, semantic search capabilities, query expansion, and operational concerns such as retries, migrations, and error handling in distributed indexing scenarios.
 
-**Updated** Enhanced with comprehensive state restoration functionality that ensures seamless continuity of indexing operations even after application restarts through the `hydrate` message command and advanced state persistence mechanisms.
+**Updated** Enhanced with comprehensive gitignore filtering system that ensures accurate context selection by applying .gitignore rules consistently throughout file expansion, indexing, and search processes.
 
 ## Project Structure
 The indexing and search system is organized around a cohesive set of modules under the core indexing subsystem:
-- Repository indexing: enumerating files and writing them to the local database
+- Repository indexing: enumerating files and writing them to the local database with gitignore filtering
 - File embedding pipeline: reading, chunking, embedding, batching, and upserting vectors
 - Vector database adapters: provider-agnostic interfaces for Pinecone and Qdrant
 - Embedding providers: abstraction for Gemini and Ollama
 - Orchestration: coordinating repository-wide and incremental embedding
 - Monitoring: collecting file changes and debouncing re-indexing
-- Utilities: retry/backoff, migration, query expansion
-- **State Management**: comprehensive state persistence and restoration for UI continuity
+- Utilities: retry/backoff, migration, query expansion, and gitignore filtering
+- **Enhanced Gitignore System**: comprehensive .gitignore pattern discovery and application
 
 ```mermaid
 graph TB
@@ -80,16 +84,17 @@ VF["vectorDb/factory.ts"]
 PCA["pineconeAdapter.ts"]
 QDA["qdrantAdapter.ts"]
 END
-subgraph "State Management"
-ST["SearchTab.tsx State"]
-HW["Hydrate Command"]
-RS["State Restoration"]
+subgraph "Gitignore System"
+GIF["gitignoreUtils.ts"]
+FFE["filteredFileExpander.ts"]
+CMD["Command Integration"]
 END
 subgraph "Operations"
 RS["retryService.ts"]
 MS["migrationService.ts"]
 QE["queryExpansion.ts"]
 END
+RI --> GIF
 RI --> REO
 REO --> FEP
 FEP --> TC
@@ -103,12 +108,11 @@ RP --> REO
 REO --> RS
 MS --> VF
 QE --> REO
-ST --> HW
-HW --> RS
+FFE --> CMD
 ```
 
 **Diagram sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L29-L114)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
 - [repoIndexMonitor.ts](file://src/core/indexing/repoIndexMonitor.ts#L52-L224)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
@@ -120,14 +124,13 @@ HW --> RS
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L62)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L244)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L7-L63)
-- [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L169-L243)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L28-L48)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L84-L89)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L75-L80)
 
 **Section sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L1-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L1-L114)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L1-L655)
 - [repoIndexMonitor.ts](file://src/core/indexing/repoIndexMonitor.ts#L1-L224)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L469)
@@ -139,24 +142,28 @@ HW --> RS
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L1-L64)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L171)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L196)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1-L1217)
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
 
 ## Core Components
-- Repository indexer: discovers files via globbing with ignore patterns, writes them to the local database in batches, and logs timing metrics.
+- Repository indexer: discovers files via globbing with comprehensive ignore patterns including .gitignore rules, writes them to the local database in batches, and logs timing metrics.
 - Embedding pipeline: reads files, determines binary vs text, filters binaries, chunks text using semantic or line-based strategies, generates embeddings via a pluggable provider, batches and retries operations, and upserts vectors into the vector database.
 - Vector database adapters: abstract Pinecone and Qdrant behind a common interface for upsert, query, delete, and metadata retrieval.
 - Embedding providers: Gemini and Ollama implementations expose a uniform interface for single and batch embeddings with dimension guarantees.
 - Orchestrator: coordinates full repository embedding and incremental updates, supports concurrency, progress callbacks, abort signals, and statistics.
 - Monitor: collects file changes with a debounce mechanism, persists pending state, and triggers incremental embedding.
-- Utilities: exponential backoff retry, batching helpers, migration service for switching providers safely, and query expansion for semantic variants.
-- **State Management**: comprehensive state persistence and restoration system ensuring UI continuity across application restarts.
+- Utilities: exponential backoff retry, batching helpers, migration service for switching providers safely, query expansion for semantic variants, and comprehensive gitignore filtering system.
+- **Enhanced Gitignore System**: recursive .gitignore pattern discovery with proper path scoping, directory filtering for performance optimization, and accurate context selection.
 
 **Section sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L29-L114)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L62)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
@@ -169,16 +176,18 @@ HW --> RS
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts#L7-L63)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L64)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L169-L243)
 
 ## Architecture Overview
-The system integrates file discovery, chunking, embedding, and vector storage with a focus on reliability and scalability. It supports two embedding providers and two vector database providers, with a factory selecting the appropriate adapter based on persisted extension state. Incremental updates are handled via a monitor that queues changes and triggers targeted re-embedding.
-
-**Updated** Enhanced with comprehensive state restoration architecture that ensures seamless continuity of indexing operations through the `hydrate` message command and advanced state persistence mechanisms.
+The system integrates file discovery, chunking, embedding, and vector storage with a focus on reliability and scalability. It supports two embedding providers and two vector database providers, with a factory selecting the appropriate adapter based on persisted extension state. Incremental updates are handled via a monitor that queues changes and triggers targeted re-embedding. **Updated** Enhanced with comprehensive gitignore filtering that ensures accurate context selection by applying .gitignore rules consistently throughout the entire system.
 
 ```mermaid
 sequenceDiagram
 participant FS as "File System"
+participant GIF as "gitignoreUtils.ts"
+participant FFE as "filteredFileExpander.ts"
 participant IDX as "repoIndexer.ts"
 participant ORCH as "repoEmbeddingOrchestrator.ts"
 participant PIPE as "fileEmbeddingPipeline.ts"
@@ -187,9 +196,9 @@ participant EMB as "embeddingService.ts"
 participant EPROV as "GeminiProvider/OllamaProvider"
 participant VFACT as "vectorDb/factory.ts"
 participant ADP as "Pinecone/Qdrant Adapter"
-participant HW as "Hydrate Command"
-participant ST as "SearchTab State"
-FS-->>IDX : Enumerate files (glob + ignore)
+FS-->>GIF : Discover .gitignore files (recursive)
+GIF-->>IDX : Return scoped patterns
+IDX-->>FS : Enumerate files (glob + ignore)
 IDX-->>ORCH : Indexed file list
 ORCH->>PIPE : Process file (concurrently or sequentially)
 PIPE->>CHUNK : Chunk text (semantic or line-based)
@@ -202,12 +211,10 @@ PIPE->>ADP : upsertVectors (batched)
 ADP-->>PIPE : Acknowledgement
 PIPE-->>ORCH : Vector count
 ORCH-->>IDX : Stats and errors
-HW-->>ST : Hydrate State Restoration
-ST-->>HW : Persisted State Continuity
 ```
 
 **Diagram sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L29-L114)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
 - [textChunker.ts](file://src/core/indexing/textChunker.ts#L227-L253)
@@ -217,84 +224,91 @@ ST-->>HW : Persisted State Continuity
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L62)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L5-L82)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L244)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
 
-## Enhanced State Restoration System
+## Enhanced Gitignore Filtering System
 
-### Hydrate Message Command
-The system introduces a comprehensive `hydrate` message command that provides consolidated state restoration for seamless continuity of indexing operations after application restarts.
+### Comprehensive .gitignore Pattern Discovery
+The system now includes a sophisticated gitignore filtering mechanism that ensures accurate context selection by applying .gitignore rules consistently throughout the entire indexing and search process.
 
 ```mermaid
 flowchart TD
-Start(["Application Restart"]) --> WebviewLoaded["webviewLoaded Message"]
-WebviewLoaded --> BuildHydrate["Build Hydrate State"]
-BuildHydrate --> SendHydrate["Send 'hydrate' Command"]
-SendHydrate --> ReceiveHydrate["Receive 'hydrate' in SearchTab"]
-ReceiveHydrate --> UpdateState["Update UI State"]
-UpdateState --> PersistState["Persist to vscode State"]
-PersistState --> ContinueOps["Continue Operations"]
+Start(["Repository Root"]) --> Walk[".gitignore Discovery"]
+Walk --> Find["Find .gitignore Files"]
+Find --> Sort["Sort by Depth"]
+Sort --> Process["Process Patterns"]
+Process --> Scope["Apply Path Scoping"]
+Scope --> Combine["Combine Patterns"]
+Combine --> Filter["Apply to File Expansion"]
+Filter --> End(["Filtered Results"])
 ```
 
 **Diagram sources**
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 
-### State Restoration Mechanisms
-The enhanced state restoration system handles multiple aspects of UI continuity:
+### Recursive .gitignore Pattern Collection
+The gitignoreUtils module recursively discovers all .gitignore files in the directory tree and collects their patterns with proper path scoping according to git ignore specification.
 
-- **Indexing State**: Restores indexing state (idle, running, paused, stopping) with progress tracking
-- **Repository Counts**: Maintains file and vector counts across sessions
-- **Indexing Block Status**: Preserves indexing blocked state due to dimension mismatches
-- **UI Configuration**: Restores user preferences including filters, thresholds, and accordion states
+- **Recursive Discovery**: Traverses the entire directory tree to find all .gitignore files
+- **Depth-Based Processing**: Sorts .gitignore files by depth to ensure proper precedence
+- **Pattern Scoping**: Applies proper path scoping rules for accurate matching
+- **Performance Optimization**: Skips .git directory to avoid indexing git internals
+
+### Filtered File Expansion Utility
+The filteredFileExpander provides a comprehensive solution for expanding URIs while respecting .gitignore rules for accurate context selection.
 
 ```mermaid
-classDiagram
-class HydrateState {
-+version : string
-+indexingState : IndexingState
-+indexingProgress? : Progress
-+indexingBlocked : boolean
-+repoIndexCount : number
-+bundles : any[]
-+defaultRepomix : DefaultRepomixInfo
-}
-class SearchTabState {
-+fileTypeFilter : FileTypeFilterState
-+query : string
-+smartFilterEnabled : boolean
-+openAccordionItems : string[]
-+topK : number
-+confidenceThreshold : number
-+results? : RepoSearchResult[]
-+lastSearchOutputPath? : string | null
-+summaryPath? : string | null
-+expandedQueries? : string[]
-}
-class StatePersistence {
-+loadState() : SearchTabState
-+persistState(state : SearchTabState) : void
-+restoreIndexingState(hydrateState : HydrateState) : void
-}
-HydrateState --> StatePersistence : "provides"
-SearchTabState --> StatePersistence : "manages"
+flowchart TD
+Input["URIs + MaxFiles + CWD"] --> Init["Initialize gitignore filter"]
+Init --> Walk["Recursive Directory Walk"]
+Walk --> Stat["Stat File/Directory"]
+Stat --> File{"File Type?"}
+File --> |File| Include["Include File (explicitly selected)"]
+File --> |Directory| DirCheck["Check Directory Ignore"]
+DirCheck --> |Ignored| Skip["Skip Entire Subtree"]
+DirCheck --> |Included| Recurse["Recurse into Directory"]
+Include --> Collect["Collect File"]
+Recurse --> Walk
+Skip --> Walk
+Collect --> Count["Update Statistics"]
+Count --> Limit{"Reached MaxFiles?"}
+Limit --> |Yes| Return["Return Results"]
+Limit --> |No| Walk
 ```
 
 **Diagram sources**
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L28-L48)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L61-L72)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L226-L243)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L78-L125)
+
+### Gitignore Pattern Application Rules
+The system applies comprehensive .gitignore rules with proper path scoping:
+
+- **Root Patterns**: Patterns without leading slash apply recursively to all subdirectories
+- **Absolute Patterns**: Patterns starting with `/` are relative to the .gitignore location
+- **Global Patterns**: Patterns starting with `**/` are preserved as-is for global matching
+- **Directory Patterns**: Patterns ending with `/` apply to directories and their contents
+- **Recursive Matching**: Non-root patterns also match recursively within their subdirectory tree
+
+### Integration with File Expansion Commands
+The gitignore filtering system is integrated into file expansion commands for clipboard operations:
+
+- **copySelectedFilesToClipboard**: Respects .gitignore filtering based on configuration
+- **copySelectedFilesAsCompressed**: Applies .gitignore filtering for compressed content generation
+- **Statistics Tracking**: Provides ignored file counts and total file statistics
+- **Performance Optimization**: Skips entire ignored directory subtrees for better performance
 
 **Section sources**
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L28-L48)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L226-L243)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L84-L89)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L75-L80)
 
 ## Detailed Component Analysis
 
-### Repository Indexing
-- Discovers files using a glob pattern with explicit ignore lists for binary artifacts and dotfiles.
+### Repository Indexing with Gitignore Filtering
+- Discovers files using globbing with comprehensive ignore patterns including .gitignore rules.
+- Loads .gitignore patterns from all subdirectories with proper path scoping.
+- Merges .gitignore patterns with default ignore patterns and binary exclusions.
 - Writes file paths to the local database in chunks to avoid SQL limits.
 - Generates a repository identifier and clears prior file records for deterministic reindexing.
 - Emits timing metrics and structured logs for observability.
@@ -303,19 +317,19 @@ SearchTabState --> StatePersistence : "manages"
 flowchart TD
 Start(["Start indexRepository"]) --> GenRepoId["Generate repoId"]
 GenRepoId --> ClearDB["Clear existing repo files"]
-ClearDB --> LoadGitignore["Load .gitignore patterns"]
-LoadGitignore --> MergePatterns["Merge defaults and .gitignore"]
-MergePatterns --> Glob["Glob files (nodir, dot=false, follow=false)"]
+ClearDB --> LoadGitignore["Load .gitignore patterns (ALL subdirectories)"]
+LoadGitignore --> MergePatterns["Merge with default patterns"]
+MergePatterns --> Glob["Glob files with ignore patterns"]
 Glob --> Sort["Sort files deterministically"]
 Sort --> BatchSave["Save in chunks to DB"]
 BatchSave --> Done(["Return file count"])
 ```
 
 **Diagram sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L29-L114)
 
 **Section sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L29-L114)
 
 ### File Embedding Pipeline
 - Binary detection: skips files with known binary extensions and common text basenames without extensions.
@@ -566,45 +580,9 @@ Check --> |Fail| Error["Throw error"]
 **Section sources**
 - [migrationService.ts](file://src/core/indexing/migrationService.ts#L17-L46)
 
-### Enhanced State Restoration in SearchTab
-**Updated** The SearchTab component now includes comprehensive state restoration functionality through the `hydrate` message command and advanced state persistence mechanisms.
-
-#### State Persistence and Loading
-- Loads saved state from `vscode.getState()` on component initialization
-- Initializes UI state with persisted values or defaults
-- Persists state changes automatically using `vscode.setState()`
-
-#### Hydration Logic
-- Handles `hydrate` message command for consolidated state restoration
-- Restores indexing state, counts, and UI preferences
-- Manages indexing progress and pause state restoration
-
-#### State Restoration Flow
-```mermaid
-sequenceDiagram
-participant Provider as "RepomixWebviewProvider"
-participant SearchTab as "SearchTab Component"
-participant VSCode as "vscode.getState()"
-Provider->>VSCode : Load persisted state
-Provider->>SearchTab : Send 'hydrate' message
-SearchTab->>SearchTab : Update state from hydrate
-SearchTab->>VSCode : Persist restored state
-SearchTab->>SearchTab : Continue operations seamlessly
-```
-
-**Diagram sources**
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L169-L243)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
-
-**Section sources**
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L169-L243)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)
-
 ## Dependency Analysis
-- Cohesion: Each module has a focused responsibility—indexing, embedding, orchestration, monitoring, adapters, utilities, and state management.
-- Coupling: Embedding pipeline depends on chunking, embedding service, and vector adapters; orchestrator depends on database service and adapters; monitor depends on database service and orchestrator; state management depends on SearchTab and webview provider.
+- Cohesion: Each module has a focused responsibility—indexing, embedding, orchestration, monitoring, adapters, utilities, and gitignore filtering.
+- Coupling: Embedding pipeline depends on chunking, embedding service, and vector adapters; orchestrator depends on database service and adapters; monitor depends on database service and orchestrator; gitignore system depends on file utilities and command integrations.
 - External dependencies: Pinecone SDK, Qdrant client, Google Generative AI, js-tiktoken, tree-sitter WASM (planned), and VS Code APIs for persistence and secrets.
 
 ```mermaid
@@ -624,12 +602,12 @@ RP --> REO
 RS["retryService.ts"] --> FEP
 MS["migrationService.ts"] --> VF
 QE["queryExpansion.ts"] --> REO
-ST["SearchTab State"] --> HW["Hydrate Command"]
-HW --> RS
+GIF["gitignoreUtils.ts"] --> RI
+FFE["filteredFileExpander.ts"] --> CMD["Command Integration"]
 ```
 
 **Diagram sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L1-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L1-L114)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L1-L655)
 - [repoIndexMonitor.ts](file://src/core/indexing/repoIndexMonitor.ts#L1-L224)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L469)
@@ -643,15 +621,15 @@ HW --> RS
 - [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L1-L64)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1-L1217)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
 
 **Section sources**
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L1-L655)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L469)
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1-L1217)
-- [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
 
 ## Performance Considerations
 - Concurrency controls: tune max concurrent files, embedding batches, and upsert batches to balance throughput and provider rate limits.
@@ -660,6 +638,7 @@ HW --> RS
 - Retry backoff: exponential backoff reduces thundering herds and improves resilience under transient failures.
 - Hash-based deduplication: vector IDs incorporate content hashes to prevent duplicates when content changes; ensure consistent hashing and metadata updates.
 - Monitoring: use RepoIndexMonitor's debounce to avoid frequent re-indexing during rapid saves.
+- **Gitignore Optimization**: The enhanced gitignore filtering system optimizes performance by skipping entire ignored directory subtrees and applying path scoping rules for accurate matching.
 - **State Restoration**: The enhanced state restoration system minimizes UI flicker and maintains user context across application restarts through consolidated hydration.
 
 ## Troubleshooting Guide
@@ -668,11 +647,12 @@ HW --> RS
 - Vector upsert failures: validate adapter configuration (API keys, index/collection names); ensure repoId filtering and deterministic IDs; check provider quotas.
 - Incremental updates not applied: verify pending file state in the database and that the monitor is flushing; confirm orchestrator is invoked after debounce.
 - Migration issues: ensure new provider credentials are present; remember that local indexing state is reset but vectors remain in the previous provider.
-- **State Restoration Issues**: If UI state is not persisting correctly, check that `vscode.getState()` and `vscode.setState()` are functioning properly; verify the `hydrate` message command is being processed in SearchTab.tsx.
-- **Indexing State Continuity**: If indexing state appears inconsistent after restart, ensure the `indexingStateRestored` message is being sent from the controller and properly handled in the SearchTab component.
+- **Gitignore Issues**: If files are unexpectedly included or excluded, check .gitignore patterns and ensure proper path scoping; verify that the gitignore filtering is enabled in configuration.
+- **File Expansion Problems**: If clipboard operations don't respect .gitignore rules, verify the respectGitignoreInMarkdown setting and check filteredFileExpander logs for pattern loading errors.
+- **Performance Degradation**: Monitor gitignore pattern loading time and consider reducing the number of .gitignore files or simplifying complex patterns.
 
 **Section sources**
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L112-L121)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L105-L114)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L460-L469)
 - [vectorDb/factory.ts](file://src/core/indexing/vectorDb/factory.ts#L21-L62)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L55-L82)
@@ -680,11 +660,13 @@ HW --> RS
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L267-L454)
 - [repoIndexMonitor.ts](file://src/core/indexing/repoIndexMonitor.ts#L161-L208)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts#L17-L46)
-- [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L462-L486)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L207-L222)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L40-L43)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L46-L49)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L108-L118)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L99-L109)
 
 ## Conclusion
-The Indexing and Search System provides a robust, extensible framework for repository-wide semantic search. Its modular design separates concerns across indexing, embedding, orchestration, and vector storage, while offering provider abstraction and operational safeguards such as retries, migrations, and incremental updates. The enhanced state restoration functionality ensures seamless continuity of indexing operations through comprehensive state hydration and persistence mechanisms. By tuning concurrency, chunking, and batching parameters, teams can achieve scalable and responsive search experiences tailored to their environments.
+The Indexing and Search System provides a robust, extensible framework for repository-wide semantic search. Its modular design separates concerns across indexing, embedding, orchestration, and vector storage, while offering provider abstraction and operational safeguards such as retries, migrations, and incremental updates. **Updated** The enhanced gitignore filtering system ensures accurate context selection by applying .gitignore rules consistently throughout the entire indexing and search process, improving the relevance and quality of search results. The comprehensive state restoration functionality ensures seamless continuity of indexing operations through comprehensive state hydration and persistence mechanisms. By tuning concurrency, chunking, and batching parameters, teams can achieve scalable and responsive search experiences tailored to their environments.
 
 ## Appendices
 
@@ -697,6 +679,10 @@ The Indexing and Search System provides a robust, extensible framework for repos
   - Qdrant: configure base URL, optional API key for hosted instances, and collection name; ensure deterministic vector IDs align with pipeline.
 - Query expansion:
   - Configure a valid Google API key for query expansion; the system uses a lightweight model to generate semantic variants.
+- **Gitignore Filtering**:
+  - Enable respectGitignoreInMarkdown in VS Code settings for clipboard operations.
+  - The system automatically discovers and applies .gitignore patterns from all subdirectories.
+  - Supports comprehensive gitignore rule syntax including absolute patterns, global patterns, and directory patterns.
 - **State Restoration**:
   - The system automatically handles state persistence through `vscode.getState()` and `vscode.setState()`.
   - The `hydrate` message command provides consolidated state restoration for seamless UI continuity.
@@ -709,5 +695,9 @@ The Indexing and Search System provides a robust, extensible framework for repos
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L8-L11)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L16-L40)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L23-L41)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L78-L89)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L69-L80)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L226-L243)
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L157-L173)

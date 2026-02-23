@@ -8,8 +8,10 @@ import { vscode } from '../../vscode-api.js';
 import type { PackagePayload } from './packageTypes.js';
 
 interface Message {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
+  timestamp?: number;
 }
 
 interface ToolCall {
@@ -33,11 +35,20 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
   const [toolCalls] = useState<ToolCall[]>([]);
   const [progressText, setProgressText] = useState<string>('');
   const [pendingPackage, setPendingPackage] = useState<PendingPackageReview | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<{ timestamp: number; id: string } | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
+    if (!shouldAutoScrollRef.current) {
+      shouldAutoScrollRef.current = true;
+      return;
+    }
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, pendingPackage, progressText]);
 
@@ -45,16 +56,44 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message?.command === 'threadHistory' && Array.isArray(message.messages)) {
-        setMessages(
-          message.messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({
+        const incoming = message.messages.map(
+          (m: { id?: string; role: 'user' | 'assistant'; content: string; timestamp?: number }) => ({
+            id: m.id,
             role: m.role,
             content: m.content,
-          }))
+            timestamp: m.timestamp,
+          })
         );
+        const append = message.append === true;
+        if (append) {
+          shouldAutoScrollRef.current = false;
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => m.id).filter(Boolean));
+            const dedupedIncoming = incoming.filter((m) => !m.id || !seen.has(m.id));
+            return [...dedupedIncoming, ...prev];
+          });
+        } else {
+          shouldAutoScrollRef.current = true;
+          setMessages(incoming);
+        }
+
+        if (typeof message.threadId === 'string') {
+          setActiveThreadId(message.threadId);
+        }
+        setHasMoreHistory(Boolean(message.hasMore));
+        setHistoryCursor(
+          message.nextCursor &&
+            typeof message.nextCursor.timestamp === 'number' &&
+            typeof message.nextCursor.id === 'string'
+            ? message.nextCursor
+            : null
+        );
+        setIsLoadingHistory(false);
         return;
       }
       if (message?.command === 'chatResponse' && typeof message.text === 'string') {
         setProgressText('');
+        shouldAutoScrollRef.current = true;
         setMessages((prev) => [...prev, { role: 'assistant', content: message.text }]);
         return;
       }
@@ -81,8 +120,22 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
 
   const handleSend = (text: string) => {
     setProgressText('');
+    shouldAutoScrollRef.current = true;
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     vscode.postMessage({ command: 'chatSubmit', text });
+  };
+
+  const loadOlderHistory = () => {
+    if (!activeThreadId || !historyCursor || isLoadingHistory) {
+      return;
+    }
+
+    setIsLoadingHistory(true);
+    vscode.postMessage({
+      command: 'getThreadHistoryPage',
+      threadId: activeThreadId,
+      before: historyCursor,
+    });
   };
 
   const approvePendingPackage = () => {
@@ -133,9 +186,29 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
         display: 'flex',
         flexDirection: 'column'
       }}>
+        {hasMoreHistory && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
+            <button
+              type="button"
+              onClick={loadOlderHistory}
+              disabled={isLoadingHistory}
+              style={{
+                border: '1px solid var(--vscode-widget-border)',
+                borderRadius: '6px',
+                background: 'var(--vscode-editorWidget-background)',
+                color: 'var(--vscode-foreground)',
+                padding: '4px 10px',
+                cursor: isLoadingHistory ? 'default' : 'pointer',
+                opacity: isLoadingHistory ? 0.7 : 1,
+              }}
+            >
+              {isLoadingHistory ? 'Loading...' : 'Load older messages'}
+            </button>
+          </div>
+        )}
         {messages.map((message, index) => (
           <ChatMessage 
-            key={index}
+            key={message.id ?? `${message.role}-${index}-${message.timestamp ?? 0}`}
             role={message.role}
             text={message.content}
           />

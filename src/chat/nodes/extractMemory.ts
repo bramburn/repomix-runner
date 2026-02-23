@@ -24,6 +24,40 @@ import type { ConversationMessage } from '../memory/types.js';
  * Extraction is skipped if the thread has fewer messages.
  */
 const MIN_MESSAGES_FOR_EXTRACTION = 4;
+const EXTRACTION_FAILURE_COUNT_KEY = 'repomix.chat.memoryExtractionFailureCount';
+const EXTRACTION_LAST_ALERT_AT_KEY = 'repomix.chat.memoryExtractionLastAlertAt';
+const EXTRACTION_ALERT_THRESHOLD = 3;
+const EXTRACTION_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+
+async function resetExtractionHealth(extensionContext: ExtensionContext): Promise<void> {
+  await Promise.all([
+    extensionContext.workspaceState.update(EXTRACTION_FAILURE_COUNT_KEY, 0),
+    extensionContext.workspaceState.update(EXTRACTION_LAST_ALERT_AT_KEY, 0),
+  ]);
+}
+
+async function recordExtractionFailure(
+  extensionContext: ExtensionContext,
+  onProgress: ProgressCallback
+): Promise<void> {
+  const currentCount =
+    extensionContext.workspaceState.get<number>(EXTRACTION_FAILURE_COUNT_KEY, 0) ?? 0;
+  const nextCount = currentCount + 1;
+  const lastAlertAt =
+    extensionContext.workspaceState.get<number>(EXTRACTION_LAST_ALERT_AT_KEY, 0) ?? 0;
+  const now = Date.now();
+  const shouldAlert =
+    nextCount >= EXTRACTION_ALERT_THRESHOLD && now - lastAlertAt >= EXTRACTION_ALERT_COOLDOWN_MS;
+
+  await extensionContext.workspaceState.update(EXTRACTION_FAILURE_COUNT_KEY, nextCount);
+
+  if (shouldAlert) {
+    await extensionContext.workspaceState.update(EXTRACTION_LAST_ALERT_AT_KEY, now);
+    onProgress(
+      `Memory extraction has failed ${nextCount} times recently. Check API key/network and extension logs.`
+    );
+  }
+}
 
 export async function extractMemoryNode(
   state: typeof ChatState.State,
@@ -80,6 +114,7 @@ export async function extractMemoryNode(
     if (extractedMemories.length === 0) {
       logger.both.debug('[extractMemory] No new memories extracted');
       onProgress('No new facts to remember');
+      await resetExtractionHealth(extensionContext);
       return {};
     }
 
@@ -110,6 +145,7 @@ export async function extractMemoryNode(
 
     logger.both.info(`[extractMemory] Stored ${storedCount} new memories`);
     onProgress(`Remembered ${storedCount} fact${storedCount === 1 ? '' : 's'}`);
+    await resetExtractionHealth(extensionContext);
 
     // Format memories for state display
     const updatedMemories = await memoryManager.getAllForContext(state.threadId, repoId);
@@ -125,6 +161,7 @@ export async function extractMemoryNode(
     // Non-blocking: log and continue
     logger.both.warn('[extractMemory] Extraction failed (non-blocking):', error);
     onProgress('Memory extraction unavailable');
+    await recordExtractionFailure(extensionContext, onProgress);
     return {};
   }
 }

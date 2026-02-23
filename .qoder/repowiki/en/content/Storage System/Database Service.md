@@ -2,25 +2,28 @@
 
 <cite>
 **Referenced Files in This Document**
-- [databaseService.ts](file://src/core/storage/databaseService.ts)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts)
+- [threadRepository.ts](file://src/chat/db/threadRepository.ts)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts)
+- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql)
+- [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql)
 - [extension.ts](file://src/extension.ts)
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts)
-- [DebugController.ts](file://src/webview/controllers/DebugController.ts)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts)
-- [GitService.ts](file://src/git/GitService.ts)
-- [esbuild.js](file://esbuild.js)
-- [package.json](file://package.json)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts)
+- [001_postgresql_chat_storage.md](file://PRDs/001_postgresql_chat_storage.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced migration collision prevention with timestamped legacy table naming
-- Improved backward compatibility with schema-aware branch detection system
-- Added comprehensive branch management capabilities with `getTrackedBranches()` and `clearBranchData()`
-- Enhanced database reliability with better error handling and transaction management
-- Updated schema design to support branch-aware indexing and file state tracking
+- Complete replacement of SQLite-based storage with PostgreSQL-backed chat storage system
+- Implementation of enterprise-grade database connections with connection pooling and proper cleanup procedures
+- Integration of VS Code secrets for secure credential storage instead of plain text configuration
+- Introduction of comprehensive migration procedures with version control and rollback support
+- Addition of specialized repository classes for thread, message, memory, batch, and architecture operations
+- Implementation of transaction management and error handling for database operations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -34,440 +37,374 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains the Database Service implementation that powers persistent storage for the VS Code extension. It integrates sql.js to provide SQLite-like functionality in the extension host, enabling robust local data persistence for agent runs, debug runs, repository file tracking, and indexing progress. The service manages initialization, connection lifecycle, transactions, batch operations, schema design, migrations, and persistence to disk. It also documents usage patterns across controllers and provides guidance for maintenance, backups, and recovery.
+This document explains the Database Service implementation that provides PostgreSQL-backed chat storage for the VS Code extension. The system has been completely redesigned to replace the previous SQLite-based storage with a robust, enterprise-grade PostgreSQL solution. It integrates connection pooling, secure credential storage via VS Code secrets, comprehensive migration handling, and specialized repository classes for different data types. The service manages database initialization, connection lifecycle, transaction management, and provides CRUD operations for chat threads, messages, memory entries, batch jobs, and repository architecture data.
 
-**Updated** Enhanced with improved migration collision prevention, timestamped legacy table naming, better backward compatibility, and enhanced schema-aware branch detection system for improved database reliability.
+**Updated** Complete replacement of SQLite-based storage with PostgreSQL-backed system featuring enterprise-grade database connections, secure credential storage, and comprehensive migration procedures.
 
 ## Project Structure
-The Database Service resides under the core storage module and is wired into the extension lifecycle. Controllers consume the service to persist and retrieve data for UI surfaces.
+The Database Service is organized around specialized repository classes that encapsulate database operations for different data types. The system is integrated into the extension lifecycle and uses VS Code secrets for secure credential storage.
 
 ```mermaid
 graph TB
 subgraph "Extension Host"
 EXT["extension.ts"]
-DB["DatabaseService<br/>src/core/storage/databaseService.ts"]
-BMS["BranchMaintenanceService<br/>src/core/indexing/BranchMaintenanceService.ts"]
-GS["GitService<br/>src/git/GitService.ts"]
+PG["PostgresClient<br/>src/chat/db/postgresClient.ts"]
+CC["ConfigController<br/>src/webview/controllers/ConfigController.ts"]
 end
-subgraph "Webview Controllers"
-AC["AgentController.ts"]
-DC["DebugController.ts"]
-IC["IndexingController.ts"]
+subgraph "Repository Layer"
+TR["ThreadRepository"]
+MR["MessageRepository"]
+MEMR["MemoryRepository"]
+BR["BatchRepository"]
+AR["ArchitectureRepository"]
 end
-EXT --> DB
-AC --> DB
-DC --> DB
-IC --> DB
-BMS --> DB
-BMS --> GS
+subgraph "Database Schema"
+THREADS["chat_threads"]
+MESSAGES["chat_messages"]
+MEMORY["chat_memory"]
+BATCH["batch_jobs"]
+ARCH["repo_architecture"]
+end
+EXT --> PG
+PG --> TR
+PG --> MR
+PG --> MEMR
+PG --> BR
+PG --> AR
+TR --> THREADS
+MR --> MESSAGES
+MEMR --> MEMORY
+BR --> BATCH
+AR --> ARCH
+CC --> PG
 ```
 
 **Diagram sources**
-- [extension.ts](file://src/extension.ts#L45-L73)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L27-L71)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L1-L33)
-- [GitService.ts](file://src/git/GitService.ts#L1-L138)
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts#L11-L18)
-- [DebugController.ts](file://src/webview/controllers/DebugController.ts#L16-L22)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L79-L87)
+- [extension.ts](file://src/extension.ts#L79-L106)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
+- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L152)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L307)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L242)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L45-L236)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L26-L104)
 
 **Section sources**
-- [extension.ts](file://src/extension.ts#L45-L73)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L27-L71)
+- [extension.ts](file://src/extension.ts#L79-L106)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
 
 ## Core Components
-- DatabaseService: Central class managing sql.js initialization, schema creation, CRUD operations, transactions, and persistence.
-- Controllers: AgentController, DebugController, and IndexingController depend on DatabaseService for data persistence and retrieval.
-- BranchMaintenanceService: Manages cleanup of stale branches and maintains vector database consistency.
-- GitService: Provides branch detection and repository information for schema-aware operations.
-- Build pipeline: esbuild copies sql-wasm assets to ensure runtime availability.
+- **PostgresClient**: Connection pool singleton that manages PostgreSQL connections, runs migrations, and provides query utilities with retry logic
+- **ThreadRepository**: Handles CRUD operations for chat threads with proper validation and indexing
+- **MessageRepository**: Manages message persistence with transaction support, pagination, and compression tracking
+- **MemoryRepository**: Provides memory entry CRUD operations with scope-based organization and expiration handling
+- **BatchRepository**: Manages batch job records for the HITL workflow with status tracking and metadata storage
+- **ArchitectureRepository**: Handles repository architecture snapshots with upsert operations and expiration management
+- **Migration System**: Version-controlled schema evolution with rollback support and verification utilities
+- **VS Code Secrets Integration**: Secure credential storage using VS Code's secret storage API
 
 Key responsibilities:
-- Initialize sql.js with locateFile resolution for sql-wasm.wasm.
-- Create tables and indexes on first run with enhanced branch-aware schema.
-- Provide CRUD APIs for agent runs, debug runs, repository files, and indexing progress.
-- Support batch inserts and transactions for reliability with improved error handling.
-- Persist database to a file in global storage and restore on startup.
-- Run lightweight migrations for backward compatibility with collision prevention.
-- Manage branch-aware indexing with comprehensive branch detection and cleanup capabilities.
+- Initialize PostgreSQL connection pool with configurable parameters (max connections, timeouts)
+- Execute schema migrations automatically on first connection
+- Provide transaction-safe CRUD operations through specialized repositories
+- Implement retry logic for transient connection errors
+- Manage database lifecycle with proper cleanup on extension deactivation
+- Store connection credentials securely using VS Code secrets
+- Support concurrent access through connection pooling
 
-**Updated** Enhanced with branch-aware schema design, improved migration collision prevention, and comprehensive branch management functionality.
+**Updated** Complete replacement with PostgreSQL backend featuring connection pooling, secure credential storage, and comprehensive migration system.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L27-L151)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L1-L33)
-- [GitService.ts](file://src/git/GitService.ts#L1-L138)
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts#L180-L188)
-- [DebugController.ts](file://src/webview/controllers/DebugController.ts#L49-L60)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L524-L543)
-- [esbuild.js](file://esbuild.js#L41-L71)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L351)
+- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L152)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L307)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L242)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L45-L236)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L26-L104)
 
 ## Architecture Overview
-The Database Service uses sql.js to emulate SQLite in-process. It initializes the engine, creates tables and indexes, and persists the in-memory database to disk. Controllers call into the service to store and retrieve data. The service now includes enhanced branch-aware functionality for multi-branch repository indexing.
+The Database Service uses a PostgreSQL connection pool to provide enterprise-grade database connectivity. The system initializes the pool on extension activation, runs automatic migrations, and provides specialized repositories for different data types. All database operations are transaction-safe and include proper error handling with retry logic.
 
 ```mermaid
 sequenceDiagram
-participant Ext as "Extension Host"
-participant DB as "DatabaseService"
-participant FS as "File System"
-participant BMS as "BranchMaintenanceService"
-Ext->>DB : initialize()
-DB->>DB : initSqlJs({ locateFile })
-DB->>FS : createDirectory(globalStorage)
-DB->>FS : read existing DB file (if present)
-DB->>DB : createTables() + branch-aware indexes
-DB->>DB : runMigrations() with collision prevention
-DB->>FS : saveDatabase()
-Note over DB,FS : Database file stored in global storage
-BMS->>DB : getTrackedBranches()
-DB-->>BMS : branch list
-BMS->>DB : clearBranchData()
-DB->>FS : cleanup stale branch data
+participant EXT as "Extension Host"
+participant PG as "PostgresClient"
+participant POOL as "Connection Pool"
+participant DB as "PostgreSQL Database"
+EXT->>PG : initPool(connectionString)
+PG->>POOL : Create Pool(max=10, timeout=10000)
+PG->>DB : Test connection (SELECT version())
+DB-->>PG : PostgreSQL version
+PG->>DB : Run migrations (schema_migrations)
+DB-->>PG : Migration status
+PG-->>EXT : Pool ready
+Note over PG,DB : Connection pool with automatic retry logic
 ```
 
 **Diagram sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L40-L71)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L73-L151)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L433-L439)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L295-L312)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L461-L485)
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L40-L71)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L73-L151)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L433-L439)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L295-L312)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L461-L485)
 
 ## Detailed Component Analysis
 
-### DatabaseService Class
+### PostgresClient - Connection Pool Management
 Responsibilities:
-- Engine initialization with locateFile resolution for sql-wasm.wasm.
-- Table creation and index creation with enhanced branch-aware schema design.
-- CRUD for agent runs and debug runs.
-- Repository file tracking with batch operations.
-- Indexing progress tracking and incremental state management with branch awareness.
-- Transactions for batch writes and atomicity with improved error handling.
-- Persistence to a SQLite-compatible file in global storage.
-- Lightweight migration handling for schema evolution with collision prevention.
-- Comprehensive branch management with detection and cleanup capabilities.
+- **Connection Pool Initialization**: Creates a PostgreSQL connection pool with configurable parameters including max connections (10), idle timeout (30000ms), and connection timeout (10000ms)
+- **Automatic Migration**: Runs schema migrations on first connection, checking for existing tables and applying necessary changes
+- **Retry Logic**: Implements retry mechanism for transient connection errors with exponential backoff
+- **Pool Management**: Provides getPool(), closePool(), and queryWithRetry() utilities for consistent database access
+- **Verification**: Includes verifyMigration() and testConnection() methods for health checks and debugging
 
-**Updated** Enhanced with branch-aware schema design, improved migration collision prevention, and comprehensive branch management functionality.
+**Updated** Enterprise-grade connection pool with comprehensive error handling and automatic migration support.
 
 Initialization flow:
-- Creates global storage directory.
-- Attempts to load an existing database file; falls back to a new in-memory database on failure.
-- Builds schema and indexes with branch-aware unique constraints, runs migrations with timestamped legacy table naming, then persists.
-
-Persistence pattern:
-- Exports the in-memory database to a buffer and writes to the database file path.
-- Reads the file back on subsequent starts.
-
-Transactions:
-- Uses BEGIN/COMMIT/ROLLBACK around batch operations to maintain consistency.
-- Applies UPSERT semantics for incremental state using ON CONFLICT clauses.
-- Implements improved error handling with automatic rollback on exceptions.
-
-Indexes:
-- Timestamp-based indexes for efficient queries.
-- Composite indexes for frequent filter patterns including branch-aware unique constraints.
-- Enhanced indexing for branch detection and cleanup operations.
-
-Migrations:
-- Checks for presence of optional columns and adds them if missing.
-- Uses timestamped legacy table naming to prevent migration collisions.
-- Implements comprehensive branch-aware migration with schema detection and fallback mechanisms.
-
-**Updated** Enhanced migration system with timestamped legacy table naming and improved backward compatibility.
+- Validates connection string from VS Code secrets
+- Creates Pool instance with security-conscious defaults
+- Tests connection with SELECT version()
+- Executes migration system to ensure schema consistency
+- Registers error handlers for pool lifecycle management
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L27-L71)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L73-L151)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L153-L175)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L376-L428)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L430-L500)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L433-L439)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L351)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L353-L368)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L373-L459)
 
-#### Class Diagram
-```mermaid
-classDiagram
-class DatabaseService {
--db : Database
--dbPath : string
--SQL : any
--isInitialized : boolean
-+initialize() Promise<void>
-+saveAgentRun(run) Promise<void>
-+getAgentRunById(id) Promise<AgentRunHistory|null>
-+getAgentRunHistory(limit) Promise<AgentRunHistory[]>
-+saveDebugRun(files, repoName?) Promise<number>
-+getDebugRuns(repoName?) Promise<DebugRun[]>
-+deleteDebugRun(id) Promise<void>
-+saveRepoFilesBatch(repoId, filePaths) Promise<void>
-+clearRepoFiles(repoId) Promise<void>
-+getRepoFileCount(repoId) Promise<number>
-+getRepoFiles(repoId) Promise<string[]>
-+initializeIndexingProgress(repoId, filePaths, branchName) Promise<void>
-+markFileProcessing(repoId, filePath, branchName) Promise<void>
-+markFileCompleted(repoId, filePath, branchName) Promise<void>
-+markFileFailed(repoId, filePath, error, branchName) Promise<void>
-+getPendingFiles(repoId, branchName) Promise<string[]>
-+getCompletedFilesCount(repoId, branchName) Promise<number>
-+getIndexingStatus(repoId, branchName) Promise<object>
-+clearIndexingProgress(repoId, branchName) Promise<void>
-+markRepoFilesPending(repoId, filePaths, branchName) Promise<void>
-+getPendingRepoFiles(repoId, branchName) Promise<string[]>
-+markRepoFileIndexed(repoId, filePath, lastIndexedHash, branchName, commitSha?) Promise<void>
-+markRepoFileDeleted(repoId, filePath, branchName) Promise<void>
-+getAllRepoFileStates(repoId, branchName) Promise<Map>
-+getTrackedBranches(repoId) Promise<string[]>
-+clearBranchData(repoId, branchName) Promise<void>
-+dispose() void
--saveDatabase() Promise<void>
--runMigrations() Promise<void>
--migrateRepoIndexingProgressToBranchAware() Promise<void>
--migrateRepoFileStateToBranchAware() Promise<void>
--getTableColumns(tableName) string[]
--tableExists(tableName) boolean
--hasUniqueIndexWithBranch(tableName) boolean
-}
-```
+### ThreadRepository - Chat Thread Management
+Responsibilities:
+- **Thread Creation**: Creates new chat threads with validation for repo_id and title
+- **Thread Retrieval**: Fetches threads by repository with proper ordering and status filtering
+- **Thread Updates**: Supports partial updates to thread properties including title, preview, and metrics
+- **Thread Lifecycle**: Handles archiving, deletion, and status management
+- **Data Validation**: Implements input sanitization and length validation for thread properties
 
-**Diagram sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L27-L1865)
-
-### CRUD Operations
-
-- Agent Runs
-  - Save: Inserts a structured record with JSON-serialized file list and metadata.
-  - Retrieve by ID: Loads and parses the stored file list.
-  - History: Paginates recent runs by timestamp.
-
-- Debug Runs
-  - Save: Inserts a new debug run with timestamp, JSON-serialized files, and optional repository name.
-  - List: Optionally filters by repository name and limits results.
-  - Delete: Removes a specific run.
-
-- Repository Files
-  - Batch insert: Efficiently inserts many file paths within a transaction.
-  - Count and list: Aggregates tracked files per repository.
-  - Clear: Removes all tracked files for a repository.
-
-- Indexing Progress Tracking
-  - Initialize progress: Resets and seeds progress for all files as pending with branch awareness.
-  - Update states: Marks files as processing/completed/failed with timestamps and branch context.
-  - Query counts and summaries: Computes pending/completed/failed counts per branch.
-  - Cleanup: Clears progress for a repository with branch-specific filtering.
-
-- Incremental Indexing State
-  - Pending: Marks files as pending with UPSERT semantics and branch-aware conflict resolution.
-  - Indexed: Records successful indexing with content hash, commit SHA, and timestamps.
-  - Deleted: Records deletions for cleanup and analytics with branch context.
-  - Enumeration: Retrieves all states for synchronization with branch filtering.
-
-**Updated** Enhanced with branch-aware operations and improved state management.
+**Updated** Enhanced thread management with comprehensive validation and lifecycle operations.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L177-L252)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L254-L355)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L357-L431)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L447-L629)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L666-L881)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1080-L1190)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1260-L1341)
+- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L49-L151)
 
-### Transaction Management and Batch Operations
-- Batch repository file insertion uses a transaction to ensure atomicity across many inserts.
-- Indexing progress initialization wraps deletions and inserts in a transaction.
-- Incremental state updates leverage UPSERT with ON CONFLICT to avoid separate reads/writes.
-- Rollback is executed on exceptions to preserve consistency.
-- Branch cleanup operations use transactions to ensure data integrity during cleanup.
+### MessageRepository - Message Persistence
+Responsibilities:
+- **Transactional Message Saving**: Ensures atomic operations combining message insertion and thread updates
+- **Pagination Support**: Implements cursor-based pagination for efficient message loading
+- **Compression Tracking**: Manages message compression state with metadata preservation
+- **Summary Messages**: Handles system-generated summary messages for compressed content
+- **Content Validation**: Validates message roles, content, and timestamp formats
 
-**Updated** Enhanced with branch-aware transaction management for cleanup operations.
+**Updated** Advanced message management with transaction support and compression tracking.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L362-L379)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L452-L477)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L680-L705)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1115-L1142)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1840-L1854)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L85-L145)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L152-L199)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L225-L290)
 
-### Data Persistence and Lifecycle
-- Persistence: The database is exported to a buffer and written to a file in global storage.
-- Restoration: On initialization, the service attempts to read an existing file; on failure, it falls back to a new in-memory database.
-- Disposal: Saves and closes the database on shutdown.
+### MemoryRepository - Memory Entry Management
+Responsibilities:
+- **Scope-Based Organization**: Manages memory entries across session, repository, and global scopes
+- **Expiration Handling**: Supports time-based expiration with automatic cleanup
+- **Unique Constraints**: Enforces uniqueness per scope and key combination
+- **Search Capabilities**: Provides keyword search across memory entries
+- **Vector Support**: Includes optional embedding vector storage for semantic retrieval
 
-**Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L433-L439)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1856-L1863)
-
-### Schema Design
-Tables and indexes:
-- agent_runs: Primary key id, timestamp, query, files (JSON), file_count, output_path, success flag, error, duration, bundle_id, query_id, created_at.
-- debug_runs: Auto-increment id, timestamp, files (JSON), repo_name.
-- repo_files: Auto-increment id, repo_id, file_path, created_at.
-- repo_indexing_progress: Auto-increment id, repo_id, branch_name (NEW), file_path, status, timestamps, error_message, created_at; unique constraint on (repo_id, branch_name, file_path).
-- repo_file_state: Composite primary key (repo_id, branch_name, file_path), status, last_indexed_hash, last_indexed_at, commit_sha (NEW), is_merged (NEW), last_synced_at (NEW), updated_at, error.
-- index_history: Auto-increment id, timestamp, repo_id, file_path, event_type, status, details, created_at.
-- repo_blueprints: Auto-increment id, repo_id (unique), package_info, config_files, directory_structure, architectural_patterns, development_guides, critical_file_hashes, last_git_commit, generated_at, expires_at, analysis_version, tokens_used, created_at.
-- indexing_pause_checkpoint: Auto-increment id, repo_id (unique), paused_at, completed_count, total_count, created_at.
-
-Indexes:
-- Timestamp indexes for agent_runs and debug_runs.
-- Repository name index for debug_runs.
-- repo_id indexes for repo_files and repo_indexing_progress.
-- Branch-aware composite index on repo_indexing_progress(repo_id, branch_name) and repo_file_state(repo_id, branch_name, status).
-- Unique constraints on branch-aware composite keys for data integrity.
-- Index history with timestamp and repo_id filtering.
-- Repository blueprints with expiration and repo_id indexing.
-
-**Updated** Enhanced schema with branch-aware tables and indexes for improved multi-branch repository support.
-
-Foreign keys: None. The design relies on application-level integrity via unique constraints and composite primary keys.
+**Updated** Comprehensive memory management with scope-based organization and expiration support.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L158-L293)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L48-L86)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L108-L126)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L199-L241)
 
-### Migration Handling
-- Checks for optional columns and adds them if missing.
-- Uses timestamped legacy table naming to prevent migration collisions (`repo_indexing_progress_legacy_${Date.now()}` and `repo_file_state_legacy_${Date.now()}`).
-- Implements comprehensive branch-aware migration with schema detection and fallback mechanisms.
-- Non-fatal migration errors are handled to preserve backward compatibility.
-- Enhanced schema-aware branch detection system with improved fallback logic.
+### BatchRepository - Batch Job Management
+Responsibilities:
+- **Job Lifecycle**: Manages batch job creation, status updates, and completion tracking
+- **Package Types**: Supports different package types (plan, code_change, code_review)
+- **Status Tracking**: Provides comprehensive status management from draft to completed/failed
+- **Metadata Storage**: Handles complex payload storage with JSONB serialization
+- **Polling Support**: Enables external polling for job status updates
 
-**Updated** Enhanced with timestamped legacy table naming and improved backward compatibility.
-
-**Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L295-L320)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L376-L428)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L430-L500)
-
-### Branch Management System
-- **getTrackedBranches()**: Detects all branches with tracked data using schema-aware detection with fallback mechanisms.
-- **clearBranchData()**: Cleans up stale branch data with transactional safety.
-- **Branch-aware operations**: All indexing and state operations now support branch-specific contexts.
-- **Schema detection**: Automatically detects branch column presence and adapts behavior accordingly.
-
-**New** Comprehensive branch management system for multi-branch repository support.
+**Updated** Enterprise batch job management with comprehensive status tracking and metadata support.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1779-L1838)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1840-L1854)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L51-L64)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L103-L182)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L187-L205)
 
-### Integration Points
-- Extension initialization: DatabaseService is constructed and initialized early in the extension lifecycle.
-- Controllers: AgentController, DebugController, and IndexingController depend on DatabaseService for persistence and retrieval.
-- MigrationService: Coordinates provider switching and clears local indexing state via DatabaseService.
-- BranchMaintenanceService: Manages cleanup of stale branches and maintains vector database consistency.
-- GitService: Provides branch detection and repository information for schema-aware operations.
+### ArchitectureRepository - Repository Architecture Management
+Responsibilities:
+- **Upsert Operations**: Handles both creation and updates of architecture snapshots
+- **Expiration Management**: Tracks generation and expiration timestamps
+- **Git Integration**: Stores associated git commit information
+- **Token Tracking**: Monitors token usage for cost management
+- **Unique Constraints**: Ensures single architecture snapshot per repository
 
-**Updated** Enhanced integration with BranchMaintenanceService and GitService for comprehensive branch management.
+**Updated** Advanced architecture management with upsert operations and comprehensive metadata tracking.
 
 **Section sources**
-- [extension.ts](file://src/extension.ts#L45-L73)
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts#L180-L188)
-- [DebugController.ts](file://src/webview/controllers/DebugController.ts#L49-L60)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L524-L543)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L34-L46)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L29-L60)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L62-L94)
+
+### Migration System - Schema Evolution
+The migration system provides version-controlled schema evolution with rollback support:
+
+**Migration Versions:**
+- **001_initial_schema**: Creates core chat tables (threads, messages, memory, batch, architecture)
+- **002_compression_schema**: Adds compression tracking columns to chat_messages table
+
+**Migration Features:**
+- **Version Tracking**: Uses schema_migrations table to track applied versions
+- **Rollback Support**: Implements transaction-based migrations with ROLLBACK on errors
+- **Idempotent Operations**: Ensures migrations can be safely re-applied
+- **Verification**: Provides migration status verification and error reporting
+
+**Updated** Comprehensive migration system with version control and rollback support.
+
+**Section sources**
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L7-L15)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L198-L280)
+- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L1-L87)
+- [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql#L1-L21)
+
+### Database Schema Design
+The PostgreSQL schema provides comprehensive chat functionality with proper relationships and indexing:
+
+**Core Tables:**
+- **chat_threads**: Thread metadata with UUID primary key, repository association, and status tracking
+- **chat_messages**: Message content with role-based validation, JSONB metadata, and compression tracking
+- **chat_memory**: Scope-based memory entries with expiration and vector support
+- **batch_jobs**: External job tracking with comprehensive status management
+- **repo_architecture**: Repository structure snapshots with expiration
+
+**Indexes and Constraints:**
+- **chat_threads**: Composite index on (repo_id, updated_at DESC) for efficient querying
+- **chat_messages**: Index on (thread_id, timestamp) and compression tracking indexes
+- **chat_memory**: Unique constraint on (scope, scope_id, key) with scope_id index
+- **batch_jobs**: Indexes on thread_id and status for filtering
+
+**Foreign Key Relationships:**
+- chat_messages.thread_id references chat_threads.id with ON DELETE CASCADE
+- batch_jobs.thread_id references chat_threads.id
+
+**Updated** Enterprise-grade schema design with proper relationships, constraints, and performance optimizations.
+
+**Section sources**
+- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L5-L86)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L18-L113)
+
+### Integration with Extension Lifecycle
+The PostgreSQL system integrates seamlessly with the extension lifecycle:
+
+**Activation Process:**
+- Reads connection string from VS Code secrets using SECRET_POSTGRES_CONNECTION
+- Initializes connection pool with error handling and user notifications
+- Sets up cleanup hooks for proper pool termination
+- Configures batch poller for background job monitoring
+
+**Security Integration:**
+- Uses VS Code secrets API for secure credential storage
+- Provides connection testing and verification utilities
+- Handles configuration changes dynamically
+
+**Updated** Seamless integration with extension lifecycle and secure credential management.
+
+**Section sources**
+- [extension.ts](file://src/extension.ts#L79-L106)
+- [extension.ts](file://src/extension.ts#L108-L115)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
 
 ## Dependency Analysis
 External dependencies:
-- sql.js: Provides SQLite engine in the browser/WASM context.
-- Build tooling: esbuild copies sql-wasm.wasm to dist for runtime availability.
+- **pg**: PostgreSQL client library for Node.js with connection pooling and transaction support
+- **@types/pg**: TypeScript definitions for PostgreSQL client
+- **VS Code Secrets API**: Secure credential storage integration
 
 Internal dependencies:
-- Controllers depend on DatabaseService for data operations.
-- MigrationService depends on DatabaseService to reset local indexing state.
-- BranchMaintenanceService depends on DatabaseService for branch cleanup operations.
-- GitService provides branch detection for schema-aware operations.
+- **Repository classes**: Specialized classes for different data types (threads, messages, memory, batch, architecture)
+- **Migration system**: Version-controlled schema evolution
+- **Extension lifecycle**: Integration with extension activation and deactivation
+- **ChatController**: High-level interface for chat functionality
 
-**Updated** Enhanced with BranchMaintenanceService and GitService dependencies.
+**Updated** New dependency on PostgreSQL client with secure credential storage integration.
 
 ```mermaid
 graph LR
 PKG["package.json"]
-ES["esbuild.js"]
-DB["DatabaseService.ts"]
-AC["AgentController.ts"]
-DC["DebugController.ts"]
-IC["IndexingController.ts"]
-MS["migrationService.ts"]
-BMS["BranchMaintenanceService.ts"]
-GS["GitService.ts"]
-PKG --> DB
-ES --> DB
-AC --> DB
-DC --> DB
-IC --> DB
-MS --> DB
-BMS --> DB
-BMS --> GS
+PG["pg (PostgreSQL client)"]
+TYPES["@types/pg (TypeScript types)"]
+EXT["extension.ts"]
+PGC["postgresClient.ts"]
+TR["threadRepository.ts"]
+MR["messageRepository.ts"]
+MEMR["memoryRepository.ts"]
+BR["batchRepository.ts"]
+AR["architectureRepository.ts"]
+CC["ConfigController.ts"]
+PKG --> PG
+PKG --> TYPES
+EXT --> PGC
+EXT --> CC
+PGC --> TR
+PGC --> MR
+PGC --> MEMR
+PGC --> BR
+PGC --> AR
+CC --> PGC
 ```
 
 **Diagram sources**
-- [package.json](file://package.json#L583-L602)
-- [esbuild.js](file://esbuild.js#L41-L71)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1-L4)
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts#L4-L5)
-- [DebugController.ts](file://src/webview/controllers/DebugController.ts#L4-L5)
-- [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L79-L80)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L2)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L1-L10)
-- [GitService.ts](file://src/git/GitService.ts#L1-L6)
+- [extension.ts](file://src/extension.ts#L79-L81)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L1-L2)
+- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L1-L2)
+- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L1-L2)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L1-L3)
+- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L1-L2)
+- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L1-L2)
 
 **Section sources**
-- [package.json](file://package.json#L583-L602)
-- [esbuild.js](file://esbuild.js#L41-L71)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1-L4)
+- [extension.ts](file://src/extension.ts#L79-L81)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L1-L2)
 
 ## Performance Considerations
-- Use transactions for batch operations to minimize disk writes and improve throughput.
-- Prefer UPSERT with ON CONFLICT for idempotent state updates to avoid extra SELECT statements.
-- Leverage indexes on frequently filtered columns (timestamps, repo_id, status, branch_name).
-- Limit result sets with pagination (e.g., history limit) to control memory usage.
-- Export and persist the database after significant write bursts to reduce fragmentation and improve durability.
-- Use branch-aware queries to optimize performance for multi-branch repositories.
-- Implement cleanup operations to prevent database bloat from stale branch data.
+- **Connection Pooling**: Maximum 10 concurrent connections with 30-second idle timeout and 10-second connection timeout
+- **Index Optimization**: Strategic indexing on frequently queried columns (repo_id, thread_id, status, timestamps)
+- **Transaction Efficiency**: Batch operations wrapped in transactions to minimize database round trips
+- **Pagination**: Cursor-based pagination prevents memory issues with large message histories
+- **Compression Support**: Built-in compression tracking reduces storage requirements for long conversations
+- **Async Operations**: Non-blocking operations with proper error handling and retry logic
 
-**Updated** Enhanced with branch-aware performance considerations and cleanup recommendations.
+**Updated** Enterprise-grade performance optimizations with connection pooling and strategic indexing.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
-- Database file corruption or load failures
-  - Cause: Corrupted or incompatible database file.
-  - Resolution: Delete the database file from global storage; the service will recreate tables and indexes on next start.
-  - Location: The database file path is derived from the extension's global storage URI and named consistently.
 
-- Missing sql-wasm.wasm at runtime
-  - Cause: Asset not bundled/copied during build.
-  - Resolution: Ensure esbuild copies sql-wasm.wasm to dist; verify the asset exists in the built output.
+**Connection Issues:**
+- **Connection string not configured**: Extension shows warning and disables chat features
+- **Invalid connection string**: Error notification with option to open settings
+- **Network connectivity**: Retry logic handles transient connection failures automatically
 
-- Migration errors with collision prevention
-  - Behavior: Non-fatal; the service uses timestamped legacy table naming to prevent collisions.
-  - Action: Verify schema changes; if unexpected, clear the database file to regenerate schema.
+**Migration Problems:**
+- **Migration failures**: Automatic rollback with detailed error logging
+- **Schema conflicts**: Verification utilities help diagnose migration issues
+- **Permission errors**: Ensure database user has CREATE TABLE and INSERT permissions
 
-- Transaction failures with branch cleanup
-  - Behavior: Automatic rollback on exceptions during branch cleanup operations.
-  - Action: Wrap critical sequences in try/catch and inspect logs; ensure branch cleanup operations are transactional.
+**Performance Issues:**
+- **Slow queries**: Check index utilization and query patterns
+- **Connection exhaustion**: Monitor pool usage and adjust max connections
+- **Large message loads**: Use pagination and cursor-based navigation
 
-- Large repository indexing with branch awareness
-  - Symptom: Slow progress or memory pressure with multi-branch repositories.
-  - Action: Use batched operations and periodic saves; monitor pending/completed counts per branch; implement branch cleanup for stale branches.
+**Data Integrity:**
+- **Transaction failures**: Automatic rollback preserves data consistency
+- **Duplicate entries**: Unique constraints prevent data duplication
+- **Expired data**: Automatic cleanup of expired memory entries
 
-- Branch detection issues
-  - Symptom: Incorrect branch tracking or cleanup failures.
-  - Action: Verify GitService integration; check branch-aware queries; ensure proper branch naming conventions.
-
-**Updated** Enhanced with branch-aware troubleshooting scenarios and collision prevention guidance.
+**Updated** Comprehensive troubleshooting for PostgreSQL-specific issues and migration problems.
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L59-L67)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L295-L320)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L376-L428)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L430-L500)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1779-L1838)
-- [esbuild.js](file://esbuild.js#L41-L71)
+- [extension.ts](file://src/extension.ts#L83-L106)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L314-L333)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L461-L485)
 
 ## Conclusion
-The Database Service provides a robust, embedded persistence layer powered by sql.js with enhanced branch-aware capabilities. It supports the extension's core workflows—agent runs, debug runs, repository file tracking, and indexing progress—through a well-designed schema, careful transaction management, and pragmatic migrations with collision prevention. The enhanced branch management system enables reliable multi-branch repository support with comprehensive cleanup and detection capabilities. Its integration with controllers and specialized services enables a responsive UI while maintaining data integrity, performance, and backward compatibility across schema evolution.
+The Database Service has been completely transformed from an SQLite-based embedded solution to a robust PostgreSQL-backed system designed for enterprise-scale chat functionality. The new implementation provides secure credential storage via VS Code secrets, comprehensive connection pooling with automatic retry logic, and sophisticated migration management with version control. Specialized repository classes encapsulate domain-specific operations while maintaining transaction safety and data integrity. The system supports advanced features like compression tracking, semantic memory, and batch job management while providing excellent performance through strategic indexing and connection pooling. This foundation enables scalable chat functionality that can grow with user needs and organizational requirements.
 
-**Updated** Enhanced conclusion reflecting improved database reliability, branch-aware functionality, and comprehensive migration collision prevention.
+**Updated** Enhanced conclusion reflecting the complete transformation to PostgreSQL backend with enterprise-grade features and comprehensive migration support.

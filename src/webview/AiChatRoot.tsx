@@ -8,6 +8,7 @@ import {
 } from '@fluentui/react-components';
 import { ChatTab } from './components/ai-chat/ChatTab.js';
 import { MemoryPanel } from './components/ai-chat/MemoryPanel.js';
+import { PackagesTab } from './components/ai-chat/PackagesTab.js';
 import { vscode } from './vscode-api.js';
 
 export const AiChatRoot = () => {
@@ -73,6 +74,7 @@ export const AiChatRoot = () => {
           style={{ marginBottom: '15px' }}
         >
           <Tab value="Chat">Chat</Tab>
+          <Tab value="Packages">Packages</Tab>
           <Tab value="Memory">Memory</Tab>
           <Tab value="Settings">Settings</Tab>
           <Tab value="History">History</Tab>
@@ -80,7 +82,9 @@ export const AiChatRoot = () => {
 
         {/* Content Area */}
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {activeTab === 'Chat' && <ChatTab />}
+          {activeTab === 'Chat' && <ChatTab onOpenPackagesTab={() => setActiveTab('Packages')} />}
+
+          {activeTab === 'Packages' && <PackagesTab />}
 
           {activeTab === 'Memory' && <MemoryPanel />}
           
