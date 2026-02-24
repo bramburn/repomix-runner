@@ -46,6 +46,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
   const [progressText, setProgressText] = useState<string>('');
   const [pendingPackage, setPendingPackage] = useState<PendingPackageReview | null>(null);
   const [pendingEdits, setPendingEdits] = useState<FileEdit[] | null>(null);
+  const [editApprovals, setEditApprovals] = useState<Map<string, boolean>>(new Map());
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [historyCursor, setHistoryCursor] = useState<{ timestamp: number; id: string } | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -125,6 +126,15 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
       }
       if (message?.command === 'editReview' && Array.isArray(message.edits)) {
         setPendingEdits(message.edits);
+        setEditApprovals(new Map()); // Reset approvals for new interrupt
+      }
+      // Handle individual edit approval updates from backend
+      if (message?.command === 'editReviewAck' && message.filePath) {
+        setEditApprovals((prev) => {
+          const updated = new Map(prev);
+          updated.set(message.filePath, message.approved === true);
+          return updated;
+        });
       }
     };
 
@@ -207,8 +217,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
   };
 
   const handleApplyAllEdits = () => {
+    // Send all approved edit file paths to resume the graph
+    const approvedPaths = pendingEdits
+      ?.filter((edit) => editApprovals.get(edit.filePath) === true)
+      .map((edit) => edit.filePath) || [];
+    
     vscode.postMessage({
       command: 'applyAllEdits',
+      approvedEdits: approvedPaths,
     });
   };
 

@@ -5,8 +5,6 @@ import {
   Text,
   Textarea,
   Card,
-  CardHeader,
-  CardPreview,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
@@ -82,10 +80,20 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
+  confirmDeleteActions: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalS,
+    alignItems: 'center',
+    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
+  },
+  confirmText: {
+    color: tokens.colorPaletteRedForeground1,
+    fontSize: tokens.fontSizeBase200,
+  },
 });
 
 function formatTimestamp(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, {
+  return new Date(ts).toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -106,6 +114,7 @@ export const MemoryEntryCard: React.FC<MemoryEntryProps> = ({
   const styles = useStyles();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   const handleSave = () => {
     if (editValue.trim() && editValue !== value) {
@@ -119,10 +128,17 @@ export const MemoryEntryCard: React.FC<MemoryEntryProps> = ({
     setIsEditing(false);
   };
 
-  const handleDelete = () => {
-    if (window.confirm(`Delete memory "${memoryKey}"?`)) {
-      onDelete(id);
-    }
+  const handleDeleteClick = () => {
+    setIsConfirmingDelete(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setIsConfirmingDelete(false);
+    onDelete(id);
+  };
+
+  const handleCancelDelete = () => {
+    setIsConfirmingDelete(false);
   };
 
   return (
@@ -139,7 +155,7 @@ export const MemoryEntryCard: React.FC<MemoryEntryProps> = ({
           </Badge>
         </div>
         <div className={styles.actions}>
-          {!isEditing && (
+          {!isEditing && !isConfirmingDelete && (
             <>
               <Button
                 icon={<Edit20Regular />}
@@ -152,13 +168,25 @@ export const MemoryEntryCard: React.FC<MemoryEntryProps> = ({
                 icon={<Delete20Regular />}
                 appearance="subtle"
                 size="small"
-                onClick={handleDelete}
+                onClick={handleDeleteClick}
                 title="Delete memory"
               />
             </>
           )}
         </div>
       </div>
+
+      {isConfirmingDelete && (
+        <div className={styles.confirmDeleteActions}>
+          <Text className={styles.confirmText}>Delete "{memoryKey}"?</Text>
+          <Button appearance="primary" size="small" onClick={handleConfirmDelete}>
+            Yes, delete
+          </Button>
+          <Button appearance="subtle" size="small" onClick={handleCancelDelete}>
+            Cancel
+          </Button>
+        </div>
+      )}
 
       <div className={styles.content}>
         {isEditing ? (

@@ -32,7 +32,7 @@ Categories to look for:
 For each fact, provide:
 - key: A short, descriptive identifier (snake_case, max 100 chars)
 - value: The fact itself, written as a clear statement (max 500 chars)
-- scope: Either "session" (specific to current task), "repo" (applies to whole project), or "global" (applies generally)
+- scope: Either "session" (specific to current task) or "repo" (applies to the whole project)
 
 Only extract facts that are:
 1. Explicitly stated or clearly implied by the user
@@ -81,7 +81,7 @@ function parseExtractionResponse(response: string): ExtractedMemory[] {
       .filter((m: any) => {
         const hasKey = typeof m.key === 'string' && m.key.trim().length > 0;
         const hasValue = typeof m.value === 'string' && m.value.trim().length > 0;
-        const hasScope = ['session', 'repo', 'global'].includes(m.scope);
+        const hasScope = ['session', 'repo'].includes(m.scope);
         return hasKey && hasValue && hasScope;
       })
       .map((m: any) => ({

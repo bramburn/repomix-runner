@@ -139,6 +139,7 @@ export class GraphExecutor {
         configurable: {
           thread_id: entry.threadId,
         },
+        signal, // Pass signal in config for LangGraph to handle
       };
 
       const input = {
@@ -163,7 +164,7 @@ export class GraphExecutor {
 /**
  * Custom AbortError class for better error handling.
  */
-class AbortError extends Error {
+export class AbortError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AbortError';

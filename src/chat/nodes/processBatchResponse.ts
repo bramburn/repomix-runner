@@ -37,11 +37,14 @@ export async function processBatchResponseNode(
     };
   }
 
+  const diagnosticSummary = parsed.parseDiagnostics?.length
+    ? ` Diagnostics: ${parsed.parseDiagnostics.map((d) => `[${d.stage}] ${d.details}`).join('; ')}`
+    : '';
   const warningSummary = parsed.parseWarnings.length
     ? ` Parse warnings: ${parsed.parseWarnings.join(' | ')}`
     : '';
 
-  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...${warningSummary}`);
+  onProgress(`Found ${fileEdits.length} file changes. Awaiting review...${warningSummary}${diagnosticSummary}`);
 
   return {
     fileEdits,

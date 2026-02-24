@@ -19,13 +19,13 @@ export function parseGoalForSymbols(goalText: string): string[] {
 
   // Match identifiers: PascalCase, camelCase, snake_case
   const identifierPattern = /\b([A-Z][a-zA-Z0-9]+|[a-z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*)\b/g;
-  const matches = goalText.match(identifierPattern) || [];
+  const matches: string[] = goalText.match(identifierPattern) || [];
 
   // Also match backtick-quoted identifiers (e.g., `myFunction`)
   const backtickPattern = /`([a-zA-Z_][a-zA-Z0-9_]*)`/g;
   let backtickMatch: RegExpExecArray | null;
   while ((backtickMatch = backtickPattern.exec(goalText)) !== null) {
-    matches.push(backtickMatch[1]);
+    matches.push(backtickMatch[1] as string);
   }
 
   // Filter out common English words that happen to match patterns

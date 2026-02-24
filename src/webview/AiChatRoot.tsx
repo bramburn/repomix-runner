@@ -86,7 +86,14 @@ export const AiChatRoot = () => {
         <div style={{ flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {activeTab === 'Chat' && <ChatTab onOpenPackagesTab={() => setActiveTab('Packages')} />}
 
-          {activeTab === 'Packages' && <PackagesTab />}
+          {activeTab === 'Packages' && (
+            <PackagesTab
+              onNavigateToThread={(threadId) => {
+                vscode.postMessage({ command: 'setActiveThread', threadId });
+                setActiveTab('Chat');
+              }}
+            />
+          )}
 
           {activeTab === 'Memory' && <MemoryPanel />}
           

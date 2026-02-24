@@ -7,6 +7,8 @@ export interface BatchPackage extends PackagePayload {
   id: string;
   threadId: string;
   packageType: BatchPackageType;
+  existingPlan?: string;       // for code_change/code_review types
+  previousResponse?: string;   // for review cycles
 }
 
 export interface BatchModelConfig {

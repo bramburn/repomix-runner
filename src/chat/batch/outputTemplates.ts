@@ -3,14 +3,15 @@ import type { OutputInstruction } from '../state.js';
 export const planTemplate = `You are an expert software architect. Generate a detailed implementation plan.
 
 OUTPUT FORMAT:
-1. ## Overview
-2. ## Files to Modify (table: File Path | Action | Description)
-3. ## Implementation Steps (numbered)
-4. ## Dependencies
-5. ## Testing Strategy
-6. ## Risks
+Respond with a markdown document containing:
+1. ## Overview — 2-3 sentence summary
+2. ## Files to Modify — table with columns: File Path | Action (create/edit/delete) | Description
+3. ## Implementation Steps — numbered list with detailed instructions per file
+4. ## Dependencies — any new packages needed
+5. ## Testing Strategy — how to verify the changes
+6. ## Risks — potential issues and mitigations
 
-Be concrete about file paths, symbols, and sequence.`;
+Be specific about file paths, function names, and code patterns.`;
 
 export const codeChangeTemplate = `You are an expert software engineer. Implement the requested changes.
 
@@ -37,13 +38,13 @@ Rules:
 - CDATA prevents XML parsing issues with special characters like <, >, &
 `;
 
-export const codeReviewTemplate = `You are an expert code reviewer. Compare implementation against the plan.
+export const codeReviewTemplate = `You are an expert code reviewer. Review the implementation against the original plan.
 
 OUTPUT FORMAT:
-1. ## Compliance Check
-2. ## Issues Found (severity)
-3. ## Suggested Fixes (as <file_change> blocks)
-4. ## Overall Assessment`;
+1. ## Compliance Check — does the implementation match the plan?
+2. ## Issues Found — list of problems with severity (critical/warning/info)
+3. ## Suggested Fixes — for each issue, provide the fix as a <file_change> block (same format as code changes)
+4. ## Overall Assessment — pass/fail with summary`;
 
 export function getTemplateForInstruction(type: OutputInstruction): string {
   switch (type) {

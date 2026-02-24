@@ -7,9 +7,8 @@
  * Memory scope defines the visibility of a memory entry.
  * - session: Thread-specific memories (scopeId = threadId)
  * - repo: Repository-wide memories (scopeId = repoId)
- * - global: Cross-repository memories (scopeId = 'global')
  */
-export type MemoryScope = 'session' | 'repo' | 'global';
+export type MemoryScope = 'session' | 'repo';
 
 /**
  * Memory source indicates how the memory was created.

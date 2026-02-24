@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../../shared/logger.js';
@@ -233,8 +234,8 @@ export class AnthropicBatchClient {
     )) as AsyncIterable<any>;
     const metadataList: BatchResultMetadata[] = [];
 
-    // Ensure output directory exists
-    fs.mkdirSync(outputDir, { recursive: true });
+    // Ensure output directory exists (async to avoid blocking event loop)
+    await fsPromises.mkdir(outputDir, { recursive: true });
 
     let index = 0;
     for await (const entry of stream) {
@@ -248,16 +249,15 @@ export class AnthropicBatchClient {
       const tokensInput = usage?.input_tokens ?? usage?.prompt_tokens ?? undefined;
       const tokensOutput = usage?.output_tokens ?? usage?.completion_tokens ?? undefined;
 
-      // Write response text to file (streaming to disk instead of memory)
+      // Write response text to file (async to avoid blocking event loop)
       const responseFileName = `${customId}.txt`;
       const responseFilePath = path.join(outputDir, responseFileName);
 
-      // Use synchronous write for simplicity; for very large files, consider streaming writes
-      fs.writeFileSync(responseFilePath, responseText, 'utf-8');
+      await fsPromises.writeFile(responseFilePath, responseText, 'utf-8');
 
       // Also write the raw JSON entry for debugging
       const rawFilePath = path.join(outputDir, `${customId}.json`);
-      fs.writeFileSync(rawFilePath, JSON.stringify(entry, null, 2), 'utf-8');
+      await fsPromises.writeFile(rawFilePath, JSON.stringify(entry, null, 2), 'utf-8');
 
       metadataList.push({
         customId,

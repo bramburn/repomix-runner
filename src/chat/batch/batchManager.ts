@@ -169,6 +169,7 @@ export class BatchManager {
         batchApiId: submitResult.batchApiId,
         status: 'submitted',
         submittedAt: new Date(),
+        errorMessage: null as unknown as undefined,
         promptPayload: {
           package: payload,
           assembledPrompt: prompt,
@@ -228,7 +229,7 @@ export class BatchManager {
     await this.batchRepository.updateBatchJob(batchJobId, { status: 'draft' });
   }
 
-  async sendAllApproved(): Promise<{ submitted: string[]; failed: string[]; skipped: string[] }> {
+  async sendAllApproved(): Promise<{ submitted: string[]; failed: string[]; skipped: string[]; batchApiId?: string }> {
     const approved = await this.batchRepository.getBatchesByStatus('pending');
     const { sendAllApprovedLimit } = getBatchOperationalConfig();
     const boundedLimit = Math.max(1, sendAllApprovedLimit);
@@ -243,17 +244,67 @@ export class BatchManager {
       );
     }
 
-    for (const job of selected) {
-      try {
-        const result = await this.submitExistingPackage(job.id);
-        submitted.push(result.batchJobId);
-      } catch (error) {
-        failed.push(job.id);
-        logger.both.warn(`BatchManager: failed to submit approved package ${job.id}`, error);
-      }
+    if (selected.length === 0) {
+      return { submitted, failed, skipped };
     }
 
-    return { submitted, failed, skipped };
+    // Build requests for all selected packages and submit as a single batch
+    const requests: BatchSubmitRequest[] = [];
+    const validJobs: Array<{ id: string; payload: PackagePayload }> = [];
+
+    for (const job of selected) {
+      const payload = this.extractPackageFromPayload(job.promptPayload);
+      if (!payload) {
+        failed.push(job.id);
+        logger.both.warn(`BatchManager: invalid payload for package ${job.id}, skipping`);
+        continue;
+      }
+      const prompt = assemblePromptFromPayload(payload);
+      requests.push({ customId: job.id, prompt });
+      validJobs.push({ id: job.id, payload });
+    }
+
+    if (requests.length === 0) {
+      return { submitted, failed, skipped };
+    }
+
+    try {
+      const client = await this.getClient();
+      const submitResult = await client.submitBatch(requests, getBatchModelConfig());
+
+      // Update all jobs with the shared batch API ID
+      for (const { id, payload } of validJobs) {
+        try {
+          const prompt = assemblePromptFromPayload(payload);
+          await this.batchRepository.updateBatchJob(id, {
+            batchApiId: submitResult.batchApiId,
+            status: 'submitted',
+            submittedAt: new Date(),
+            promptPayload: {
+              package: payload,
+              assembledPrompt: prompt,
+            } as unknown as object,
+          });
+          submitted.push(id);
+        } catch (dbError) {
+          failed.push(id);
+          logger.both.warn(`BatchManager: failed to update job ${id} after batch submit`, dbError);
+        }
+      }
+
+      return { submitted, failed, skipped, batchApiId: submitResult.batchApiId };
+    } catch (error) {
+      // Mark all as failed if the single batch submission fails
+      for (const { id } of validJobs) {
+        failed.push(id);
+        await this.batchRepository.updateBatchJob(id, {
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }).catch((e) => logger.both.warn(`BatchManager: failed to mark job ${id} as failed`, e));
+      }
+      logger.both.error('BatchManager: grouped batch submission failed', error);
+      return { submitted, failed, skipped };
+    }
   }
 
   async cancelBatch(batchJobId: string): Promise<void> {

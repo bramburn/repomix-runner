@@ -34,10 +34,7 @@ export class MemoryManager {
       throw new Error('Session memories require a valid threadId UUID as scopeId');
     }
 
-    if (scope === 'global' && normalizedScopeId !== 'global') {
-      throw new Error('Global memories must use scopeId "global"');
-    }
-
+    // For repo scope, just return the normalized scopeId (repoId)
     return normalizedScopeId;
   }
 

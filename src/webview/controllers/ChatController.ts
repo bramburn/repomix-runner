@@ -37,7 +37,7 @@ import type {
   CodeReviewInterrupt,
   CodeReviewResume,
 } from '../../chat/nodes/index.js';
-import { MessageQueue, GraphExecutor } from '../../chat/queue/index.js';
+import { MessageQueue } from '../../chat/queue/index.js';
 import type {
   ProcessingCompletedEvent,
   ProcessingStartedEvent,
@@ -73,17 +73,20 @@ export class ChatController extends BaseController {
   private readonly batchPoller: BatchPoller;
   private readonly pgPool: Pool;
   private readonly ready: Promise<void>;
+  private _memoryManager: MemoryManager | null = null;
   private activeThreadId: string | null = null;
   private repoId: string = '';
   private compiledGraph: Awaited<ReturnType<typeof createHitlChatGraph>> | null = null;
   private messageQueue: MessageQueue;
-  private graphExecutor: GraphExecutor | null = null;
   private queueProcessing: boolean = false;
+  private currentAbortController: AbortController | null = null;
 
   constructor(
     context: IWebviewContext,
     private readonly extensionContext: vscode.ExtensionContext,
-    pgPool: Pool
+    pgPool: Pool,
+    sharedBatchManager?: BatchManager,
+    sharedBatchPoller?: BatchPoller
   ) {
     super(context);
     this.pgPool = pgPool;
@@ -91,8 +94,8 @@ export class ChatController extends BaseController {
     this.messageRepository = new MessageRepository(pgPool);
     this.architectureRepository = new ArchitectureRepository(pgPool);
     this.planService = new PlanService(extensionContext);
-    this.batchManager = new BatchManager(pgPool, extensionContext);
-    this.batchPoller = new BatchPoller(this.batchManager, {
+    this.batchManager = sharedBatchManager ?? new BatchManager(pgPool, extensionContext);
+    this.batchPoller = sharedBatchPoller ?? new BatchPoller(this.batchManager, {
       pollIntervalSeconds: vscode.workspace
         .getConfiguration('repomix.chat')
         .get<number>('batchPollIntervalSeconds', 60),
@@ -229,6 +232,10 @@ export class ChatController extends BaseController {
       await this.handleDeleteMemory(message.id);
       return true;
     }
+    if (message.command === 'searchMemories') {
+      await this.handleSearchMemories(message.scope, message.query);
+      return true;
+    }
 
     // HITL resume commands
     if (message.command === 'resumeGoalReview') {
@@ -288,51 +295,129 @@ export class ChatController extends BaseController {
       return true;
     }
     if (message.command === 'approvePackage') {
-      await this.batchManager.approvePackage(message.packageId);
+      try {
+        await this.batchManager.approvePackage(message.packageId);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to approve package', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to approve package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
     if (message.command === 'unapprovePackage') {
-      await this.batchManager.unapprovePackage(message.packageId);
+      try {
+        await this.batchManager.unapprovePackage(message.packageId);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to unapprove package', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to unapprove package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
     if (message.command === 'sendPackage') {
-      const result = await this.batchManager.submitExistingPackage(message.packageId);
-      this.batchPoller.startPolling(result.batchJobId, this.handleBatchTerminalState);
+      try {
+        const result = await this.batchManager.submitExistingPackage(message.packageId);
+        this.batchPoller.startPolling(result.batchJobId, this.handleBatchTerminalState);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to send package', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to send package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
     if (message.command === 'sendAllApproved') {
-      const result = await this.batchManager.sendAllApproved();
-      for (const batchJobId of result.submitted) {
-        this.batchPoller.startPolling(batchJobId, this.handleBatchTerminalState);
+      try {
+        const result = await this.batchManager.sendAllApproved();
+        for (const batchJobId of result.submitted) {
+          this.batchPoller.startPolling(batchJobId, this.handleBatchTerminalState);
+        }
+        this.context.postMessage({
+          command: 'packagesBulkSendResult',
+          submitted: result.submitted,
+          failed: result.failed,
+          skipped: result.skipped,
+        });
+      } catch (error) {
+        logger.both.error('ChatController: Failed to send all approved packages', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to send approved packages: ${error instanceof Error ? error.message : String(error)}`,
+        });
       }
       await this.handleListPackages();
-      this.context.postMessage({
-        command: 'packagesBulkSendResult',
-        submitted: result.submitted,
-        failed: result.failed,
-        skipped: result.skipped,
-      });
+      return true;
+    }
+    if (message.command === 'retryPackage') {
+      try {
+        const result = await this.batchManager.submitExistingPackage(message.packageId);
+        this.batchPoller.startPolling(result.batchJobId, this.handleBatchTerminalState);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to retry package', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to retry package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+      await this.handleListPackages();
       return true;
     }
     if (message.command === 'cancelBatch') {
-      await this.batchManager.cancelBatch(message.packageId);
+      try {
+        await this.batchManager.cancelBatch(message.packageId);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to cancel batch', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to cancel batch: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
     if (message.command === 'deletePackage') {
-      await this.batchManager.deletePackage(message.packageId);
+      try {
+        await this.batchManager.deletePackage(message.packageId);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to delete package', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to delete package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
     if (message.command === 'updatePackageDraft') {
-      await this.batchManager.updateDraftPackage(message.packageId, {
-        goal: message.goal,
-        outputInstruction: message.outputInstruction,
-      });
-      await this.handleGetPackagePreview(message.packageId);
+      try {
+        await this.batchManager.updateDraftPackage(message.packageId, {
+          goal: message.goal,
+          outputInstruction: message.outputInstruction,
+        });
+        await this.handleGetPackagePreview(message.packageId);
+      } catch (error) {
+        logger.both.error('ChatController: Failed to update package draft', error);
+        this.context.postMessage({
+          command: 'showNotification',
+          type: 'error',
+          message: `Failed to update package: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
       await this.handleListPackages();
       return true;
     }
@@ -506,6 +591,13 @@ export class ChatController extends BaseController {
 
   // --- Memory CRUD Handlers (PRD 004) ---
 
+  private getMemoryManager(): MemoryManager {
+    if (!this._memoryManager) {
+      this._memoryManager = new MemoryManager(this.pgPool);
+    }
+    return this._memoryManager;
+  }
+
   private async handleGetMemories(scope: MemoryScope): Promise<void> {
     try {
       const scopeId = scope === 'session' ? this.activeThreadId ?? '' : this.repoId;
@@ -518,7 +610,7 @@ export class ChatController extends BaseController {
         return;
       }
 
-      const memoryManager = new MemoryManager(this.pgPool);
+      const memoryManager = this.getMemoryManager();
       const memories = await memoryManager.list(scope, scopeId);
 
       this.context.postMessage({
@@ -544,6 +636,44 @@ export class ChatController extends BaseController {
     }
   }
 
+  private async handleSearchMemories(scope: MemoryScope, query: string): Promise<void> {
+    try {
+      const scopeId = scope === 'session' ? this.activeThreadId ?? '' : this.repoId;
+      if (!scopeId) {
+        this.context.postMessage({
+          command: 'memoryList',
+          scope,
+          memories: [],
+        });
+        return;
+      }
+
+      const memoryManager = this.getMemoryManager();
+      const memories = await memoryManager.search(scope, scopeId, query);
+
+      this.context.postMessage({
+        command: 'memoryList',
+        scope,
+        memories: memories.map((m) => ({
+          id: m.id,
+          key: m.key,
+          value: m.value,
+          source: m.source,
+          createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
+          expiresAt: m.expiresAt,
+        })),
+      });
+    } catch (error) {
+      logger.both.error('ChatController: Failed to search memories', error);
+      this.context.postMessage({
+        command: 'showNotification',
+        type: 'error',
+        message: `Failed to search memories: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
   private async handleCreateMemory(scope: MemoryScope, key: string, value: string): Promise<void> {
     try {
       const scopeId = scope === 'session' ? this.activeThreadId ?? '' : this.repoId;
@@ -551,7 +681,7 @@ export class ChatController extends BaseController {
         throw new Error('No active context for memory creation');
       }
 
-      const memoryManager = new MemoryManager(this.pgPool);
+      const memoryManager = this.getMemoryManager();
       await memoryManager.create({
         scope,
         scopeId,
@@ -574,7 +704,7 @@ export class ChatController extends BaseController {
 
   private async handleUpdateMemory(id: string, value: string): Promise<void> {
     try {
-      const memoryManager = new MemoryManager(this.pgPool);
+      const memoryManager = this.getMemoryManager();
       const memory = await memoryManager.get(id);
 
       if (!memory) {
@@ -597,7 +727,7 @@ export class ChatController extends BaseController {
 
   private async handleDeleteMemory(id: string): Promise<void> {
     try {
-      const memoryManager = new MemoryManager(this.pgPool);
+      const memoryManager = this.getMemoryManager();
       const memory = await memoryManager.get(id);
 
       if (!memory) {
@@ -621,18 +751,33 @@ export class ChatController extends BaseController {
 
   private async postThreads(): Promise<void> {
     const threads = await this.threadRepository.getThreads(this.repoId);
+    
+    // Enrich threads with message counts, token counts, and batch status
+    const enrichedThreads = await Promise.all(
+      threads.map(async (thread) => {
+        const messageCount = await this.messageRepository.getMessageCount(thread.id);
+        const hasPendingBatch = await this.batchManager.hasPendingBatches(thread.id);
+        
+        return {
+          id: thread.id,
+          title: thread.title,
+          updatedAt: thread.updatedAt,
+          createdAt: thread.createdAt,
+          totalTokens: thread.totalTokens || 0,
+          preview: thread.preview ?? '',
+          planPath: this.planService.getPlanPath(thread.id),
+          messageCount,
+          tokenCount: thread.totalTokens || 0,
+          hasPendingBatch,
+          isArchived: false, // getThreads only returns active threads
+        };
+      })
+    );
+    
     this.context.postMessage({
       command: 'threadList',
       activeThreadId: this.activeThreadId,
-      threads: threads.map((thread) => ({
-        id: thread.id,
-        title: thread.title,
-        updatedAt: thread.updatedAt,
-        createdAt: thread.createdAt,
-        totalTokens: thread.totalTokens,
-        preview: thread.preview ?? '',
-        planPath: this.planService.getPlanPath(thread.id),
-      })),
+      threads: enrichedThreads,
     });
   }
 
@@ -718,8 +863,8 @@ export class ChatController extends BaseController {
   }
 
   /**
-   * Handles individual edit application from webview.
-   * Accumulates approved edits for batch resume.
+   * Handles individual edit application from webview (H4 fix: resume with this edit
+   * plus all previously-approved edits, so we don't lose other approvals).
    */
   private async handleApplyEdit(filePath: string): Promise<void> {
     try {
@@ -728,7 +873,7 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Get current state to find the edit
+      // Get current state to find existing approvals
       const graph = await this.getGraph();
       const config = createGraphConfig(this.activeThreadId);
       const state = await graph.getState(config);
@@ -739,13 +884,13 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Mark as approved in UI state (user will click "Apply All" to actually resume)
-      // The edit is already marked as approved in the UI, we just acknowledge the action
-      this.context.postMessage({
-        command: 'editReviewAck',
-        action: 'apply',
-        filePath,
-      });
+      // Collect already-approved edits AND the newly approved one
+      const approvedEdits = new Set(
+        fileEdits.filter((edit) => edit.approved).map((edit) => edit.filePath)
+      );
+      approvedEdits.add(filePath);
+
+      await this.resumeGraph({ approvedEdits: Array.from(approvedEdits) } as EditReviewResume);
     } catch (error) {
       logger.both.error('ChatController: Error applying edit:', error);
       this.context.postMessage({
@@ -757,7 +902,7 @@ export class ChatController extends BaseController {
 
   /**
    * Handles individual edit skip from webview.
-   * Marks edit as not approved for batch resume.
+   * Updates UI state to mark edit as skipped (does not resume graph yet).
    */
   private async handleSkipEdit(filePath: string): Promise<void> {
     try {
@@ -766,12 +911,13 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // For skip, we mark the edit as not approved in UI state
-      // User will click "Apply All" or "Skip All" to actually resume
+      // Mark as skipped in UI state
+      // The graph will be resumed when user clicks "Apply All" or "Skip All"
       this.context.postMessage({
         command: 'editReviewAck',
         action: 'skip',
         filePath,
+        approved: false,
       });
     } catch (error) {
       logger.both.error('ChatController: Error skipping edit:', error);
@@ -783,7 +929,7 @@ export class ChatController extends BaseController {
   }
 
   /**
-   * Opens diff view for a file edit.
+   * Opens diff view for a file edit (H2 fix: use git diff instead of plain open).
    */
   private async handleViewEditDiff(filePath: string): Promise<void> {
     try {
@@ -795,9 +941,14 @@ export class ChatController extends BaseController {
 
       const fullPath = path.resolve(workspaceRoot, filePath);
       const uri = vscode.Uri.file(fullPath);
-      
-      // Open the file in editor
-      await vscode.commands.executeCommand('vscode.open', uri);
+
+      // Try to open git diff view first (shows working changes vs HEAD)
+      try {
+        await vscode.commands.executeCommand('git.openChange', uri);
+      } catch {
+        // Fallback: open the file normally if git diff is unavailable
+        await vscode.commands.executeCommand('vscode.open', uri);
+      }
     } catch (error) {
       logger.both.error('ChatController: Error opening diff:', error);
       this.context.postMessage({
@@ -808,7 +959,7 @@ export class ChatController extends BaseController {
   }
 
   /**
-   * Applies all pending edits at once and resumes the graph.
+   * Applies all pending edits at once (H3 fix: approve ALL edits, not just already-approved).
    */
   private async handleApplyAllEdits(): Promise<void> {
     try {
@@ -817,15 +968,25 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Get current state to get all approved edits
+      // Get current state to get ALL edits
       const graph = await this.getGraph();
       const config = createGraphConfig(this.activeThreadId);
       const state = await graph.getState(config);
       const fileEdits = this.getSnapshotFileEdits(state);
-      const approvedEdits = fileEdits.filter((edit) => edit.approved).map((edit) => edit.filePath);
 
-      // Resume the graph with all approved edits
-      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+      // Approve ALL pending edits — at interrupt time, none are approved yet
+      const allEditPaths = fileEdits.map((edit) => edit.filePath);
+
+      if (allEditPaths.length === 0) {
+        logger.both.warn('ChatController: No edits found to apply');
+        this.context.postMessage({
+          command: 'chatResponse',
+          text: 'No edits found to apply.',
+        });
+        return;
+      }
+
+      await this.resumeGraph({ approvedEdits: allEditPaths } as EditReviewResume);
     } catch (error) {
       logger.both.error('ChatController: Error applying all edits:', error);
       this.context.postMessage({
@@ -935,7 +1096,7 @@ export class ChatController extends BaseController {
           fileCompressionLevel: config.get<'auto' | 'full' | 'skeleton' | 'summary'>('fileCompressionLevel', 'auto'),
           editMode: config.get<'full' | 'search_replace' | 'hybrid'>('editMode', 'hybrid'),
           hybridThresholdLines: config.get<number>('hybridThresholdLines', 300),
-          fuzzyMatchThreshold: config.get<number>('fuzzyMatchThreshold', 0.85),
+          fuzzyMatchThreshold: config.get<number>('fuzzyMatchThreshold', 0.8),
           architectureRefreshHours: config.get<number>('architectureRefreshHours', 24),
           architectureLastGenerated,
           architectureStatus,
@@ -1007,7 +1168,7 @@ export class ChatController extends BaseController {
 
   private async handleTestPostgresConnection(): Promise<void> {
     try {
-      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString');
+      const connectionString = await this.extensionContext.secrets.get('postgresConnectionString');
       
       if (!connectionString) {
         this.context.postMessage({
@@ -1039,7 +1200,7 @@ export class ChatController extends BaseController {
 
   private async handleRunMigrations(): Promise<void> {
     try {
-      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString');
+      const connectionString = await this.extensionContext.secrets.get('postgresConnectionString');
       
       if (!connectionString) {
         this.context.postMessage({
@@ -1152,7 +1313,7 @@ export class ChatController extends BaseController {
       };
       
       // Get the PostgreSQL connection string from secrets
-      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString') || '';
+      const connectionString = await this.extensionContext.secrets.get('postgresConnectionString') || '';
       
       this.compiledGraph = await createHitlChatGraph(
         this.extensionContext,
@@ -1478,52 +1639,73 @@ export class ChatController extends BaseController {
   private readonly handleBatchTerminalState = async (
     completion: BatchCompletionResult
   ): Promise<void> => {
-    if (completion.status === 'completed') {
+    try {
+      if (completion.status === 'completed') {
+        this.context.postMessage({
+          command: 'batchStatus',
+          batchJobId: completion.batchJobId,
+          status: 'completed',
+        });
+        await this.handleListPackages();
+
+        // PRD 005: Notify user via VS Code notification
+        vscode.window.showInformationMessage(
+          `✅ Batch job ${completion.batchJobId.slice(0, 8)}… completed successfully.`
+        );
+
+        await this.resumeGraph({
+          completed: true,
+          responseContent: completion.responseText ?? '',
+        } as BatchPendingResume);
+        return;
+      }
+
+      if (completion.status === 'cancelled') {
+        this.context.postMessage({
+          command: 'batchStatus',
+          batchJobId: completion.batchJobId,
+          status: 'cancelled',
+        });
+        await this.handleListPackages();
+
+        vscode.window.showWarningMessage(
+          `Batch job ${completion.batchJobId.slice(0, 8)}… was cancelled.`
+        );
+
+        // Resume the graph with an error to prevent it from being stuck
+        await this.resumeGraph({
+          completed: false,
+          error: 'Batch job was cancelled by user.',
+        } as BatchPendingResume);
+        return;
+      }
+
+      const message =
+        completion.errorMessage ??
+        `Batch ended with status ${completion.status}. Open .repomix/incoming for raw output.`;
+
       this.context.postMessage({
         command: 'batchStatus',
         batchJobId: completion.batchJobId,
-        status: 'completed',
+        status: 'failed',
       });
       await this.handleListPackages();
 
-      await this.resumeGraph({
-        completed: true,
-        responseContent: completion.responseText ?? '',
-      } as BatchPendingResume);
-      return;
-    }
+      vscode.window.showErrorMessage(
+        `Batch job ${completion.batchJobId.slice(0, 8)}… failed: ${message}`
+      );
 
-    if (completion.status === 'cancelled') {
-      this.context.postMessage({
-        command: 'batchStatus',
-        batchJobId: completion.batchJobId,
-        status: 'cancelled',
-      });
-      await this.handleListPackages();
-      
-      // Resume the graph with an error to prevent it from being stuck
       await this.resumeGraph({
         completed: false,
-        error: 'Batch job was cancelled by user.',
+        error: message,
       } as BatchPendingResume);
-      return;
+    } catch (error) {
+      // Guard against webview disposal or other errors during callback
+      logger.both.error(
+        `ChatController: Error handling batch terminal state for ${completion.batchJobId}`,
+        error
+      );
     }
-
-    const message =
-      completion.errorMessage ??
-      `Batch ended with status ${completion.status}. Open .repomix/incoming for raw output.`;
-
-    this.context.postMessage({
-      command: 'batchStatus',
-      batchJobId: completion.batchJobId,
-      status: 'failed',
-    });
-    await this.handleListPackages();
-
-    await this.resumeGraph({
-      completed: false,
-      error: message,
-    } as BatchPendingResume);
   };
 
   // --- Message Queue Methods (PRD 007) ---
@@ -1574,31 +1756,24 @@ export class ChatController extends BaseController {
           break; // Queue is empty
         }
 
-        // Initialize graph executor if needed
-        if (!this.graphExecutor) {
-          this.graphExecutor = new GraphExecutor(
-            this.extensionContext,
-            this.pgPool,
-            async () => {
-              const graph = await this.getGraph();
-              return graph;
-            }
+        try {
+          await this.executeQueueEntry(entry);
+          this.messageQueue.complete(entry.id, true);
+        } catch (error) {
+          const isAbort = error instanceof Error && error.name === 'AbortError';
+          this.messageQueue.complete(
+            entry.id,
+            false,
+            isAbort ? 'Cancelled by user' : (error instanceof Error ? error.message : String(error))
           );
-        }
 
-        // Execute the message
-        const result = await this.graphExecutor.execute(entry);
+          if (isAbort) {
+            logger.both.info(`ChatController: Execution cancelled for entry ${entry.id}, continuing queue`);
+            // Do NOT break — PRD requires queue to continue with next message
+            continue;
+          }
 
-        // Mark as complete/failed
-        this.messageQueue.complete(entry.id, result.success, result.error);
-
-        if (result.wasCancelled) {
-          logger.both.info('ChatController: Queue processing cancelled by user');
-          break;
-        }
-
-        if (!result.success) {
-          logger.both.error(`ChatController: Message ${entry.id} failed: ${result.error}`);
+          logger.both.error(`ChatController: Message ${entry.id} failed: ${error instanceof Error ? error.message : error}`);
           // Continue to next message even if this one failed
         }
       }
@@ -1608,11 +1783,73 @@ export class ChatController extends BaseController {
   }
 
   /**
+   * Executes a single queue entry through the graph with abort support.
+   */
+  private async executeQueueEntry(entry: QueueEntry): Promise<void> {
+    this.currentAbortController = new AbortController();
+    const signal = this.currentAbortController.signal;
+
+    try {
+      if (signal.aborted) {
+        const err = new Error('Cancelled before start');
+        err.name = 'AbortError';
+        throw err;
+      }
+
+      const graph = await this.getGraph();
+
+      // Load message history for the thread
+      const messages = await this.messageRepository.getMessages(entry.threadId);
+      const history = messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+
+      const config = {
+        configurable: { thread_id: entry.threadId },
+        signal,
+      };
+
+      // Create abort race promise
+      const abortPromise = new Promise<never>((_, reject) => {
+        const onAbort = () => {
+          const err = new Error('Execution cancelled');
+          err.name = 'AbortError';
+          reject(err);
+        };
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+
+      // Race between graph execution and abort
+      const result = await Promise.race([
+        graph.invoke(
+          {
+            userQuery: entry.text,
+            threadId: entry.threadId,
+            messages: history,
+          },
+          config
+        ),
+        abortPromise,
+      ]);
+
+      // Handle the result (interrupts, final responses, etc.)
+      await this.handleGraphResult(result, config);
+    } finally {
+      this.currentAbortController = null;
+    }
+  }
+
+  /**
    * Stops the currently executing message.
    */
   private stopCurrentExecution(): void {
-    if (this.graphExecutor) {
-      this.graphExecutor.stop();
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
       logger.both.info('ChatController: Stopped current execution');
     } else {
       logger.both.warn('ChatController: No active execution to stop');
@@ -1652,12 +1889,13 @@ export class ChatController extends BaseController {
     });
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     // Save queue state before disposal (PRD 007)
-    this.saveQueueState();
+    await this.saveQueueState();
     
-    if (this.graphExecutor) {
-      this.graphExecutor.stop();
+    // Abort any current execution
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
     }
     
     this.messageQueue.removeAllListeners();

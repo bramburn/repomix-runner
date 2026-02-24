@@ -7,6 +7,19 @@ const DEFAULT_OPTIONS: BatchPollerOptions = {
   maxDurationMs: 25 * 60 * 60 * 1000,
 };
 
+const INITIAL_DELAY_MS = 30_000; // 30 seconds before first poll
+const FIRST_HOUR_INTERVAL_MS = 60_000; // 60 seconds during first hour
+const AFTER_FIRST_HOUR_INTERVAL_MS = 5 * 60_000; // 5 minutes after first hour
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+function getAdaptivePollDelayMs(startedAt: number): number {
+  const elapsedMs = Date.now() - startedAt;
+  if (elapsedMs < ONE_HOUR_MS) {
+    return FIRST_HOUR_INTERVAL_MS;
+  }
+  return AFTER_FIRST_HOUR_INTERVAL_MS;
+}
+
 interface PollHandle {
   timeout: NodeJS.Timeout;
   startedAt: number;
@@ -115,12 +128,12 @@ export class BatchPoller {
         logger.both.error(`BatchPoller: Polling failed for ${batchJobId}`, error);
       }
 
-      scheduleNextTick(this.options.pollIntervalSeconds * 1000);
+      scheduleNextTick(getAdaptivePollDelayMs(startedAt));
     };
 
     const initialTimeout = setTimeout(() => {
       void tick();
-    }, 5000);
+    }, INITIAL_DELAY_MS);
     this.handles.set(batchJobId, { timeout: initialTimeout, startedAt, runId });
   }
 

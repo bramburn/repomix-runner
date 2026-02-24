@@ -1,36 +1,71 @@
 import React from 'react';
-import type { PackageStatus } from './packageTypes.js';
+import { Text, makeStyles, tokens } from '@fluentui/react-components';
 
-const STATUS_STYLES: Record<PackageStatus, { label: string; color: string; background: string }> = {
-  draft: { label: 'Draft', color: '#9a6700', background: '#fff8c5' },
-  pending: { label: 'Approved', color: '#1a7f37', background: '#dafbe1' },
-  submitted: { label: 'Submitted', color: '#0969da', background: '#ddf4ff' },
-  processing: { label: 'Processing', color: '#0969da', background: '#ddf4ff' },
-  completed: { label: 'Completed', color: '#1a7f37', background: '#dafbe1' },
-  failed: { label: 'Failed', color: '#cf222e', background: '#ffebe9' },
-  cancelled: { label: 'Cancelled', color: '#57606a', background: '#f6f8fa' },
-};
+export type BatchStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 interface BatchStatusBadgeProps {
-  status: PackageStatus;
+  status: BatchStatus;
+  count?: number;
 }
 
-export const BatchStatusBadge: React.FC<BatchStatusBadgeProps> = ({ status }) => {
-  const style = STATUS_STYLES[status];
+const useStyles = makeStyles({
+  badge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalXS,
+    padding: `${tokens.spacingVerticalXXS} ${tokens.spacingHorizontalS}`,
+    borderRadius: tokens.borderRadiusMedium,
+    fontSize: tokens.fontSizeBase200,
+    fontWeight: tokens.fontWeightSemibold,
+    whiteSpace: 'nowrap',
+  },
+  pending: {
+    backgroundColor: tokens.colorPaletteYellowBackground1,
+    color: tokens.colorPaletteYellowForeground1,
+    border: `1px solid ${tokens.colorPaletteYellowBorder1}`,
+  },
+  processing: {
+    backgroundColor: tokens.colorPaletteBlueBorderActive,
+    color: tokens.colorNeutralForegroundOnBrand,
+    border: `1px solid ${tokens.colorPaletteBlueBorderActive}`,
+  },
+  completed: {
+    backgroundColor: tokens.colorPaletteGreenBackground1,
+    color: tokens.colorPaletteGreenForeground1,
+    border: `1px solid ${tokens.colorPaletteGreenBorder1}`,
+  },
+  failed: {
+    backgroundColor: tokens.colorPaletteRedBackground1,
+    color: tokens.colorPaletteRedForeground1,
+    border: `1px solid ${tokens.colorPaletteRedBorder1}`,
+  },
+  cancelled: {
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorNeutralForeground3,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+  },
+});
+
+const statusConfig: Record<BatchStatus, { icon: string; label: string }> = {
+  pending: { icon: '🔵', label: 'Batch pending' },
+  processing: { icon: '⏳', label: 'Processing' },
+  completed: { icon: '✅', label: 'Completed' },
+  failed: { icon: '❌', label: 'Failed' },
+  cancelled: { icon: '⚪', label: 'Cancelled' },
+};
+
+export const BatchStatusBadge: React.FC<BatchStatusBadgeProps> = ({ status, count }) => {
+  const styles = useStyles();
+  const config = statusConfig[status] || statusConfig.pending;
+  const statusClass = styles[status] || styles.pending;
+
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '2px 8px',
-        borderRadius: '999px',
-        fontSize: '12px',
-        fontWeight: 600,
-        color: style.color,
-        background: style.background,
-      }}
-    >
-      {style.label}
+    <span className={`${styles.badge} ${statusClass}`}>
+      <span>{config.icon}</span>
+      <Text size={200} weight="semibold">
+        {config.label}
+        {count !== undefined && count > 0 ? ` (${count})` : ''}
+      </Text>
     </span>
   );
 };

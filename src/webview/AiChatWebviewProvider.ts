@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import type { Pool } from 'pg';
 import { ChatController } from './controllers/ChatController.js';
+import type { BatchPoller } from '../chat/batch/batchPoller.js';
+import type { BatchManager } from '../chat/batch/batchManager.js';
 
 export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'repomixRunner.aiChatMain';
@@ -10,7 +12,9 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _extensionContext: vscode.ExtensionContext,
-    private readonly _pgPool: Pool | null
+    private readonly _pgPool: Pool | null,
+    private readonly _sharedBatchManager?: BatchManager,
+    private readonly _sharedBatchPoller?: BatchPoller
   ) {
     console.log('[AiChatWebviewProvider] Constructor called');
   }
@@ -41,7 +45,9 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
       this._chatController = new ChatController(
         webviewContext,
         this._extensionContext,
-        this._pgPool
+        this._pgPool,
+        this._sharedBatchManager,
+        this._sharedBatchPoller
       );
 
       webviewView.webview.onDidReceiveMessage(async (data) => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Button,
   Input,
@@ -6,10 +6,11 @@ import {
   Text,
   Tab,
   TabList,
+  Spinner,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import { Add20Regular } from '@fluentui/react-icons';
+import { Add20Regular, Search20Regular, Dismiss20Regular } from '@fluentui/react-icons';
 import { MemoryEntryCard } from './MemoryEntryCard.js';
 import { vscode } from '../../vscode-api.js';
 
@@ -39,6 +40,15 @@ const useStyles = makeStyles({
   },
   tabList: {
     marginBottom: tokens.spacingVerticalM,
+  },
+  searchRow: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalS,
+    marginBottom: tokens.spacingVerticalM,
+    alignItems: 'center',
+  },
+  searchInput: {
+    flex: 1,
   },
   createForm: {
     display: 'flex',
@@ -82,7 +92,14 @@ const useStyles = makeStyles({
     fontWeight: tokens.fontWeightSemibold,
     fontSize: tokens.fontSizeBase200,
   },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: tokens.spacingVerticalL,
+  },
 });
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 export const MemoryPanel: React.FC = () => {
   const styles = useStyles();
@@ -90,12 +107,32 @@ export const MemoryPanel: React.FC = () => {
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Request memories when scope changes
+  // Request memories when scope or search query changes
   useEffect(() => {
-    vscode.postMessage({ command: 'getMemories', scope: activeScope });
-  }, [activeScope]);
+    setIsLoading(true);
+
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+
+    searchTimerRef.current = setTimeout(() => {
+      if (searchQuery.trim()) {
+        vscode.postMessage({ command: 'searchMemories', scope: activeScope, query: searchQuery.trim() });
+      } else {
+        vscode.postMessage({ command: 'getMemories', scope: activeScope });
+      }
+    }, searchQuery ? SEARCH_DEBOUNCE_MS : 0);
+
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, [activeScope, searchQuery]);
 
   // Listen for memory list updates
   useEffect(() => {
@@ -116,6 +153,7 @@ export const MemoryPanel: React.FC = () => {
       return;
     }
 
+    setIsLoading(true);
     vscode.postMessage({
       command: 'createMemory',
       scope: activeScope,
@@ -128,6 +166,7 @@ export const MemoryPanel: React.FC = () => {
   }, [activeScope, newKey, newValue]);
 
   const handleUpdate = useCallback((id: string, value: string) => {
+    setIsLoading(true);
     vscode.postMessage({
       command: 'updateMemory',
       id,
@@ -136,6 +175,7 @@ export const MemoryPanel: React.FC = () => {
   }, []);
 
   const handleDelete = useCallback((id: string) => {
+    setIsLoading(true);
     vscode.postMessage({
       command: 'deleteMemory',
       id,
@@ -152,6 +192,15 @@ export const MemoryPanel: React.FC = () => {
     [handleCreate, newKey, newValue]
   );
 
+  const handleScopeChange = useCallback((_: unknown, data: any) => {
+    setActiveScope(data.value as MemoryScope);
+    setSearchQuery('');
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -163,11 +212,32 @@ export const MemoryPanel: React.FC = () => {
       <TabList
         className={styles.tabList}
         selectedValue={activeScope}
-        onTabSelect={(_, data) => setActiveScope(data.value as MemoryScope)}
+        onTabSelect={handleScopeChange}
       >
-        <Tab value="session">Session</Tab>
-        <Tab value="repo">Repository</Tab>
+        <Tab value="session">Session ({activeScope === 'session' ? memories.length : '…'})</Tab>
+        <Tab value="repo">Repository ({activeScope === 'repo' ? memories.length : '…'})</Tab>
       </TabList>
+
+      <div className={styles.searchRow}>
+        <Input
+          className={styles.searchInput}
+          contentBefore={<Search20Regular />}
+          contentAfter={
+            searchQuery ? (
+              <Button
+                icon={<Dismiss20Regular />}
+                appearance="subtle"
+                size="small"
+                onClick={handleClearSearch}
+                title="Clear search"
+              />
+            ) : undefined
+          }
+          placeholder="Search memories by key or value…"
+          value={searchQuery}
+          onChange={(e, data) => setSearchQuery(data.value)}
+        />
+      </div>
 
       <div className={styles.createForm}>
         <Text className={styles.label}>Add New Memory</Text>
@@ -203,13 +273,21 @@ export const MemoryPanel: React.FC = () => {
       </div>
 
       <div className={styles.memoryList}>
-        {memories.length === 0 ? (
+        {isLoading ? (
+          <div className={styles.loadingContainer}>
+            <Spinner size="small" label="Loading memories…" />
+          </div>
+        ) : memories.length === 0 ? (
           <div className={styles.emptyState}>
-            <Text size={300}>No memories stored yet</Text>
+            <Text size={300}>
+              {searchQuery ? 'No memories match your search' : 'No memories stored yet'}
+            </Text>
             <Text size={200}>
-              {activeScope === 'session'
-                ? 'Session memories are specific to the current chat thread.'
-                : 'Repository memories are shared across all threads in this project.'}
+              {searchQuery
+                ? 'Try a different search term.'
+                : activeScope === 'session'
+                  ? 'Session memories are specific to the current chat thread.'
+                  : 'Repository memories are shared across all threads in this project.'}
             </Text>
           </div>
         ) : (

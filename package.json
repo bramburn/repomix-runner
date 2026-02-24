@@ -442,12 +442,20 @@
             "maximum": 1000,
             "description": "Line count threshold for hybrid mode (files >= this use SEARCH/REPLACE)"
           },
+          "repomix.chat.planningRateLimitRpm": {
+            "order": 0,
+            "type": "number",
+            "default": 15,
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Rate limit (requests per minute) for the planning LLM"
+          },
           "repomix.chat.fuzzyMatchThreshold": {
             "order": 14,
             "type": "number",
-            "minimum": 0,
+            "minimum": 0.5,
             "maximum": 1,
-            "default": 0.85,
+            "default": 0.8,
             "description": "Similarity score threshold for fuzzy matching (0-1)"
           },
           "repomix.chat.planningModel": {
@@ -460,8 +468,16 @@
             "default": "gemini-2.5-flash",
             "description": "🧠 LLM model for planning and orchestration (Gemini Flash)"
           },
-          "repomix.chat.fileCompressionLevel": {
+          "repomix.chat.planningRpm": {
             "order": 16,
+            "type": "number",
+            "default": 60,
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "🔄 Rate limit (requests per minute) for planning LLM"
+          },
+          "repomix.chat.fileCompressionLevel": {
+            "order": 17,
             "type": "string",
             "enum": [
               "auto",

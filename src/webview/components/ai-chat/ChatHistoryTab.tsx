@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Button,
   Input,
   Text,
   Checkbox,
+  Spinner,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
@@ -66,14 +67,19 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     textAlign: 'center',
   },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: tokens.spacingVerticalL,
+  },
   loadMoreContainer: {
     display: 'flex',
     justifyContent: 'center',
-    marginTop: tokens.spacingVerticalM,
     paddingTop: tokens.spacingVerticalM,
-    borderTop: `1px solid ${tokens.colorNeutralStroke1}`,
   },
 });
+
+const SEARCH_DEBOUNCE_MS = 400;
 
 export const ChatHistoryTab: React.FC<{
   onResumeThread?: (threadId: string) => void;
@@ -85,61 +91,89 @@ export const ChatHistoryTab: React.FC<{
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<{ timestamp: number; id: string } | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load threads on mount
+  // Centralized message handler
   useEffect(() => {
-    loadInitialThreads();
-  }, []);
-
-  const loadInitialThreads = () => {
-    setIsLoading(true);
-    vscode.postMessage({
-      command: 'getThreads',
-    });
-
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
-      if (message.command === 'threadList') {
+      if (message.command === 'threadList' && !message.append) {
         setThreads(message.threads || []);
+        setHasMore(message.hasMore || false);
+        setNextCursor(message.nextCursor || null);
+        setIsLoading(false);
+      }
+      if (message.command === 'threadList' && message.append) {
+        setThreads((prev) => [...prev, ...(message.threads || [])]);
+        setHasMore(message.hasMore || false);
+        setNextCursor(message.nextCursor || null);
         setIsLoading(false);
       }
       if (message.command === 'threadsSearchResult') {
         setThreads(message.threads || []);
         setHasMore(false);
+        setNextCursor(null);
         setIsLoading(false);
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  };
+  }, []);
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
+  // Load threads on mount
+  useEffect(() => {
+    loadThreads();
+  }, []);
+
+  const loadThreads = useCallback(() => {
     setIsLoading(true);
-    
-    if (!query.trim()) {
-      // If search is cleared, reload all threads
-      loadInitialThreads();
-      return;
+    vscode.postMessage({
+      command: 'getThreads',
+    });
+  }, []);
+
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+
+    // Clear previous debounce timer
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
     }
 
-    vscode.postMessage({
-      command: 'searchThreads',
-      query: query.trim(),
-      showArchived,
-    });
+    searchTimerRef.current = setTimeout(() => {
+      setIsLoading(true);
+
+      if (!query.trim()) {
+        // If search is cleared, reload all threads
+        vscode.postMessage({ command: 'getThreads' });
+        return;
+      }
+
+      vscode.postMessage({
+        command: 'searchThreads',
+        query: query.trim(),
+        showArchived,
+      });
+    }, SEARCH_DEBOUNCE_MS);
   }, [showArchived]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSearch = handleSearchChange;
 
   const handleToggleArchived = useCallback(() => {
     const newValue = !showArchived;
     setShowArchived(newValue);
-    vscode.postMessage({
-      command: 'showArchivedThreads',
-      show: newValue,
-    });
-    
-    // Reload threads with new archived setting
+    setIsLoading(true);
+
     if (searchQuery.trim()) {
       vscode.postMessage({
         command: 'searchThreads',
@@ -147,33 +181,20 @@ export const ChatHistoryTab: React.FC<{
         showArchived: newValue,
       });
     } else {
-      loadInitialThreads();
+      vscode.postMessage({ command: 'getThreads' });
     }
   }, [showArchived, searchQuery]);
 
   const handleLoadMore = useCallback(() => {
-    if (!nextCursor) return;
-    
+    if (!nextCursor || isLoading) return;
+
     setIsLoading(true);
     vscode.postMessage({
       command: 'getThreadHistoryPage',
       before: nextCursor,
-      limit: 50,
+      limit: 20,
     });
-
-    const handleMessage = (event: MessageEvent) => {
-      const message = event.data;
-      if (message.command === 'threadList' && message.append) {
-        setThreads((prev) => [...prev, ...(message.threads || [])]);
-        setHasMore(message.hasMore || false);
-        setNextCursor(message.nextCursor || null);
-        setIsLoading(false);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [nextCursor]);
+  }, [nextCursor, isLoading]);
 
   const handleResume = useCallback((threadId: string) => {
     vscode.postMessage({
@@ -218,11 +239,17 @@ export const ChatHistoryTab: React.FC<{
   }, [threads]);
 
   const handleDelete = useCallback((threadId: string) => {
+    // Confirmation dialog
+    const confirmed = window.confirm(
+      'Are you sure you want to permanently delete this thread and all its messages? This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
     vscode.postMessage({
       command: 'deleteThread',
       threadId,
     });
-    
+
     // Remove from list
     setThreads((prev) => prev.filter((t) => t.id !== threadId));
   }, []);
@@ -255,7 +282,7 @@ export const ChatHistoryTab: React.FC<{
         <Button
           appearance="subtle"
           icon={<ArrowCounterclockwise20Regular />}
-          onClick={loadInitialThreads}
+          onClick={loadThreads}
           disabled={isLoading}
         >
           Refresh
@@ -263,7 +290,11 @@ export const ChatHistoryTab: React.FC<{
       </div>
 
       <div className={styles.threadList}>
-        {threads.length === 0 ? (
+        {isLoading && threads.length === 0 ? (
+          <div className={styles.loadingContainer}>
+            <Spinner size="small" label="Loading threads..." />
+          </div>
+        ) : threads.length === 0 ? (
           <div className={styles.emptyState}>
             <Text size={400}>No chat threads found</Text>
             <Text size={300}>Start a new conversation to see it here</Text>
@@ -290,6 +321,12 @@ export const ChatHistoryTab: React.FC<{
                 >
                   Load More...
                 </Button>
+              </div>
+            )}
+            
+            {isLoading && threads.length > 0 && (
+              <div className={styles.loadingContainer}>
+                <Spinner size="small" label="Loading more..." />
               </div>
             )}
           </>

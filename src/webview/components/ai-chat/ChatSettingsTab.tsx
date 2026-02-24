@@ -17,6 +17,7 @@ import { Play20Regular, ArrowClockwise20Regular, Database20Regular } from '@flue
 interface ChatSettings {
   postgresConnectionString?: string;
   planningModel?: 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  planningRpm?: number;
   batchModel: string;
   batchMaxTokens: number;
   batchThinkingBudget: number;
@@ -129,6 +130,7 @@ export const ChatSettingsTab: React.FC = () => {
         }
       }
       if (message.command === 'architectureStatus') {
+        setIsRefreshingArchitecture(false);
         setSettings((prev) =>
           prev
             ? {
@@ -138,6 +140,9 @@ export const ChatSettingsTab: React.FC = () => {
               }
             : prev
         );
+      }
+      if (message.command === 'chatSettingsResult' && isRefreshingArchitecture) {
+        setIsRefreshingArchitecture(false);
       }
     };
 
@@ -159,7 +164,8 @@ export const ChatSettingsTab: React.FC = () => {
   const handleRefreshArchitecture = useCallback(() => {
     setIsRefreshingArchitecture(true);
     vscode.postMessage({ command: 'refreshArchitectureNow' });
-    setTimeout(() => setIsRefreshingArchitecture(false), 5000);
+    // The isRefreshingArchitecture flag will be cleared when we receive
+    // the updated chatSettingsResult or architectureStatus message
   }, []);
 
   const handleSettingChange = useCallback((key: keyof ChatSettings, value: any) => {
@@ -241,6 +247,18 @@ export const ChatSettingsTab: React.FC = () => {
             <Option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</Option>
           </Select>
           <div className={styles.description}>LLM model for planning and orchestration</div>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label}>Rate Limit (RPM): {settings.planningRpm || 60}</label>
+          <Slider
+            className={styles.slider}
+            min={1}
+            max={1000}
+            step={1}
+            value={settings.planningRpm || 60}
+            onChange={(_, data) => handleSettingChange('planningRpm', data.value)}
+          />
+          <div className={styles.description}>Maximum requests per minute for the planning LLM</div>
         </div>
       </div>
 

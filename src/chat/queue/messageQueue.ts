@@ -130,6 +130,12 @@ export class MessageQueue {
     }
   }
 
+  peek(): QueueEntry[] {
+    return this.entries
+      .filter(e => e.status === 'queued')
+      .map(e => ({ ...e }));
+  }
+
   getStatus(): QueueStatusInfo {
     return {
       queueLength: this.entries.filter(e => e.status === 'queued').length,

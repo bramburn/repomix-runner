@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import type { RunnableConfig } from '@langchain/core/runnables';
 import type { Pool } from 'pg';
 import type { ExtensionContext } from 'vscode';
 import { ChatState } from './state.js';
@@ -77,8 +78,8 @@ export async function createHitlChatGraph(
 
   const workflow = new StateGraph(ChatState)
     // Context gathering phase
-    .addNode('gatherContext', (state) =>
-      gatherContextNode(state, extensionContext, onProgress, pgPool)
+    .addNode('gatherContext', (state: typeof ChatState.State, config?: RunnableConfig) =>
+      gatherContextNode(state, extensionContext, onProgress, config?.signal)
     )
 
     // Context compression phase (PRD 003)
@@ -87,7 +88,7 @@ export async function createHitlChatGraph(
     )
 
     // Goal synthesis phase (with memory injection - PRD 004)
-    .addNode('prepareGoal', (state, config) =>
+    .addNode('prepareGoal', (state: typeof ChatState.State, config?: RunnableConfig) =>
       prepareGoalNode(state, extensionContext, pgPool, onProgress, config?.signal)
     )
 

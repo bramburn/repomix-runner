@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
+import { glob } from 'glob';
 import type { ArchitectureState } from '../architectureState.js';
 
 /** Maximum lines to read for file summary */
@@ -208,6 +209,3 @@ export async function analyzeKeyFilesNode(
     };
   }
 }
-
-// Need to import glob
-import { glob } from 'glob';

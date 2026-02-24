@@ -125,9 +125,7 @@ export async function extractMemoryNode(
         const scopeId =
           memory.scope === 'session'
             ? state.threadId
-            : memory.scope === 'repo'
-              ? repoId
-              : 'global';
+            : repoId;
 
         await memoryManager.create({
           scope: memory.scope,

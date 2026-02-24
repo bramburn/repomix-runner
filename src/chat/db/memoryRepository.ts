@@ -228,12 +228,27 @@ export class MemoryRepository {
    * Searches memories by keyword matching on key and value.
    * Uses case-insensitive ILIKE search.
    */
+  /**
+   * Escapes LIKE wildcard characters (%, _, \) in user input.
+   */
+  private escapeLikePattern(input: string): string {
+    return input
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+  }
+
+  /**
+   * Searches memories by keyword matching on key and value.
+   * Uses case-insensitive ILIKE search with properly escaped wildcards.
+   */
   async searchByKeyword(
     scope: MemoryScope,
     scopeId: string,
     query: string
   ): Promise<MemoryEntry[]> {
-    const searchPattern = `%${query}%`;
+    const escapedQuery = this.escapeLikePattern(query);
+    const searchPattern = `%${escapedQuery}%`;
 
     const result = await this.pool.query<MemoryRow>(
       `SELECT * FROM chat_memory 

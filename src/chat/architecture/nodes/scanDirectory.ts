@@ -5,7 +5,6 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
 import type { ArchitectureState } from '../architectureState.js';
 
 /** Directories to ignore when mapping structure */

@@ -22,7 +22,9 @@ export async function prepareGoalNode(
 ) {
   // Check abort signal before starting
   if (signal?.aborted) {
-    throw new Error('AbortError: Operation cancelled');
+    const err = new Error('Operation cancelled');
+    err.name = 'AbortError';
+    throw err;
   }
 
   onProgress('Synthesizing goal from request and context...');
@@ -49,7 +51,7 @@ export async function prepareGoalNode(
     logger.both.warn('prepareGoal: Memory injection failed (non-blocking):', error);
   }
 
-  const prompt = buildGoalPrompt({
+  let prompt = buildGoalPrompt({
     userQuery: state.userQuery,
     retrievedContext: state.retrievedContext,
     repoArchitecture: state.repoArchitecture,
@@ -57,10 +59,17 @@ export async function prepareGoalNode(
     memoryContext,
   });
 
+  // Ensure memory context is included even if buildGoalPrompt doesn't handle the field
+  if (memoryContext && !prompt.includes('Known Facts from Memory')) {
+    prompt = `${memoryContext}\n\n${prompt}`;
+  }
+
   try {
     // Check abort signal before LLM call
     if (signal?.aborted) {
-      throw new Error('AbortError: Operation cancelled');
+      const err = new Error('Operation cancelled');
+      err.name = 'AbortError';
+      throw err;
     }
     
     const { content, totalTokens, promptTokens, completionTokens } = await llmClient.generateText(
@@ -82,6 +91,10 @@ export async function prepareGoalNode(
       costUsd: calculateGeminiCost(promptTokens, completionTokens),
     };
   } catch (error) {
+    // Re-throw AbortError so cancellation propagates
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
     logger.both.error('prepareGoal: Goal synthesis failed', error);
     return {
       goalText: state.userQuery,

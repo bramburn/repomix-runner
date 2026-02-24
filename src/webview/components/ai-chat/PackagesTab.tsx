@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Text } from '@fluentui/react-components';
 import { vscode } from '../../vscode-api.js';
 import { PackageCard } from './PackageCard.js';
@@ -18,23 +18,29 @@ const STATUS_PRIORITY: Record<PackageStatus, number> = {
 type StatusFilter = 'all' | PackageStatus;
 type TypeFilter = 'all' | PackageType;
 
-export const PackagesTab: React.FC = () => {
+export interface PackagesTabProps {
+  /** Navigate to the Chat tab for a specific thread (e.g. "Apply to Thread"). */
+  onNavigateToThread?: (threadId: string) => void;
+}
+
+export const PackagesTab: React.FC<PackagesTabProps> = ({ onNavigateToThread }) => {
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [preview, setPreview] = useState<PackagePreviewData | null>(null);
 
-  const requestList = () => {
+  const requestList = useCallback(() => {
     vscode.postMessage({
       command: 'listPackages',
       status: statusFilter === 'all' ? undefined : statusFilter,
       packageType: typeFilter === 'all' ? undefined : typeFilter,
     });
-  };
+  }, [statusFilter, typeFilter]);
 
+  // Re-fetch whenever filters change
   useEffect(() => {
     requestList();
-  }, [statusFilter, typeFilter]);
+  }, [requestList]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -45,11 +51,19 @@ export const PackagesTab: React.FC = () => {
       if (message?.command === 'packagePreview' && message.package) {
         setPreview(message.package as PackagePreviewData);
       }
+      // Listen for batch status changes and refresh the list
+      if (message?.command === 'batchStatus') {
+        requestList();
+      }
+      // Listen for bulk send results
+      if (message?.command === 'packagesBulkSendResult') {
+        requestList();
+      }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [requestList]);
 
   const filtered = useMemo(
     () =>
@@ -65,9 +79,13 @@ export const PackagesTab: React.FC = () => {
 
   const approvedCount = filtered.filter((pkg) => pkg.status === 'pending').length;
 
+  /**
+   * Fire-and-forget: send a command to the extension.
+   * The extension will reply with an updated `packageList` message,
+   * so we do NOT need to call requestList() here.
+   */
   const onAction = (command: string, packageId?: string) => {
     vscode.postMessage(packageId ? { command, packageId } : { command });
-    requestList();
   };
 
   return (
@@ -81,12 +99,13 @@ export const PackagesTab: React.FC = () => {
           disabled={approvedCount === 0}
           onClick={() => onAction('sendAllApproved')}
         >
-          Send All Approved
+          Send All Approved ({approvedCount})
         </Button>
       </div>
 
       <div style={{ display: 'flex', gap: '8px' }}>
         <select
+          aria-label="Filter by status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
           style={{ padding: '6px', borderRadius: '6px' }}
@@ -101,6 +120,7 @@ export const PackagesTab: React.FC = () => {
           <option value="cancelled">Cancelled</option>
         </select>
         <select
+          aria-label="Filter by type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
           style={{ padding: '6px', borderRadius: '6px' }}
@@ -117,10 +137,17 @@ export const PackagesTab: React.FC = () => {
           style={{
             border: '1px dashed var(--vscode-editorWidget-border)',
             borderRadius: '8px',
-            padding: '16px',
+            padding: '24px',
+            textAlign: 'center',
           }}
         >
-          <Text>No packages found for the selected filters.</Text>
+          <Text weight="semibold" block>
+            No packages yet
+          </Text>
+          <Text block size={200} style={{ opacity: 0.8, marginTop: '4px' }}>
+            Packages appear here when you complete the context-gathering phase in a chat thread.
+            Each package can be reviewed, approved, and sent to the Anthropic Batch API.
+          </Text>
         </div>
       )}
 
@@ -135,6 +162,12 @@ export const PackagesTab: React.FC = () => {
           onDelete={() => onAction('deletePackage', pkg.id)}
           onCancel={() => onAction('cancelBatch', pkg.id)}
           onStatus={() => onAction('viewBatchStatus', pkg.id)}
+          onRetry={() => onAction('retryPackage', pkg.id)}
+          onApplyToThread={() => {
+            if (pkg.threadId && onNavigateToThread) {
+              onNavigateToThread(pkg.threadId);
+            }
+          }}
         />
       ))}
 
@@ -142,14 +175,14 @@ export const PackagesTab: React.FC = () => {
         <PackagePreview
           preview={preview}
           onClose={() => setPreview(null)}
-          onSaveDraft={(data) =>
+          onSaveDraft={(data) => {
             vscode.postMessage({
               command: 'updatePackageDraft',
               packageId: preview.id,
               goal: data.goal,
               outputInstruction: data.outputInstruction,
-            })
-          }
+            });
+          }}
         />
       )}
     </div>

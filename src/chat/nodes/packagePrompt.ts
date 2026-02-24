@@ -47,7 +47,7 @@ function inferOutputInstruction(goalText: string): OutputInstruction {
  * Convert state messages to ChatMessage format for compression.
  */
 function stateToChatMessages(
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>
 ): ChatMessage[] {
   return messages.map((m, i) => ({
     id: `msg-${i}`,

@@ -51,6 +51,7 @@ export const SecretInput: React.FC<SecretInputProps> = ({
   const [value, setValue] = useState('');
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasSecret, setHasSecret] = useState(false);
 
   // Check if secret exists on mount
   useEffect(() => {
@@ -59,6 +60,7 @@ export const SecretInput: React.FC<SecretInputProps> = ({
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message.command === 'secretStatus' && message.key === secretKey) {
+        setHasSecret(message.exists);
         if (message.exists) {
           setValue('••••••••••••'); // Masked value
         } else {
@@ -72,8 +74,9 @@ export const SecretInput: React.FC<SecretInputProps> = ({
   }, [secretKey]);
 
   const handleSave = () => {
-    if (!value || value.includes('•')) {
-      return; // Don't save masked value
+    // Allow saving even if value contains bullets (user clicked Save without changes)
+    if (value.includes('•')) {
+      return; // Don't re-send masked value
     }
 
     setIsLoading(true);
@@ -86,12 +89,14 @@ export const SecretInput: React.FC<SecretInputProps> = ({
     // Show saved confirmation
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
-    setValue('••••••••••••');
+    setHasSecret(!!value.trim());
+    setValue(value.trim() ? '••••••••••••' : '');
     setIsLoading(false);
   };
 
   const handleClear = () => {
     setValue('');
+    setHasSecret(false);
     // Save empty value to clear the secret
     vscode.postMessage({
       command: 'saveSecret',
@@ -127,25 +132,27 @@ export const SecretInput: React.FC<SecretInputProps> = ({
           onChange={handleChange}
           disabled={isLoading}
         />
-        {value && !value.includes('•') && (
+        {(value || hasSecret) && (
           <>
             <Button
               className={styles.saveButton}
               appearance="primary"
               onClick={handleSave}
-              disabled={isLoading || !value.trim()}
+              disabled={isLoading || !!(value && !value.trim())}
               icon={<Checkmark20Regular />}
             >
-              Save
+              {hasSecret && !value ? 'Update' : 'Save'}
             </Button>
-            <Button
-              appearance="secondary"
-              onClick={handleClear}
-              disabled={isLoading}
-              icon={<Dismiss20Regular />}
-            >
-              Clear
-            </Button>
+            {(hasSecret || (value && !value.includes('•'))) && (
+              <Button
+                appearance="secondary"
+                onClick={handleClear}
+                disabled={isLoading}
+                icon={<Dismiss20Regular />}
+              >
+                Clear
+              </Button>
+            )}
           </>
         )}
       </div>

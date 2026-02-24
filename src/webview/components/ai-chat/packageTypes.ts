@@ -1,3 +1,10 @@
+/**
+ * Shared types for the Package Manager UI (PRD 006).
+ *
+ * These mirror the Zod schemas in messageSchemas.ts and the DB
+ * model in batchRepository.ts so that every component agrees on shape.
+ */
+
 export type PackageStatus =
   | 'draft'
   | 'pending'
@@ -9,14 +16,7 @@ export type PackageStatus =
 
 export type PackageType = 'plan' | 'code_change' | 'code_review';
 
-export interface PackagePayload {
-  goal: string;
-  contextFiles: Array<{ path: string; content: string }>;
-  repoArchitecture: string;
-  dependencies: Record<string, string>;
-  outputInstruction: PackageType;
-}
-
+/** Lightweight summary returned by the `packageList` message. */
 export interface PackageSummary {
   id: string;
   threadId: string | null;
@@ -35,12 +35,26 @@ export interface PackageSummary {
   errorMessage: string | null;
 }
 
+/** Payload assembled during the HITL workflow and stored in promptPayload. */
+export interface PackagePayload {
+  goal: string;
+  contextFiles: Array<{ path: string; content: string }>;
+  repoArchitecture?: string;
+  dependencies?: Record<string, string>;
+  outputInstruction: PackageType;
+}
+
+/** Context file entry enriched with token count for the preview modal. */
+export interface PackagePreviewContextFile {
+  path: string;
+  tokenCount: number;
+  content: string;
+  compressionLevel?: string;
+}
+
+/** Full detail payload returned by the `packagePreview` message. */
 export interface PackagePreviewData extends PackageSummary {
-  contextFiles: Array<{
-    path: string;
-    tokenCount: number;
-    content: string;
-  }>;
+  contextFiles: PackagePreviewContextFile[];
   repoArchitecture: string;
   dependencies: Record<string, string>;
   outputInstruction: PackageType;

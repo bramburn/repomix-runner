@@ -36,7 +36,8 @@ export type { ProgressCallback } from '../nodes/utils.js';
  */
 export async function createArchitectureGraph(
   dependencies: ArchitectureDependencies,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  signal?: AbortSignal
 ) {
   const progress = onProgress || (() => {});
 
@@ -68,7 +69,7 @@ export async function createArchitectureGraph(
     // Generate markdown document
     .addNode('generateDocument', (state) => {
       progress('Generating architecture document...');
-      return generateDocumentNode(state);
+      return generateDocumentNode(state, signal);
     })
 
     // Store document
@@ -111,9 +112,10 @@ export async function executeArchitectureGeneration(
   repoRoot: string,
   repoId: string,
   dependencies: ArchitectureDependencies,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  signal?: AbortSignal
 ): Promise<typeof ArchitectureState.State> {
-  const graph = await createArchitectureGraph(dependencies, onProgress);
+  const graph = await createArchitectureGraph(dependencies, onProgress, signal);
 
   const initialState: Partial<typeof ArchitectureState.State> = {
     repoId,

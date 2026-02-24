@@ -44,13 +44,13 @@ export const SaveApiKeySchema = z.object({
 
 export const SaveSecretSchema = z.object({
   command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
-  value: z.string().min(1),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
+  value: z.string(),
 });
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey']),
+  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
 });
 
 export const GetAgentHistorySchema = z.object({
@@ -793,6 +793,11 @@ export const DeletePackageSchema = z.object({
   packageId: z.string(),
 });
 
+export const RetryPackageSchema = z.object({
+  command: z.literal('retryPackage'),
+  packageId: z.string(),
+});
+
 export const UpdatePackageDraftSchema = z.object({
   command: z.literal('updatePackageDraft'),
   packageId: z.string(),
@@ -888,6 +893,7 @@ export const ViewEditDiffSchema = z.object({
 // Apply all edits (webview → extension)
 export const ApplyAllEditsSchema = z.object({
   command: z.literal('applyAllEdits'),
+  approvedEdits: z.array(z.string()),
 });
 
 // Code review (extension → webview)
@@ -952,6 +958,13 @@ export const UpdateMemorySchema = z.object({
 export const DeleteMemorySchema = z.object({
   command: z.literal('deleteMemory'),
   id: z.string().min(1),
+});
+
+// Search memories by keyword (webview → extension)
+export const SearchMemoriesSchema = z.object({
+  command: z.literal('searchMemories'),
+  scope: MemoryScopeEnum,
+  query: z.string().min(1).max(200),
 });
 
 // Memory list response (extension → webview)
@@ -1117,7 +1130,7 @@ export const ThreadsSearchResultSchema = z.object({
   command: z.literal('threadsSearchResult'),
   threads: z.array(z.object({
     id: z.string(),
-    title: z.string(),
+    title: z.string().nullable(),
     updatedAt: z.number(),
     createdAt: z.number(),
     messageCount: z.number(),
@@ -1261,9 +1274,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   UnapprovePackageSchema,
   SendPackageSchema,
   SendAllApprovedSchema,
-  CancelBatchSchema,
-  DeletePackageSchema,
-  UpdatePackageDraftSchema,
+   CancelBatchSchema,
+   DeletePackageSchema,
+   RetryPackageSchema,
+   UpdatePackageDraftSchema,
   GetPackagePreviewSchema,
   ViewBatchStatusSchema,
   PackagePreviewSchema,
@@ -1287,6 +1301,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CreateMemorySchema,
   UpdateMemorySchema,
   DeleteMemorySchema,
+  SearchMemoriesSchema,
   MemoryListSchema,
   // Message Queue (PRD 007)
   ChatForceSubmitSchema,

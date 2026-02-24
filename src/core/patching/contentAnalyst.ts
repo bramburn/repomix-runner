@@ -221,7 +221,8 @@ export function locatePatchSync(
 
 /**
  * Adjusts the replacement block to match the indentation of the found context.
- * * @param replaceBlock The raw replacement text from the LLM
+ * Detects if the block is already indented to avoid double-indentation (L4 fix).
+ * @param replaceBlock The raw replacement text from the LLM
  * @param targetIndentation The indentation string found in the actual file (e.g. "    ")
  */
 export function repairIndentation(replaceBlock: string, targetIndentation: string): string {
@@ -230,12 +231,16 @@ export function repairIndentation(replaceBlock: string, targetIndentation: strin
   }
 
   const lines = replaceBlock.split('\n');
-  
-  // Heuristic: If the replace block already looks like it starts with the target indentation,
-  // we might not want to double-indent. 
-  // However, usually LLMs output the block starting at 0 indent relative to the snippet.
-  // We blindly apply the target indentation to all lines that aren't empty.
-  
+
+  // Detect if the replacement block already starts with the target indentation
+  // by checking the first non-empty line
+  const firstNonEmptyLine = lines.find(line => line.trim().length > 0);
+  if (firstNonEmptyLine && firstNonEmptyLine.startsWith(targetIndentation)) {
+    // Block already appears to be indented at the correct level — return as-is
+    return replaceBlock;
+  }
+
+  // Apply the target indentation to all non-empty lines
   const indentedLines = lines.map(line => {
     if (line.trim().length === 0) {
       return line; // Don't indent empty lines

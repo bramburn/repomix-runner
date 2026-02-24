@@ -1,12 +1,10 @@
 /**
  * gatherContext node - Combined vector search + architecture loading.
  * This is the entry point for the HITL workflow.
- * Enhanced with file compression integration (PRD 003).
  */
 import * as path from 'path';
 import * as fs from 'fs';
 import type { ExtensionContext } from 'vscode';
-import type { Pool } from 'pg';
 import { ChatState } from '../state.js';
 import { logger } from '../../shared/logger.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
@@ -20,13 +18,6 @@ import {
   type RetrievedContextItem,
   type ProgressCallback,
 } from './utils.js';
-import { compressFilesForContext, isBinaryContent } from '../compression/fileCompressor.js';
-import {
-  calculateBudget,
-  countTokens,
-  createCompressionConfig,
-  isCompressionNeeded,
-} from '../compression/tokenBudget.js';
 
 /**
  * Extracts dependencies from package.json if present.
@@ -52,8 +43,15 @@ export async function gatherContextNode(
   state: typeof ChatState.State,
   extensionContext: ExtensionContext,
   onProgress: ProgressCallback,
-  pgPool: Pool
+  signal?: AbortSignal
 ) {
+  // Check abort signal before starting
+  if (signal?.aborted) {
+    const err = new Error('Operation cancelled');
+    err.name = 'AbortError';
+    throw err;
+  }
+
   onProgress('Gathering context from codebase...');
 
   const workspaceFolder = getWorkspaceRoot();
@@ -97,6 +95,11 @@ export async function gatherContextNode(
 
     const allResults = await Promise.all(
       queries.map(async (query) => {
+        // Check abort signal before each search
+        if (signal?.aborted) {
+          throw new Error('AbortError: Operation cancelled');
+        }
+        
         const vector = await embeddingService.embedText(query, 'chat', true);
         return adapter.queryVectors({
           repoId,
@@ -137,95 +140,61 @@ export async function gatherContextNode(
   }
 
   // Load repo architecture from ArchitectureRepository (PRD 008)
+  // Uses the global chatPgPool set during extension activation
   let repoArchitecture = '';
-  try {
-    const architectureRepo = new ArchitectureRepository(pgPool);
-    const archData = await architectureRepo.getArchitectureByRepoId(repoId);
-    
-    if (archData) {
-      repoArchitecture = archData.markdownTree;
-      logger.both.info(`gatherContext: Loaded architecture document (${archData.markdownTree.length} chars)`);
-    } else {
-      logger.both.info('gatherContext: No architecture document found in DB');
-    }
-  } catch (error) {
-    logger.both.warn('gatherContext: Failed to load architecture document', error);
-  }
+  const pgPool = (global as any).chatPgPool;
 
-  // --- PRD 003: File Context Compression ---
-  // After loading files, run through fileCompressor to fit within token budget
-  const thresholdPercent = state.contextThresholdPercent || 80;
-  const modelContextWindow = state.modelContextWindow || 200_000;
-
-  const totalRawTokens = retrievedContext.reduce(
-    (sum, ctx) => sum + countTokens(ctx.content),
-    0
-  );
-
-  let compressionApplied = false;
-
-  if (
-    retrievedContext.length > 0 &&
-    isCompressionNeeded(totalRawTokens, modelContextWindow, thresholdPercent)
-  ) {
-    onProgress('Compressing context files to fit token budget...');
+  if (pgPool) {
     try {
-      const budget = calculateBudget(modelContextWindow, thresholdPercent);
+      const architectureRepo = new ArchitectureRepository(pgPool);
+      const archData = await architectureRepo.getArchitectureByRepoId(repoId);
 
-      // Filter out binary content before compression
-      const textContextItems = retrievedContext.filter(
-        (ctx) => !isBinaryContent(ctx.content)
-      );
+      if (archData && archData.expiresAt > Date.now()) {
+        // Document exists and is fresh — use it
+        repoArchitecture = archData.markdownTree;
+        logger.both.info(`gatherContext: Loaded architecture document (${archData.markdownTree.length} chars)`);
+      } else {
+        // Document missing or expired — trigger architecture generation (PRD 008 Atomic Action #10)
+        logger.both.info('gatherContext: Architecture document missing or expired, triggering generation...');
+        onProgress('Generating architecture document...');
 
-      const filesToCompress = textContextItems.map((ctx) => ({
-        filePath: ctx.filePath,
-        content: ctx.content,
-      }));
+        try {
+          const { executeArchitectureGeneration } = await import('../architecture/architectureGraph.js');
+          const result = await executeArchitectureGeneration(
+            workspaceFolder,
+            repoId,
+            {
+              pgPool,
+              secrets: extensionContext.secrets,
+            },
+            (msg: string) => onProgress(`Architecture: ${msg}`)
+          );
 
-      const compressedFiles = await compressFilesForContext(
-        filesToCompress,
-        budget.fileContext,
-        state.goalText || state.userQuery
-      );
+          if (result.markdownDocument) {
+            repoArchitecture = result.markdownDocument;
+            logger.both.info(`gatherContext: Architecture document generated (${repoArchitecture.length} chars)`);
+          }
+        } catch (genError) {
+          logger.both.warn('gatherContext: Architecture generation failed, continuing without it', genError);
 
-      // Update retrieved context with compressed content
-      for (const compressed of compressedFiles) {
-        const match = retrievedContext.find(
-          (ctx) => ctx.filePath === compressed.filePath
-        );
-        if (match && compressed.compressionLevel > 0) {
-          match.content = compressed.compressedContent;
-          compressionApplied = true;
+          // If generation failed but stale data exists, use stale data as fallback
+          if (archData) {
+            repoArchitecture = archData.markdownTree;
+            logger.both.info('gatherContext: Using stale architecture document as fallback');
+          }
         }
       }
-
-      const totalCompressedTokens = retrievedContext.reduce(
-        (sum, ctx) => sum + countTokens(ctx.content),
-        0
-      );
-
-      logger.both.info(
-        `gatherContext: File compression complete. ` +
-        `Before: ${totalRawTokens} tokens, After: ${totalCompressedTokens} tokens, ` +
-        `Saved: ${totalRawTokens - totalCompressedTokens} tokens`
-      );
-      onProgress(
-        `Found ${retrievedContext.length} snippets (${compressionApplied ? 'compressed' : 'within budget'}).`
-      );
     } catch (error) {
-      logger.both.warn('gatherContext: File compression failed, using raw content', error);
+      logger.both.warn('gatherContext: Failed to load architecture document', error);
     }
+  } else {
+    logger.both.warn('gatherContext: No PostgreSQL pool available, skipping architecture loading');
   }
 
   return {
     retrievedContext,
     repoArchitecture,
     dependencies,
-    compressionApplied,
-    currentTokenCount: retrievedContext.reduce(
-      (sum, ctx) => sum + countTokens(ctx.content),
-      0
-    ),
     workflowPhase: 'gathering' as const,
   };
 }

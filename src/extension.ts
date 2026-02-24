@@ -85,6 +85,9 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       chatPgPool = await initPool(pgConnectionString);
       console.log('[quick-repomix] PostgreSQL chat storage initialized');
+      
+      // Expose PG pool globally for architecture loading in gatherContext
+      (global as any).chatPgPool = chatPgPool;
     } catch (error) {
       console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
       const selection = await vscode.window.showErrorMessage(
@@ -122,40 +125,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // pending batch jobs are resumed on extension activation and properly cleaned
   // up on deactivation to prevent memory leaks and lost jobs.
   // ==============================================================================
-  let batchPoller: BatchPoller | null = null;
-
-  if (chatPgPool) {
-    console.log('[quick-repomix] Initializing batch poller for background job monitoring...');
-    const batchManager = new BatchManager(chatPgPool, context);
-    batchPoller = new BatchPoller(batchManager, {
-      pollIntervalSeconds: vscode.workspace
-        .getConfiguration('repomix.chat')
-        .get<number>('batchPollIntervalSeconds', 60),
-    });
-
-    // Resume polling for all pending batches across all threads
-    // This ensures we don't lose track of jobs that were submitted before VS Code closed
-    await batchPoller.resumeAllPending(async (result: BatchCompletionResult) => {
-      if (result.status === 'completed') {
-        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} completed during startup`);
-        // Note: We cannot resume the graph here because the webview may not be loaded.
-        // The ChatController will handle resuming the graph when the user opens the thread.
-      } else if (result.status === 'cancelled') {
-        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} was cancelled`);
-      } else if (result.status === 'failed') {
-        logger.both.error(`[BatchPoller] Batch ${result.batchJobId} failed: ${result.errorMessage}`);
-      }
-    });
-
-    // Register for cleanup on deactivation
-    context.subscriptions.push({
-      dispose: () => {
-        batchPoller?.dispose();
-      },
-    });
-
-    console.log('[quick-repomix] Batch poller initialized and pending jobs resumed');
-  }
+  // Batch poller lifecycle is now managed via shared instances passed to AiChatWebviewProvider.
+  // We still need to resume pending jobs at extension activation (before webview loads).
+  // The shared instances are created below, near AiChatWebviewProvider construction.
+  // Here we just set up early-activation resume using the shared poller after it's created.
+  // (See "Creating AiChatWebviewProvider" section below for shared instance creation.)
 
   // Initialize embedding service with saved configuration
   console.log('[quick-repomix] Initializing embedding service...');
@@ -198,6 +172,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Expose context for agent graph
   (global as any).extensionContext = context;
+  // Expose PG pool for chat architecture loading (PRD 008)
+  (global as any).chatPgPool = chatPgPool;
 
   const cwd = getCwd();
   const bundleManager = new BundleManager(cwd);
@@ -586,8 +562,51 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] RepomixWebviewProvider created');
 
   console.log('[quick-repomix] Creating AiChatWebviewProvider...');
-  const aiChatProvider = new AiChatWebviewProvider(context.extensionUri, context, chatPgPool);
+  // Pass shared batch manager and poller to avoid duplicate instances (PRD 005 / H1 fix)
+  const sharedBatchManager = chatPgPool ? new BatchManager(chatPgPool, context) : undefined;
+  const sharedBatchPoller = sharedBatchManager
+    ? new BatchPoller(sharedBatchManager, {
+        pollIntervalSeconds: vscode.workspace
+          .getConfiguration('repomix.chat')
+          .get<number>('batchPollIntervalSeconds', 60),
+      })
+    : undefined;
+
+  const aiChatProvider = new AiChatWebviewProvider(
+    context.extensionUri,
+    context,
+    chatPgPool,
+    sharedBatchManager,
+    sharedBatchPoller
+  );
   console.log('[quick-repomix] AiChatWebviewProvider created');
+
+  // Resume pending batch jobs using the shared poller (must happen after poller creation)
+  if (sharedBatchPoller) {
+    console.log('[quick-repomix] Resuming pending batch jobs via shared poller...');
+    await sharedBatchPoller.resumeAllPending(async (result: BatchCompletionResult) => {
+      if (result.status === 'completed') {
+        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} completed during startup`);
+        vscode.window.showInformationMessage(
+          `✅ Batch job ${result.batchJobId.slice(0, 8)}… completed.`
+        );
+      } else if (result.status === 'cancelled') {
+        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} was cancelled`);
+      } else if (result.status === 'failed') {
+        logger.both.error(`[BatchPoller] Batch ${result.batchJobId} failed: ${result.errorMessage}`);
+        vscode.window.showErrorMessage(
+          `Batch job ${result.batchJobId.slice(0, 8)}… failed: ${result.errorMessage ?? 'Unknown error'}`
+        );
+      }
+    });
+
+    context.subscriptions.push({
+      dispose: () => {
+        sharedBatchPoller.dispose();
+      },
+    });
+    console.log('[quick-repomix] Batch poller initialized and pending jobs resumed');
+  }
 
   // ==============================================================================
   // AUTO-TRIGGER ARCHITECTURE GENERATION ON WORKSPACE OPEN

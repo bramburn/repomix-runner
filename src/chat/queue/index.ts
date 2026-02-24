@@ -1,6 +1,18 @@
 /**
- * Queue Module Exports (PRD 007)
+ * Message Queue System barrel export (PRD 007)
  */
-export * from './types.js';
-export * from './messageQueue.js';
-export * from './graphExecutor.js';
+export { MessageQueue } from './messageQueue.js';
+export { GraphExecutor, AbortError } from './graphExecutor.js';
+export type { GraphExecutionResult } from './graphExecutor.js';
+export type {
+  QueueEntry,
+  QueueStatus,
+  QueuePriority,
+  QueueConfig,
+  QueueChangedEvent,
+  ProcessingStartedEvent,
+  ProcessingCompletedEvent,
+  QueueStatusInfo,
+  QueueEventListener,
+  QueueEvents,
+} from './types.js';
