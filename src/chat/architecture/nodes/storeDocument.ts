@@ -5,6 +5,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { ArchitectureRepository } from '../../db/architectureRepository.js';
 import type { ArchitectureState } from '../architectureState.js';
 
@@ -22,7 +23,6 @@ export async function storeDocumentNode(
     }
 
     // Get refresh hours from settings (default 24)
-    const vscode = require('vscode');
     const config = vscode.workspace.getConfiguration('repomix.chat');
     const refreshHours: number = config.get('architectureRefreshHours', 24);
 
@@ -30,7 +30,10 @@ export async function storeDocumentNode(
     const expiresAt = new Date(Date.now() + refreshHours * 60 * 60 * 1000);
 
     // Save to PostgreSQL
-    const archRepo = new ArchitectureRepository((global as any).chatPgPool);
+    if (!state.pgPool) {
+      throw new Error('Database connection not available');
+    }
+    const archRepo = new ArchitectureRepository(state.pgPool);
     await archRepo.upsertArchitecture({
       repoId,
       markdownTree: markdownDocument,

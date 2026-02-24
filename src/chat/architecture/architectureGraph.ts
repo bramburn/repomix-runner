@@ -2,7 +2,7 @@
  * architectureGraph - LangGraph workflow for generating repo architecture documentation.
  */
 import { StateGraph } from '@langchain/langgraph';
-import { ArchitectureState } from './architectureState.js';
+import { ArchitectureState, type ArchitectureDependencies } from './architectureState.js';
 import { checkFreshnessNode } from './nodes/checkFreshness.js';
 import { scanDirectoryNode } from './nodes/scanDirectory.js';
 import { analyzeKeyFilesNode } from './nodes/analyzeKeyFiles.js';
@@ -35,6 +35,7 @@ export type { ProgressCallback } from '../nodes/utils.js';
  *       END
  */
 export async function createArchitectureGraph(
+  dependencies: ArchitectureDependencies,
   onProgress?: (message: string) => void
 ) {
   const progress = onProgress || (() => {});
@@ -109,13 +110,16 @@ export async function createArchitectureGraph(
 export async function executeArchitectureGeneration(
   repoRoot: string,
   repoId: string,
+  dependencies: ArchitectureDependencies,
   onProgress?: (message: string) => void
 ): Promise<typeof ArchitectureState.State> {
-  const graph = await createArchitectureGraph(onProgress);
+  const graph = await createArchitectureGraph(dependencies, onProgress);
 
   const initialState: Partial<typeof ArchitectureState.State> = {
     repoId,
     repoRoot,
+    pgPool: dependencies.pgPool,
+    secrets: dependencies.secrets,
   };
 
   const config = {

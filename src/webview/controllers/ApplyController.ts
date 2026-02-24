@@ -80,7 +80,7 @@ export class ApplyController extends BaseController {
           const fileContent = document.getText();
 
           // 3. Analyze & Locate
-          const match = locatePatch(fileContent, patch.searchContent);
+          const match = await locatePatch(fileContent, patch.searchContent);
           
           if (!match) {
             results.push({

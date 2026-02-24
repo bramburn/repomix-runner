@@ -35,8 +35,8 @@ export async function generateDocumentNode(
     const prompt = createArchitecturePrompt(promptData);
 
     // Call Gemini Flash (non-structured since we want markdown)
-    const apiKey = (global as any).extensionContext?.secrets 
-      ? await (global as any).extensionContext.secrets.get('repomix.agent.googleApiKey')
+    const apiKey = state.secrets
+      ? await state.secrets.get('repomix.agent.googleApiKey')
       : undefined;
 
     if (!apiKey) {

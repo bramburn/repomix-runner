@@ -111,7 +111,7 @@ async function applySinglePatch(
   }
 
   // Fall back to fuzzy matching
-  const match = locatePatch(fileContent, searchText, fuzzyThreshold);
+  const match = await locatePatch(fileContent, searchText, fuzzyThreshold);
 
   if (match) {
     return {

@@ -7,6 +7,7 @@
 
 // State
 export { ArchitectureState } from './architectureState.js';
+export type { ArchitectureDependencies } from './architectureState.js';
 
 // Graph
 export {

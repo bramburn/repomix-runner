@@ -38,6 +38,7 @@ import type { VectorDbAdapter } from './core/indexing/vectorDb/types.js';
 import { runRepomixClipboardGenerateMarkdown } from './core/files/runRepomixClipboardGenerateMarkdown.js';
 import { getRemoteEnvironment, shouldUseLocalBinaryExecution } from './core/files/remoteDetection.js';
 import { readRepomixRunnerVscodeConfig } from './config/configLoader.js';
+import { copySelectedFilesToClipboard } from './commands/copySelectedFilesToClipboard.js';
 import { copySelectedFilesAsCompressed } from './commands/copySelectedFilesAsCompressed.js';
 import { copySingleFileRespectingMode } from './commands/copySingleFileRespectingMode.js';
 import { getRepoForActiveEditor, getAllChangedUris, getChangesCounts } from './git/gitUtils.js';
@@ -616,6 +617,10 @@ export async function activate(context: vscode.ExtensionContext) {
             executeArchitectureGeneration(
               workspaceFolder,
               repoId,
+              {
+                pgPool: chatPgPool,
+                secrets: context.secrets,
+              },
               (message: string) => {
                 console.log(`[Architecture] Auto-trigger: ${message}`);
               }
@@ -1072,6 +1077,10 @@ export async function activate(context: vscode.ExtensionContext) {
           await executeArchitectureGeneration(
             workspaceFolder,
             repoId,
+            {
+              pgPool: chatPgPool,
+              secrets: context.secrets,
+            },
             (message: string) => {
               progress.report({ message });
             }

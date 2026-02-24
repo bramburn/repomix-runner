@@ -142,6 +142,39 @@ export class ThreadRepository {
     );
   }
 
+  async unarchiveThread(id: string): Promise<void> {
+    const normalizedId = assertNonEmpty(id, 'id');
+    await this.pool.query(
+      `UPDATE chat_threads SET status = 'active', updated_at = NOW() WHERE id = $1`,
+      [normalizedId]
+    );
+  }
+
+  async searchThreads(
+    repoId: string,
+    query: string,
+    showArchived: boolean = false
+  ): Promise<Array<Thread & { isArchived: boolean }>> {
+    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
+    const trimmedQuery = query.trim();
+    const likeQuery = `%${trimmedQuery}%`;
+
+    const result = await this.pool.query<ThreadRow>(
+      `SELECT * FROM chat_threads
+       WHERE repo_id = $1
+         AND status != 'deleted'
+         AND ($2 = '' OR title ILIKE $3 OR preview ILIKE $3)
+         AND ($4::boolean OR status = 'active')
+       ORDER BY updated_at DESC`,
+      [normalizedRepoId, trimmedQuery, likeQuery, showArchived]
+    );
+
+    return result.rows.map((row) => ({
+      ...rowToThread(row),
+      isArchived: row.status === 'archived',
+    }));
+  }
+
   async deleteThread(id: string): Promise<void> {
     const normalizedId = assertNonEmpty(id, 'id');
     await this.pool.query(

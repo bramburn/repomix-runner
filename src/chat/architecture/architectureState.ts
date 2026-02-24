@@ -1,9 +1,20 @@
 import { Annotation } from '@langchain/langgraph';
+import type { Pool } from 'pg';
+import type * as vscode from 'vscode';
 
 /**
  * Architecture generation state for repo documentation workflow.
  */
 export const ArchitectureState = Annotation.Root({
+  // Runtime context - not serialized, passed at graph creation
+  pgPool: Annotation<Pool | null>({
+    default: () => null,
+    reducer: (_, y) => y,
+  }),
+  secrets: Annotation<vscode.ExtensionContext['secrets'] | null>({
+    default: () => null,
+    reducer: (_, y) => y,
+  }),
   // Repository identification
   repoId: Annotation<string>(),
   repoRoot: Annotation<string>(),
@@ -50,3 +61,11 @@ export const ArchitectureState = Annotation.Root({
     default: () => 0,
   }),
 });
+
+/**
+ * Dependencies needed for architecture graph execution.
+ */
+export interface ArchitectureDependencies {
+  pgPool: Pool;
+  secrets: vscode.ExtensionContext['secrets'];
+}

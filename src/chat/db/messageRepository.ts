@@ -162,6 +162,15 @@ export class MessageRepository {
     return allMessages;
   }
 
+  async getMessageCount(threadId: string): Promise<number> {
+    const normalizedThreadId = assertNonEmpty(threadId, 'threadId');
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM chat_messages WHERE thread_id = $1`,
+      [normalizedThreadId]
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
   async getMessagesPage(
     threadId: string,
     options?: { limit?: number; before?: MessagePageCursor | null }

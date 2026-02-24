@@ -348,6 +348,11 @@ export class BatchManager {
       }));
   }
 
+  async hasPendingBatches(threadId: string): Promise<boolean> {
+    const pending = await this.getPendingBatches(threadId);
+    return pending.length > 0;
+  }
+
   async pollBatchJob(batchJobId: string): Promise<BatchCompletionResult> {
     const job = await this.batchRepository.getBatchJob(batchJobId);
     if (!job) {

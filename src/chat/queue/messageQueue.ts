@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import type {
   ProcessingCompletedEvent,
   ProcessingStartedEvent,
@@ -187,6 +188,6 @@ export class MessageQueue {
   }
 
   private createEntryId(): string {
-    return `q_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    return `q_${Date.now()}_${randomUUID()}`;
   }
 }

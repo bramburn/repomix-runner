@@ -138,13 +138,31 @@ Focus on:
 
 File: ${filePath}
 \`\`\`
-${content.slice(0, 10000)} ${content.length > 10000 ? '\n... (truncated)' : ''}
+${truncateAtBoundary(content, 10000)}${content.length > 10000 ? '\n... (truncated)' : ''}
 \`\`\`
 
 Provide a concise technical summary.`;
 
   const { content: summary } = await generateText(apiKey, prompt, `File Summary: ${filePath}`);
   return `// Summary of ${filePath}\n${summary}`;
+}
+
+/**
+ * Truncate content at a clean boundary (newline or space) to avoid
+ * breaking words or UTF-8 characters.
+ */
+function truncateAtBoundary(content: string, maxLength: number): string {
+  if (content.length <= maxLength) {
+    return content;
+  }
+  // Look backward from maxLength to find newline or space
+  for (let i = maxLength; i > Math.max(0, maxLength - 100); i--) {
+    if (content[i] === '\n' || content[i] === ' ') {
+      return content.slice(0, i);
+    }
+  }
+  // No clean boundary found, slice at maxLength
+  return content.slice(0, maxLength);
 }
 
 /**

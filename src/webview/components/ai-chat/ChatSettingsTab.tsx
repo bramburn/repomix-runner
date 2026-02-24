@@ -307,7 +307,6 @@ export const ChatSettingsTab: React.FC = () => {
             step={1}
             value={settings.contextThresholdPercent}
             onChange={(_, data) => handleSettingChange('contextThresholdPercent', data.value)}
-            showValue
           />
           <div className={styles.description}>
             Context window usage % that triggers automatic compression
@@ -367,10 +366,9 @@ export const ChatSettingsTab: React.FC = () => {
             step={10}
             value={settings.hybridThresholdLines}
             onChange={(_, data) => handleSettingChange('hybridThresholdLines', data.value)}
-            showValue
           />
           <div className={styles.description}>
-            Files with line count >= this threshold use SEARCH/REPLACE mode
+            Files with line count {'>='} this threshold use SEARCH/REPLACE mode
           </div>
         </div>
         <div className={styles.formGroup}>
@@ -382,7 +380,6 @@ export const ChatSettingsTab: React.FC = () => {
             step={0.01}
             value={settings.fuzzyMatchThreshold}
             onChange={(_, data) => handleSettingChange('fuzzyMatchThreshold', data.value)}
-            showValue
           />
           <div className={styles.description}>Similarity threshold for fuzzy SEARCH/REPLACE matching</div>
         </div>

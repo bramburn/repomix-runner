@@ -24,7 +24,14 @@ export async function checkFreshnessNode(
     console.log(`[Architecture] checkFreshnessNode: Current git HEAD: ${currentGitHead || 'not a git repo'}`);
 
     // Load existing architecture from DB
-    const archRepo = new ArchitectureRepository((global as any).chatPgPool);
+    if (!state.pgPool) {
+      console.warn('[Architecture] checkFreshnessNode: No database connection available, assuming not fresh');
+      return {
+        gitHead: currentGitHead ?? null,
+        isFresh: false,
+      };
+    }
+    const archRepo = new ArchitectureRepository(state.pgPool);
     const existingArch = await archRepo.getArchitectureByRepoId(repoId);
 
     if (!existingArch) {

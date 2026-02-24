@@ -11,6 +11,7 @@ import { PlanService } from '../../services/planService.js';
 import { ThreadRepository } from '../../chat/db/threadRepository.js';
 import { MessageRepository } from '../../chat/db/messageRepository.js';
 import { ArchitectureRepository } from '../../chat/db/architectureRepository.js';
+import { executeArchitectureGeneration } from '../../chat/architecture/architectureGraph.js';
 import { BatchManager } from '../../chat/batch/batchManager.js';
 import { BatchPoller } from '../../chat/batch/batchPoller.js';
 import { ThreadMessage } from '../../types/chat.js';
@@ -902,7 +903,7 @@ export class ChatController extends BaseController {
       const config = vscode.workspace.getConfiguration('repomix.chat');
       
       // Get architecture status
-      const archDoc = await this.architectureRepository.getDocument(this.repoId);
+      const archDoc = await this.architectureRepository.getArchitectureByRepoId(this.repoId);
       let architectureLastGenerated: number | undefined;
       let architectureStatus: 'fresh' | 'stale' | 'missing' = 'missing';
       
@@ -1017,12 +1018,12 @@ export class ChatController extends BaseController {
 
       // Test the connection using the existing testConnection function
       const { testConnection } = await import('../../chat/db/postgresClient.js');
-      const result = await testConnection(connectionString);
+      const result = await testConnection();
       
       this.context.postMessage({
         command: 'postgresConnectionResult',
         success: result.success,
-        error: result.error,
+        error: result.success ? undefined : result.message,
       });
     } catch (error) {
       logger.both.error('ChatController: Failed to test PostgreSQL connection', error);
@@ -1047,13 +1048,15 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Import and run migrations
-      const { runMigrations } = await import('../../chat/db/migrationRunner.js');
-      await runMigrations(connectionString);
+      // Ensure pool is initialized and migrations are verified
+      const { initPool, verifyMigration } = await import('../../chat/db/postgresClient.js');
+      await initPool(connectionString);
+      const migrationResult = await verifyMigration();
       
       this.context.postMessage({
         command: 'migrationsComplete',
-        success: true,
+        success: migrationResult.success,
+        error: migrationResult.success ? undefined : migrationResult.message,
       });
     } catch (error) {
       logger.both.error('ChatController: Failed to run migrations', error);
@@ -1067,20 +1070,14 @@ export class ChatController extends BaseController {
 
   private async handleRefreshArchitectureNow(): Promise<void> {
     try {
-      if (!this.activeThreadId) {
-        this.context.postMessage({
-          command: 'showNotification',
-          type: 'error',
-          message: 'No active thread available',
-        });
-        return;
-      }
-
       // Execute architecture generation
       await executeArchitectureGeneration(
-        this.extensionContext,
-        this.pgPool,
-        this.activeThreadId
+        getCwd(),
+        this.repoId,
+        {
+          pgPool: this.pgPool,
+          secrets: this.extensionContext.secrets,
+        }
       );
 
       // Post updated status
@@ -1108,8 +1105,8 @@ export class ChatController extends BaseController {
           const hasPendingBatch = await this.batchManager.hasPendingBatches(thread.id);
           
           // Get preview from first message
-          const messages = await this.messageRepository.getMessages(thread.id, { limit: 1 });
-          const preview = messages[0]?.content.slice(0, 200);
+          const messages = await this.messageRepository.getMessagesPage(thread.id, { limit: 1 });
+          const preview = messages.messages[0]?.content.slice(0, 200) ?? thread.preview;
           
           return {
             id: thread.id,

@@ -4,6 +4,7 @@
  * Finds entry points, config files, type definitions, and README.
  */
 import * as fs from 'fs';
+import * as readline from 'readline';
 import * as path from 'path';
 import type { ArchitectureState } from '../architectureState.js';
 
@@ -12,15 +13,38 @@ const MAX_LINES = 100;
 
 /**
  * Read first N lines of a file for analysis.
+ * Uses streaming to avoid OOM on large files.
  */
 async function readFirstLines(filePath: string, maxLines: number = MAX_LINES): Promise<string> {
-  try {
-    const content = await fs.promises.readFile(filePath, 'utf-8');
-    const lines = content.split('\n').slice(0, maxLines);
-    return lines.join('\n') + (lines.length < content.split('\n').length ? '\n... (truncated)' : '');
-  } catch {
-    return '';
-  }
+  return new Promise((resolve) => {
+    const lines: string[] = [];
+    let lineCount = 0;
+    
+    const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = readline.createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+
+    rl.on('line', (line) => {
+      if (lineCount < maxLines) {
+        lines.push(line);
+        lineCount++;
+      } else {
+        rl.close();
+        stream.destroy();
+      }
+    });
+
+    rl.on('close', () => {
+      const result = lines.join('\n');
+      resolve(result + (lineCount >= maxLines ? '\n... (truncated)' : ''));
+    });
+
+    rl.on('error', () => {
+      resolve('');
+    });
+  });
 }
 
 /**
