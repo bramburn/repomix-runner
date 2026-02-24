@@ -31,7 +31,7 @@ Conversation segment:
  * @param groupSize - Number of messages per summarization group
  * @param maxTokens - Maximum tokens for all summaries combined
  * @param apiKey - Google API key for Gemini Flash
- * @returns Compressed segments and recent messages kept in full
+ * @returns Compressed segments, recent messages kept in full, and flagged original messages
  */
 export async function summarizeHistory(
   messages: ChatMessage[],
@@ -42,12 +42,15 @@ export async function summarizeHistory(
 ): Promise<{
   summaries: CompressedSegment[];
   recentMessages: ChatMessage[];
+  /** Original messages with isCompressed/compressedInto flags set (for DB persistence) */
+  flaggedOriginals: ChatMessage[];
 }> {
   // If we have fewer messages than the threshold, no summarization needed
   if (messages.length <= maxRecentMessages) {
     return {
       summaries: [],
       recentMessages: messages,
+      flaggedOriginals: [],
     };
   }
 
@@ -64,22 +67,33 @@ export async function summarizeHistory(
 
   // Summarize each group
   const summaries: CompressedSegment[] = [];
+  const flaggedOriginals: ChatMessage[] = [];
 
   for (const group of groups) {
+    let summary: CompressedSegment;
     try {
-      const summary = await summarizeMessageGroup(group, perGroupBudget, apiKey);
-      summaries.push(summary);
+      summary = await summarizeMessageGroup(group, perGroupBudget, apiKey);
     } catch (error) {
       logger.both.warn(`Failed to summarize message group: ${error}`);
       // On failure, create a simple fallback summary
-      const fallback = createFallbackSummary(group);
-      summaries.push(fallback);
+      summary = createFallbackSummary(group);
+    }
+    summaries.push(summary);
+
+    // Flag original messages as compressed (PRD 003: preserve in DB with flag)
+    for (const msg of group) {
+      flaggedOriginals.push({
+        ...msg,
+        isCompressed: true,
+        compressedInto: summary.id,
+      });
     }
   }
 
   return {
     summaries,
     recentMessages,
+    flaggedOriginals,
   };
 }
 

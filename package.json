@@ -632,6 +632,12 @@
         "title": "Repomix: Test PostgreSQL Connection",
         "description": "Test the PostgreSQL connection and run migrations",
         "icon": "$(database)"
+      },
+      {
+        "command": "repomixRunner.refreshArchitecture",
+        "title": "Repomix: Refresh Repository Architecture",
+        "description": "Manually trigger repository architecture generation",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {

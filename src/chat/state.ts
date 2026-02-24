@@ -1,5 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
-import type { CompressedSegment, CompressionLevel } from './compression/types.js';
+import type { CompressedSegment, CompressionLevel, TokenBudget } from './compression/types.js';
 
 // --- Type Definitions for HITL Workflow ---
 
@@ -65,6 +65,7 @@ export const ChatState = Annotation.Root({
   }),
 
   // 2. Retrieved Context (Snippets from Vector DB)
+  // FIX H1: Use replace reducer so humanReviewGoal can filter/remove files
   retrievedContext: Annotation<Array<{
     filePath: string;
     content: string;
@@ -72,11 +73,7 @@ export const ChatState = Annotation.Root({
     startLine?: number;
     endLine?: number;
   }>>({
-    reducer: (curr, next) => {
-      const existing = new Set(curr.map(c => `${c.filePath}:${c.startLine ?? ""}`));
-      const uniqueNext = next.filter(c => !existing.has(`${c.filePath}:${c.startLine ?? ""}`));
-      return [...curr, ...uniqueNext];
-    },
+    reducer: (_, y) => y,
     default: () => [],
   }),
 
@@ -143,8 +140,8 @@ export const ChatState = Annotation.Root({
   // The AI's response message
   aiResponse: Annotation<string>(),
 
-  // Array of messages in the conversation
-  messages: Annotation<Array<{ role: 'user' | 'assistant'; content: string }>>({
+  // Array of messages in the conversation (includes 'system' for compression summaries)
+  messages: Annotation<Array<{ role: 'user' | 'assistant' | 'system'; content: string }>>({
     reducer: (x, y) => x.concat(y),
     default: () => [],
   }),
@@ -273,5 +270,17 @@ export const ChatState = Annotation.Root({
   modelContextWindow: Annotation<number>({
     reducer: (_, y) => y,
     default: () => 200_000,
+  }),
+
+  // Current compression level applied to context (PRD 003)
+  compressionLevel: Annotation<CompressionLevel>({
+    reducer: (_, y) => y,
+    default: () => 0 as CompressionLevel,
+  }),
+
+  // Computed token budget allocation (PRD 003)
+  tokenBudget: Annotation<TokenBudget | null>({
+    reducer: (_, y) => y,
+    default: () => null,
   }),
 });

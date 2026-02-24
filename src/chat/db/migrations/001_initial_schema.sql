@@ -30,7 +30,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   cost_usd NUMERIC(10,6),
   context_files TEXT[],
   tool_calls JSONB,
-  metadata JSONB
+  metadata JSONB,
+  is_compressed BOOLEAN DEFAULT FALSE,
+  original_content TEXT,
+  compressed_into UUID REFERENCES chat_messages(id) ON DELETE SET NULL,
+  compression_metadata JSONB
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON chat_messages(thread_id, timestamp);

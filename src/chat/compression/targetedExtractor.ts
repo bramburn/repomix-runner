@@ -2,273 +2,186 @@
  * Targeted symbol extraction for Level 2 compression.
  * PRD 003: Context Compression Strategy
  *
- * Extracts only specific functions/classes mentioned in the goal text,
- * along with their imports and dependencies.
+ * Extracts only the functions, classes, and types mentioned in the goal text
+ * from a source file, reducing token usage while preserving relevance.
  */
 
-import { LanguageParser } from '../../core/compression/LanguageParser.js';
-import { logger } from '../../shared/logger.js';
-
 /**
- * Common identifier patterns to extract from goal text.
- */
-const IDENTIFIER_PATTERNS = [
-  // Function/method names: functionName, myFunction, etc.
-  /\b([a-z][a-zA-Z0-9]*(?:Function|Handler|Callback|Method|Service|Controller|Manager|Helper|Util)?)\b/g,
-  // Class/type names: MyClass, UserService, etc.
-  /\b([A-Z][a-zA-Z0-9]*(?:Service|Controller|Manager|Repository|Handler|Factory|Provider|Component|Module)?)\b/g,
-  // Quoted identifiers: "functionName" or 'functionName'
-  /['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g,
-  // Backtick identifiers: `functionName`
-  /`([a-zA-Z_][a-zA-Z0-9_]*)`/g,
-];
-
-/**
- * Common words to exclude from symbol extraction.
- */
-const EXCLUDED_WORDS = new Set([
-  // Common programming terms
-  'function', 'class', 'const', 'let', 'var', 'import', 'export', 'return',
-  'async', 'await', 'public', 'private', 'protected', 'static', 'interface',
-  'type', 'enum', 'extends', 'implements', 'constructor', 'super', 'this',
-  // Common words in goals
-  'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'will', 'can',
-  'should', 'would', 'could', 'need', 'want', 'like', 'make', 'create', 'add',
-  'remove', 'update', 'delete', 'fix', 'change', 'modify', 'implement', 'use',
-  'file', 'code', 'method', 'property', 'value', 'data', 'result', 'error',
-  // Common type names
-  'string', 'number', 'boolean', 'object', 'array', 'null', 'undefined', 'void',
-  'any', 'unknown', 'never', 'true', 'false', 'Promise', 'Error', 'Date',
-]);
-
-/**
- * Parse goal text to extract potential symbol names.
+ * Parse goal text to identify potential symbol names (functions, classes, types).
  *
- * @param goalText - The goal/query text to parse
- * @returns Array of potential symbol names
+ * @param goalText - The user's goal or task description
+ * @returns Array of symbol names found in the goal
  */
 export function parseGoalForSymbols(goalText: string): string[] {
-  const symbols = new Set<string>();
-
-  for (const pattern of IDENTIFIER_PATTERNS) {
-    // Reset lastIndex for global regex
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(goalText)) !== null) {
-      const identifier = match[1];
-      // Filter out excluded words and very short identifiers
-      if (identifier && identifier.length >= 3 && !EXCLUDED_WORDS.has(identifier.toLowerCase())) {
-        symbols.add(identifier);
-      }
-    }
+  if (!goalText) {
+    return [];
   }
 
-  return Array.from(symbols);
+  // Match identifiers: PascalCase, camelCase, snake_case
+  const identifierPattern = /\b([A-Z][a-zA-Z0-9]+|[a-z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+|[a-z]+[A-Z][a-zA-Z0-9]*)\b/g;
+  const matches = goalText.match(identifierPattern) || [];
+
+  // Also match backtick-quoted identifiers (e.g., `myFunction`)
+  const backtickPattern = /`([a-zA-Z_][a-zA-Z0-9_]*)`/g;
+  let backtickMatch: RegExpExecArray | null;
+  while ((backtickMatch = backtickPattern.exec(goalText)) !== null) {
+    matches.push(backtickMatch[1]);
+  }
+
+  // Filter out common English words that happen to match patterns
+  const commonWords = new Set([
+    'the', 'and', 'for', 'that', 'this', 'with', 'from', 'have', 'will',
+    'should', 'could', 'would', 'make', 'like', 'just', 'when', 'what',
+    'which', 'about', 'into', 'file', 'code', 'function', 'class', 'method',
+    'type', 'interface', 'implement', 'create', 'update', 'delete', 'add',
+    'remove', 'change', 'fix', 'bug', 'feature', 'test', 'use', 'using',
+    'need', 'want', 'each', 'also', 'then', 'than', 'some', 'only',
+    'after', 'before', 'between', 'because', 'through',
+  ]);
+
+  const unique = [...new Set(matches)].filter(
+    (m) => m.length > 2 && !commonWords.has(m.toLowerCase())
+  );
+
+  return unique;
 }
 
 /**
- * Detect language from file path.
- */
-function detectLanguage(filePath: string): string | null {
-  const extension = filePath.split('.').pop()?.toLowerCase() ?? '';
-  const languageMap: Record<string, string> = {
-    ts: 'typescript',
-    tsx: 'typescript',
-    mts: 'typescript',
-    cts: 'typescript',
-    js: 'javascript',
-    jsx: 'javascript',
-    mjs: 'javascript',
-    cjs: 'javascript',
-    dart: 'dart',
-    py: 'python',
-    cs: 'csharp',
-    rs: 'rust',
-  };
-  return languageMap[extension] ?? null;
-}
-
-/**
- * Extract targeted symbols from a file using tree-sitter.
+ * Extract targeted symbols and their surrounding context from a source file.
  *
- * @param filePath - Path to the file
- * @param content - File content
- * @param targetSymbols - Symbol names to extract
- * @returns Extracted content with only the targeted symbols
+ * @param filePath - Path to the file (for header comment)
+ * @param content - Full file content
+ * @param symbols - Symbol names to search for
+ * @returns Extracted content containing only relevant sections
  */
 export async function extractTargetedSymbols(
   filePath: string,
   content: string,
-  targetSymbols: string[]
+  symbols: string[]
 ): Promise<string> {
-  const language = detectLanguage(filePath);
-  if (!language) {
-    throw new Error(`Unsupported language for file: ${filePath}`);
+  if (!symbols.length) {
+    return extractImportsAndExports(content);
   }
 
-  const parserService = LanguageParser.getInstance();
-  const parser = await parserService.getParserForLang(language);
+  const lines = content.split('\n');
+  const relevantLineSet = new Set<number>();
+  const contextRadius = 5; // lines of context around each match
 
-  if (!parser) {
-    throw new Error(`Could not get parser for language: ${language}`);
+  // Always include imports (first N lines that are imports)
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (
+      trimmed.startsWith('import ') ||
+      trimmed.startsWith('export type') ||
+      trimmed.startsWith('export interface') ||
+      trimmed.startsWith('from ') ||
+      trimmed.startsWith('require(') ||
+      trimmed.startsWith('module.exports') ||
+      trimmed === ''
+    ) {
+      relevantLineSet.add(i);
+    } else if (i > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')) {
+      // Stop scanning for imports once we hit non-import code
+      break;
+    }
   }
 
-  const tree = parser.parse(content);
-  const rootNode = tree.rootNode;
+  // Find lines containing target symbols and add context
+  for (let i = 0; i < lines.length; i++) {
+    for (const symbol of symbols) {
+      if (lines[i].includes(symbol)) {
+        // Add the matching line and surrounding context
+        for (
+          let j = Math.max(0, i - contextRadius);
+          j <= Math.min(lines.length - 1, i + contextRadius);
+          j++
+        ) {
+          relevantLineSet.add(j);
+        }
 
-  // Create a set of target symbols for fast lookup (case-sensitive)
-  const targetSet = new Set(targetSymbols);
+        // Expand to include complete block (find matching braces)
+        const blockEnd = findBlockEnd(lines, i);
+        if (blockEnd > i) {
+          for (let j = i; j <= Math.min(blockEnd, i + 50); j++) {
+            relevantLineSet.add(j);
+          }
+        }
+        break;
+      }
+    }
+  }
 
-  // Track extracted ranges to avoid duplicates
-  const extractedRanges: Array<{ start: number; end: number; content: string }> = [];
+  if (relevantLineSet.size === 0) {
+    return extractImportsAndExports(content);
+  }
 
-  // Also track imports to include them
-  const importRanges: Array<{ start: number; end: number; content: string }> = [];
-
-  // Walk the AST and find matching symbols
-  walkNode(rootNode, content, targetSet, extractedRanges, importRanges);
-
-  // Build the output
+  // Build output with extracted sections
+  const sortedLines = [...relevantLineSet].sort((a, b) => a - b);
   const parts: string[] = [];
+  let lastLine = -2;
 
-  // Add all imports first
-  for (const range of importRanges) {
-    parts.push(range.content);
+  parts.push(`// Targeted extraction from ${filePath}`);
+  parts.push(`// Symbols: ${symbols.join(', ')}\n`);
+
+  for (const lineNum of sortedLines) {
+    if (lineNum - lastLine > 1 && lastLine >= 0) {
+      parts.push('  // ... (lines omitted)');
+    }
+    parts.push(lines[lineNum]);
+    lastLine = lineNum;
   }
 
-  if (importRanges.length > 0) {
-    parts.push(''); // Empty line after imports
+  if (lastLine < lines.length - 1) {
+    parts.push('  // ... (remaining lines omitted)');
   }
 
-  // Add extracted symbols
-  for (const range of extractedRanges) {
-    parts.push(range.content);
-    parts.push(''); // Empty line between symbols
-  }
-
-  if (parts.length === 0) {
-    // No matches found, return a placeholder
-    return `// No matching symbols found for: ${targetSymbols.join(', ')}`;
-  }
-
-  return parts.join('\n').trim();
+  return parts.join('\n');
 }
 
 /**
- * Walk the AST node tree and extract matching symbols.
+ * Find the end of a code block starting near the given line.
  */
-function walkNode(
-  node: any,
-  sourceCode: string,
-  targetSet: Set<string>,
-  extractedRanges: Array<{ start: number; end: number; content: string }>,
-  importRanges: Array<{ start: number; end: number; content: string }>
-): void {
-  const nodeType = node.type;
+function findBlockEnd(lines: string[], startLine: number): number {
+  let braceDepth = 0;
+  let foundOpen = false;
 
-  // Capture imports/exports
-  if (
-    nodeType === 'import_statement' ||
-    nodeType === 'import_declaration' ||
-    nodeType === 'export_statement' ||
-    nodeType === 'export_declaration'
-  ) {
-    const content = sourceCode.slice(node.startIndex, node.endIndex);
-    // Only add if not already present
-    if (!importRanges.some(r => r.start === node.startIndex)) {
-      importRanges.push({
-        start: node.startIndex,
-        end: node.endIndex,
-        content,
-      });
-    }
-    return; // Don't recurse into imports
-  }
-
-  // Check for function/class/method definitions
-  if (isDefinitionNode(nodeType)) {
-    const name = getNodeName(node);
-    if (name && targetSet.has(name)) {
-      const content = sourceCode.slice(node.startIndex, node.endIndex);
-      // Only add if not already present
-      if (!extractedRanges.some(r => r.start === node.startIndex)) {
-        extractedRanges.push({
-          start: node.startIndex,
-          end: node.endIndex,
-          content,
-        });
+  for (let i = startLine; i < lines.length && i < startLine + 100; i++) {
+    for (const ch of lines[i]) {
+      if (ch === '{') {
+        braceDepth++;
+        foundOpen = true;
+      } else if (ch === '}') {
+        braceDepth--;
+        if (foundOpen && braceDepth === 0) {
+          return i;
+        }
       }
-      return; // Don't recurse into matched definitions
     }
   }
 
-  // Recurse into children
-  for (let i = 0; i < node.childCount; i++) {
-    walkNode(node.child(i), sourceCode, targetSet, extractedRanges, importRanges);
-  }
+  return startLine;
 }
 
 /**
- * Check if a node type represents a definition.
+ * Extract only import and export statements from file content.
+ * Used as a minimal fallback when no target symbols are found.
  */
-function isDefinitionNode(nodeType: string): boolean {
-  const definitionTypes = [
-    // JavaScript/TypeScript
-    'function_declaration',
-    'method_definition',
-    'class_declaration',
-    'interface_declaration',
-    'type_alias_declaration',
-    'enum_declaration',
-    'arrow_function',
-    'lexical_declaration',
-    'variable_declaration',
-    // Python
-    'function_definition',
-    'class_definition',
-    // Rust
-    'function_item',
-    'struct_item',
-    'enum_item',
-    'impl_item',
-    'trait_item',
-    // C#
-    'method_declaration',
-    'class_declaration',
-    'interface_declaration',
-    // Dart
-    'function_signature',
-    'class_definition',
-  ];
-  return definitionTypes.includes(nodeType);
-}
-
-/**
- * Get the name of a definition node.
- */
-function getNodeName(node: any): string | null {
-  // Try common patterns for getting the name
-  const nameNode =
-    node.childForFieldName?.('name') ||
-    node.namedChildren?.find((c: any) => c.type === 'identifier' || c.type === 'property_identifier');
-
-  if (nameNode) {
-    return nameNode.text;
-  }
-
-  // For variable declarations, look deeper
-  if (node.type === 'lexical_declaration' || node.type === 'variable_declaration') {
-    const declarator = node.namedChildren?.find(
-      (c: any) => c.type === 'variable_declarator' || c.type === 'lexical_binding'
+function extractImportsAndExports(content: string): string {
+  const lines = content.split('\n');
+  const relevant = lines.filter((line) => {
+    const trimmed = line.trim();
+    return (
+      trimmed.startsWith('import ') ||
+      trimmed.startsWith('export ') ||
+      trimmed.startsWith('from ') ||
+      trimmed.startsWith('require(') ||
+      trimmed.startsWith('module.exports')
     );
-    if (declarator) {
-      const name = declarator.childForFieldName?.('name') ||
-        declarator.namedChildren?.find((c: any) => c.type === 'identifier');
-      if (name) {
-        return name.text;
-      }
-    }
+  });
+
+  if (relevant.length === 0) {
+    return '// No imports or exports found';
   }
 
-  return null;
+  return relevant.join('\n');
 }

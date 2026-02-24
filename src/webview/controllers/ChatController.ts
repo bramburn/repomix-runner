@@ -719,6 +719,7 @@ export class ChatController extends BaseController {
 
   /**
    * Handles individual edit application from webview.
+   * Accumulates approved edits for batch resume.
    */
   private async handleApplyEdit(filePath: string): Promise<void> {
     try {
@@ -738,9 +739,13 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Mark as approved and resume
-      const approvedEdits = [filePath];
-      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+      // Mark as approved in UI state (user will click "Apply All" to actually resume)
+      // The edit is already marked as approved in the UI, we just acknowledge the action
+      this.context.postMessage({
+        command: 'editReviewAck',
+        action: 'apply',
+        filePath,
+      });
     } catch (error) {
       logger.both.error('ChatController: Error applying edit:', error);
       this.context.postMessage({
@@ -752,6 +757,7 @@ export class ChatController extends BaseController {
 
   /**
    * Handles individual edit skip from webview.
+   * Marks edit as not approved for batch resume.
    */
   private async handleSkipEdit(filePath: string): Promise<void> {
     try {
@@ -760,18 +766,13 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // For skip, we need to resume with the edit NOT in approved list
-      const graph = await this.getGraph();
-      const config = createGraphConfig(this.activeThreadId);
-      const state = await graph.getState(config);
-      const fileEdits = this.getSnapshotFileEdits(state);
-
-      // Filter out the skipped edit from approved list
-      const approvedEdits = fileEdits
-        .filter((edit) => edit.filePath !== filePath && edit.approved)
-        .map((edit) => edit.filePath);
-
-      await this.resumeGraph({ approvedEdits } as EditReviewResume);
+      // For skip, we mark the edit as not approved in UI state
+      // User will click "Apply All" or "Skip All" to actually resume
+      this.context.postMessage({
+        command: 'editReviewAck',
+        action: 'skip',
+        filePath,
+      });
     } catch (error) {
       logger.both.error('ChatController: Error skipping edit:', error);
       this.context.postMessage({
@@ -807,7 +808,7 @@ export class ChatController extends BaseController {
   }
 
   /**
-   * Applies all pending edits at once.
+   * Applies all pending edits at once and resumes the graph.
    */
   private async handleApplyAllEdits(): Promise<void> {
     try {
@@ -823,6 +824,7 @@ export class ChatController extends BaseController {
       const fileEdits = this.getSnapshotFileEdits(state);
       const approvedEdits = fileEdits.filter((edit) => edit.approved).map((edit) => edit.filePath);
 
+      // Resume the graph with all approved edits
       await this.resumeGraph({ approvedEdits } as EditReviewResume);
     } catch (error) {
       logger.both.error('ChatController: Error applying all edits:', error);
@@ -1016,9 +1018,9 @@ export class ChatController extends BaseController {
         return;
       }
 
-      // Test the connection using the existing testConnection function
-      const { testConnection } = await import('../../chat/db/postgresClient.js');
-      const result = await testConnection();
+      // Test the connection string directly using testConnectionString
+      const { testConnectionString } = await import('../../chat/db/postgresClient.js');
+      const result = await testConnectionString(connectionString);
       
       this.context.postMessage({
         command: 'postgresConnectionResult',
@@ -1148,11 +1150,16 @@ export class ChatController extends BaseController {
           text: message,
         });
       };
+      
+      // Get the PostgreSQL connection string from secrets
+      const connectionString = await this.extensionContext.secrets.get('repomix.chat.postgresConnectionString') || '';
+      
       this.compiledGraph = await createHitlChatGraph(
         this.extensionContext,
         this.pgPool,
         this.batchManager,
-        onProgress
+        onProgress,
+        connectionString
       );
     }
     return this.compiledGraph;
@@ -1205,7 +1212,7 @@ export class ChatController extends BaseController {
       );
 
       // Handle the result (may be an interrupt or final response)
-      await this.handleGraphResult(result);
+      await this.handleGraphResult(result, config);
     } catch (error) {
       logger.both.error('ChatController: Error running chat graph:', error);
       this.context.postMessage({
@@ -1232,7 +1239,7 @@ export class ChatController extends BaseController {
       const result = await graph.invoke(new Command({ resume: resumeValue }), config);
 
       // Handle the result
-      await this.handleGraphResult(result);
+      await this.handleGraphResult(result, config);
     } catch (error) {
       logger.both.error('ChatController: Error resuming graph:', error);
       this.context.postMessage({
@@ -1245,12 +1252,14 @@ export class ChatController extends BaseController {
   /**
    * Handles the result from graph.invoke(), detecting interrupts vs final responses.
    */
-  private async handleGraphResult(result: any) {
-    // Check if this is an interrupt
-    // LangGraph returns interrupt data in a specific format
-    // The exact format depends on how interrupt() was called
-    if (this.isInterrupt(result)) {
-      await this.handleInterrupt(result);
+  private async handleGraphResult(result: any, config: { configurable: { thread_id: string } }) {
+    // Check if this is an interrupt using LangGraph v1.x API
+    // When interrupt() is called in a node, graph.invoke() returns the partial state,
+    // and the interrupt data is accessible via graph.getState(config)
+    const interruptPayload = await this.getInterruptPayload(config);
+    
+    if (interruptPayload) {
+      await this.handleInterrupt(interruptPayload);
       return;
     }
 
@@ -1259,7 +1268,38 @@ export class ChatController extends BaseController {
   }
 
   /**
+   * Gets the interrupt payload from the graph state snapshot.
+   * Returns null if no interrupt is pending.
+   */
+  private async getInterruptPayload(
+    config: { configurable: { thread_id: string } }
+  ): Promise<InterruptPayload | null> {
+    try {
+      const graph = await this.getGraph();
+      const snapshot = await graph.getState(config);
+      
+      // Check if there are any tasks with interrupts
+      if (!snapshot.tasks || snapshot.tasks.length === 0) {
+        return null;
+      }
+      
+      const task = snapshot.tasks[0];
+      if (!task.interrupts || task.interrupts.length === 0) {
+        return null;
+      }
+      
+      // Get the first interrupt's value
+      const interruptValue = task.interrupts[0].value as InterruptPayload;
+      return interruptValue || null;
+    } catch (error) {
+      logger.both.error('ChatController: Failed to get interrupt payload:', error);
+      return null;
+    }
+  }
+
+  /**
    * Checks if the result is an interrupt.
+   * @deprecated Use getInterruptPayload instead for LangGraph v1.x
    */
   private isInterrupt(result: any): boolean {
     // LangGraph may signal interrupts in different ways depending on version
@@ -1460,6 +1500,12 @@ export class ChatController extends BaseController {
         status: 'cancelled',
       });
       await this.handleListPackages();
+      
+      // Resume the graph with an error to prevent it from being stuck
+      await this.resumeGraph({
+        completed: false,
+        error: 'Batch job was cancelled by user.',
+      } as BatchPendingResume);
       return;
     }
 

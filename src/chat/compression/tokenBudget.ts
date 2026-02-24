@@ -7,6 +7,23 @@ import { encode } from 'gpt-tokenizer';
 import type { TokenBudget, ModelBudgetConfig, CompressionConfig } from './types.js';
 
 /**
+ * Default budget configuration matching PRD 003 specification.
+ * Conversation summaries: 20%, Recent messages: 30%, File context: 50%.
+ */
+export const PRD_DEFAULT_BUDGET: ModelBudgetConfig = {
+  modelId: 'default',
+  contextWindow: 200_000,
+  allocations: {
+    systemPrompt: 2000,
+    outputBuffer: 8000,
+    conversationHistory: 0.20, // 20% per PRD
+    recentMessages: 0.30, // 30% per PRD
+    fileContext: 0.50, // 50% per PRD
+    repoArchitecture: 1000,
+  },
+};
+
+/**
  * Count tokens in a text string using gpt-tokenizer.
  * Falls back to character-based estimation if encoding fails.
  */
@@ -118,6 +135,7 @@ export function calculateBudget(
     conversationSummaries,
     recentMessages,
     fileContext,
+    repoArchitecture,
     outputReserve,
   };
 }

@@ -102,6 +102,27 @@ export class MemoryRepository {
   }
 
   /**
+   * Retrieves a memory entry by scope, scopeId, and key.
+   * Returns null if not found.
+   */
+  async getMemory(
+    scope: MemoryScope,
+    scopeId: string,
+    key: string
+  ): Promise<MemoryEntry | null> {
+    const result = await this.pool.query<MemoryRow>(
+      'SELECT * FROM chat_memory WHERE scope = $1 AND scope_id = $2 AND key = $3 LIMIT 1',
+      [scope, scopeId, key]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return mapRowToEntry(result.rows[0]);
+  }
+
+  /**
    * Lists all memories for a given scope and scope ID.
    * Excludes expired memories by default.
    */
@@ -123,6 +144,17 @@ export class MemoryRepository {
 
     const result = await this.pool.query<MemoryRow>(query, [scope, scopeId]);
     return result.rows.map(mapRowToEntry);
+  }
+
+  /**
+   * Alias for listMemoryByScope to match PRD 001 specification.
+   */
+  async listMemories(
+    scope: MemoryScope,
+    scopeId: string,
+    includeExpired = false
+  ): Promise<MemoryEntry[]> {
+    return this.listMemoryByScope(scope, scopeId, includeExpired);
   }
 
   /**
@@ -238,5 +270,46 @@ export class MemoryRepository {
     );
 
     return result.rows.length > 0;
+  }
+
+  /**
+   * Upserts a memory entry - creates if not exists, updates if does.
+   * Uses ON CONFLICT to handle the unique constraint on (scope, scope_id, key).
+   */
+  async upsertMemory(data: {
+    scope: MemoryScope;
+    scopeId: string;
+    key: string;
+    value: string;
+    source: MemorySource;
+    embeddingVector?: number[] | null;
+    expiresAt?: Date | null;
+  }): Promise<MemoryEntry> {
+    try {
+      const result = await this.pool.query<MemoryRow>(
+        `INSERT INTO chat_memory (scope, scope_id, key, value, source, embedding_vector, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (scope, scope_id, key) DO UPDATE SET
+           value = EXCLUDED.value,
+           source = EXCLUDED.source,
+           embedding_vector = EXCLUDED.embedding_vector,
+           expires_at = EXCLUDED.expires_at,
+           updated_at = NOW()
+         RETURNING *`,
+        [
+          data.scope,
+          data.scopeId,
+          data.key,
+          data.value,
+          data.source,
+          data.embeddingVector ?? null,
+          data.expiresAt ?? null,
+        ]
+      );
+      return mapRowToEntry(result.rows[0]);
+    } catch (error: unknown) {
+      logger.both.error('[MemoryRepository] upsertMemory failed:', error);
+      throw error;
+    }
   }
 }

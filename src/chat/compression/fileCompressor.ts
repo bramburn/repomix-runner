@@ -191,6 +191,8 @@ function truncateToTokenLimit(content: string, maxTokens: number): string {
 
 /**
  * Compress multiple files for context, distributing budget among them.
+ * Uses a two-pass allocation: first pass determines needs of small files,
+ * second pass redistributes surplus to larger files.
  */
 export async function compressFilesForContext(
   files: Array<{ filePath: string; content: string }>,
@@ -203,12 +205,45 @@ export async function compressFilesForContext(
   }
 
   const targetSymbols = goalText ? parseGoalForSymbols(goalText) : [];
-  const perFileBudget = Math.floor(totalBudget / files.length);
+
+  // Two-pass budget allocation:
+  // Pass 1: Identify small files that need less than equal share
+  const equalShare = Math.floor(totalBudget / files.length);
+  const fileTokenCounts = files.map((f) => ({
+    filePath: f.filePath,
+    tokens: countTokens(f.content),
+  }));
+
+  let surplusBudget = 0;
+  let largeFileCount = 0;
+
+  for (const ftc of fileTokenCounts) {
+    if (ftc.tokens < SMALL_FILE_THRESHOLD) {
+      // Small file: will use Level 0 (full content), surplus goes to larger files
+      surplusBudget += Math.max(0, equalShare - ftc.tokens);
+    } else {
+      largeFileCount++;
+    }
+  }
+
+  // Pass 2: Redistribute surplus to large files
+  const largeFileBudget =
+    largeFileCount > 0
+      ? equalShare + Math.floor(surplusBudget / largeFileCount)
+      : equalShare;
 
   const results = await Promise.all(
-    files.map((file) =>
-      compressFileForContext(file.filePath, file.content, perFileBudget, targetSymbols, apiKey)
-    )
+    files.map((file) => {
+      const tokens = countTokens(file.content);
+      const budget = tokens < SMALL_FILE_THRESHOLD ? tokens : largeFileBudget;
+      return compressFileForContext(
+        file.filePath,
+        file.content,
+        budget,
+        targetSymbols,
+        apiKey
+      );
+    })
   );
 
   return results;

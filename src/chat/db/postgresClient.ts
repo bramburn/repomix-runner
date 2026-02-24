@@ -52,7 +52,11 @@ const TABLE_STATEMENTS = {
       cost_usd NUMERIC(10,6),
       context_files TEXT[],
       tool_calls JSONB,
-      metadata JSONB
+      metadata JSONB,
+      is_compressed BOOLEAN DEFAULT FALSE,
+      original_content TEXT,
+      compressed_into UUID REFERENCES chat_messages(id) ON DELETE SET NULL,
+      compression_metadata JSONB
     )
   `,
   chatMessagesIndex: `
@@ -481,5 +485,70 @@ export async function testConnection(): Promise<{ success: boolean; message: str
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { success: false, message };
+  }
+}
+
+/**
+ * Test a PostgreSQL connection string without using the global pool.
+ * This is useful for testing a new connection string before initializing the pool.
+ */
+export async function testConnectionString(connectionString: string): Promise<{ success: boolean; message: string }> {
+  if (!connectionString || connectionString.trim().length === 0) {
+    return {
+      success: false,
+      message: 'Connection string is empty',
+    };
+  }
+
+  let tempPool: Pool | null = null;
+  try {
+    const config: PoolConfig = {
+      connectionString,
+      max: 1,
+      idleTimeoutMillis: 5000,
+      connectionTimeoutMillis: 5000,
+    };
+
+    tempPool = new Pool(config);
+
+    // Try to connect and run a simple query
+    const result = await tempPool.query('SELECT version()');
+    const version = result.rows[0].version as string;
+
+    // Verify migrations on this connection
+    const client = await tempPool.connect();
+    try {
+      const migration001Applied = await isMigrationApplied(client, MIGRATION_001_INITIAL);
+      const migration002Applied = await isMigrationApplied(client, MIGRATION_002_MEMORY_SOURCE);
+      
+      const tables = await checkTablesExist(client);
+      const allTablesExist = Object.values(tables).every(status => status === true);
+      
+      let migrationStatus = '';
+      if (!allTablesExist) {
+        migrationStatus = '\n⚠️ Tables need to be created (will be created on first use)';
+      } else if (!migration001Applied || !migration002Applied) {
+        migrationStatus = '\n⚠️ Migrations need to be recorded (will be applied on first use)';
+      } else {
+        migrationStatus = '\n✅ All migrations applied';
+      }
+      
+      return {
+        success: true,
+        message: `${version}${migrationStatus}`,
+      };
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      message,
+    };
+  } finally {
+    if (tempPool) {
+      await tempPool.end();
+    }
   }
 }

@@ -44,6 +44,7 @@ export async function humanReviewGoalNode(
   return {
     goalText: resumeValue.goalText,
     // Filter retrieved context to only include user-selected files
+    // This now works correctly because the reducer allows removal
     retrievedContext: state.retrievedContext.filter((c) =>
       resumeValue.contextFiles.includes(c.filePath)
     ),

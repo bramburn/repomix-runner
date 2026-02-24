@@ -63,18 +63,22 @@ export async function createHitlChatGraph(
   extensionContext: ExtensionContext,
   pgPool: Pool,
   batchManager: BatchManager,
-  onProgress: ProgressCallback
+  onProgress: ProgressCallback,
+  connectionString?: string
 ) {
   // Set the batch manager for submitBatch node
   setSubmitBatchManager(batchManager);
 
   // Create the checkpointer for state persistence
-  const checkpointer = await createCheckpointer(pgPool);
+  // Prefer explicit connection string over pool extraction
+  const checkpointer = await createCheckpointer(
+    connectionString || pgPool
+  );
 
   const workflow = new StateGraph(ChatState)
     // Context gathering phase
     .addNode('gatherContext', (state) =>
-      gatherContextNode(state, extensionContext, onProgress)
+      gatherContextNode(state, extensionContext, onProgress, pgPool)
     )
 
     // Context compression phase (PRD 003)
@@ -83,8 +87,8 @@ export async function createHitlChatGraph(
     )
 
     // Goal synthesis phase (with memory injection - PRD 004)
-    .addNode('prepareGoal', (state) =>
-      prepareGoalNode(state, extensionContext, pgPool, onProgress)
+    .addNode('prepareGoal', (state, config) =>
+      prepareGoalNode(state, extensionContext, pgPool, onProgress, config?.signal)
     )
 
     // INTERRUPT 1: User reviews goal

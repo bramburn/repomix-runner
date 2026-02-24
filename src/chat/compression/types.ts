@@ -26,6 +26,8 @@ export interface TokenBudget {
   recentMessages: number;
   /** Budget for file context */
   fileContext: number;
+  /** Reserved tokens for repo architecture markdown (anchored) */
+  repoArchitecture: number;
   /** Reserved tokens for LLM output generation */
   outputReserve: number;
 }

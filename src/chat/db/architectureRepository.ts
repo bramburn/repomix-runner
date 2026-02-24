@@ -101,4 +101,33 @@ export class ArchitectureRepository {
       [normalizedRepoId]
     );
   }
+
+  /**
+   * Checks if the architecture document for a repository has expired.
+   * Returns true if no architecture exists or if it's past its expiration time.
+   */
+  async isExpired(repoId: string): Promise<boolean> {
+    const normalizedRepoId = assertNonEmpty(repoId, 'repoId');
+
+    const result = await this.pool.query<ArchitectureRow>(
+      `SELECT * FROM repo_architecture 
+       WHERE repo_id = $1 AND expires_at <= NOW()`,
+      [normalizedRepoId]
+    );
+
+    // If no rows returned, either no architecture exists (considered expired)
+    // or the only architecture is still valid (not expired)
+    if (result.rows.length === 0) {
+      // Check if any architecture exists at all
+      const checkResult = await this.pool.query(
+        `SELECT 1 FROM repo_architecture WHERE repo_id = $1 LIMIT 1`,
+        [normalizedRepoId]
+      );
+      // Expired if no architecture exists
+      return checkResult.rows.length === 0;
+    }
+
+    // Architecture exists and is expired
+    return true;
+  }
 }

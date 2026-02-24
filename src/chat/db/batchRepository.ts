@@ -182,6 +182,22 @@ export class BatchRepository {
   }
 
   /**
+   * Updates batch job status - alias for updateBatchJob to match PRD 001 specification.
+   * This is the method specified in PRD 001 Atomic Action #8.
+   */
+  async updateBatchStatus(
+    id: string,
+    status: BatchJobStatus,
+    responsePayload?: object
+  ): Promise<void> {
+    const patch: Parameters<typeof this.updateBatchJob>[1] = { status };
+    if (responsePayload !== undefined) {
+      patch.responsePayload = responsePayload;
+    }
+    await this.updateBatchJob(id, patch);
+  }
+
+  /**
    * Gets all pending batches (for external poller).
    */
   async getPendingBatches(): Promise<BatchJob[]> {

@@ -192,6 +192,7 @@ export async function manageContext(
   // --- History Compression ---
   let compressedHistory: CompressedSegment[] = [];
   let historyTokensSaved = 0;
+  let flaggedOriginals: ChatMessage[] = [];
 
   if (historyTokens > budget.conversationSummaries + budget.recentMessages) {
     logger.both.info('[ContextManager] Compressing conversation history...');
@@ -203,13 +204,17 @@ export async function manageContext(
       apiKey
     );
     compressedHistory = historyResult.summaries;
+    flaggedOriginals = historyResult.flaggedOriginals;
 
     const compressedHistoryTokens =
       compressedHistory.reduce((sum, s) => sum + s.tokenCount, 0) +
       historyResult.recentMessages.reduce((sum, m) => sum + countTokens(m.content), 0);
 
     historyTokensSaved = Math.max(0, historyTokens - compressedHistoryTokens);
-    logger.both.info(`[ContextManager] History compressed: saved ${historyTokensSaved} tokens`);
+    logger.both.info(
+      `[ContextManager] History compressed: saved ${historyTokensSaved} tokens, ` +
+      `${flaggedOriginals.length} original messages flagged for DB persistence`
+    );
   }
 
   // --- File Compression ---
