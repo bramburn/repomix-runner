@@ -442,14 +442,6 @@
             "maximum": 1000,
             "description": "Line count threshold for hybrid mode (files >= this use SEARCH/REPLACE)"
           },
-          "repomix.chat.planningRateLimitRpm": {
-            "order": 0,
-            "type": "number",
-            "default": 15,
-            "minimum": 1,
-            "maximum": 1000,
-            "description": "Rate limit (requests per minute) for the planning LLM"
-          },
           "repomix.chat.fuzzyMatchThreshold": {
             "order": 14,
             "type": "number",

@@ -12,7 +12,7 @@ const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
 const SECRET_ANTHROPIC = 'repomix.chat.anthropicApiKey';
-export const SECRET_POSTGRES_CONNECTION = 'repomix.chat.postgresConnectionString';
+export const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
 type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
 
 export class ConfigController extends BaseController {

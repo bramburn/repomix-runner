@@ -80,6 +80,7 @@ export class ChatController extends BaseController {
   private messageQueue: MessageQueue;
   private queueProcessing: boolean = false;
   private currentAbortController: AbortController | null = null;
+  private initError: string | null = null;
 
   constructor(
     context: IWebviewContext,
@@ -128,6 +129,15 @@ export class ChatController extends BaseController {
 
   async onWebviewLoaded(): Promise<void> {
     await this.ready;
+
+    if (this.initError) {
+      this.context.postMessage({
+        command: 'chatDisabled',
+        message: `Database initialization failed: ${this.initError}. Please check your PostgreSQL connection in the Settings tab.`,
+      });
+      return;
+    }
+
     await this.postThreads();
     await this.restoreQueueState(); // Restore queue state from persistence (PRD 007)
     
@@ -142,7 +152,49 @@ export class ChatController extends BaseController {
   }
 
   async handleMessage(message: any): Promise<boolean> {
+    // === Settings & secret commands: do NOT require database initialization ===
+    // This ensures the Settings tab is always responsive even when DB is unreachable,
+    // so the user can configure or fix the connection string.
+    if (message.command === 'getChatSettings') {
+      await this.handleGetChatSettings();
+      return true;
+    }
+    if (message.command === 'setChatSetting') {
+      await this.handleSetChatSetting(message.key, message.value);
+      return true;
+    }
+    if (message.command === 'saveSecret') {
+      await this.handleSaveSecret(message.key, message.value);
+      return true;
+    }
+    if (message.command === 'checkSecret') {
+      await this.handleCheckSecret(message.key);
+      return true;
+    }
+    if (message.command === 'testPostgresConnection') {
+      await this.handleTestPostgresConnection();
+      return true;
+    }
+    if (message.command === 'runMigrations') {
+      await this.handleRunMigrations();
+      return true;
+    }
+    if (message.command === 'refreshArchitectureNow') {
+      await this.handleRefreshArchitectureNow();
+      return true;
+    }
+
+    // === All other commands require database initialization ===
     await this.ready;
+
+    // If initialization failed, inform the user instead of silently hanging
+    if (this.initError) {
+      this.context.postMessage({
+        command: 'chatResponse',
+        text: `Database is not available: ${this.initError}. Please configure your PostgreSQL connection in the Settings tab.`,
+      });
+      return true;
+    }
 
     if (message.command === 'chatSubmit') {
       await this.enqueueMessage(message.text, 'normal');
@@ -279,7 +331,7 @@ export class ChatController extends BaseController {
       return true;
     }
     if (message.command === 'applyAllEdits') {
-      await this.handleApplyAllEdits();
+      await this.handleApplyAllEdits(message.approvedEdits);
       return true;
     }
     if (message.command === 'resumeCodeReview') {
@@ -430,35 +482,8 @@ export class ChatController extends BaseController {
       return true;
     }
 
-    // Chat Settings handlers (PRD 010)
-    if (message.command === 'getChatSettings') {
-      await this.handleGetChatSettings();
-      return true;
-    }
-    if (message.command === 'setChatSetting') {
-      await this.handleSetChatSetting(message.key, message.value);
-      return true;
-    }
-    if (message.command === 'saveSecret') {
-      await this.handleSaveSecret(message.key, message.value);
-      return true;
-    }
-    if (message.command === 'checkSecret') {
-      await this.handleCheckSecret(message.key);
-      return true;
-    }
-    if (message.command === 'testPostgresConnection') {
-      await this.handleTestPostgresConnection();
-      return true;
-    }
-    if (message.command === 'runMigrations') {
-      await this.handleRunMigrations();
-      return true;
-    }
-    if (message.command === 'refreshArchitectureNow') {
-      await this.handleRefreshArchitectureNow();
-      return true;
-    }
+    // Chat Settings handlers are handled above (before await this.ready)
+    // to ensure the Settings tab works even when DB is unreachable.
 
     // Chat History handlers (PRD 010)
     if (message.command === 'searchThreads') {
@@ -484,8 +509,37 @@ export class ChatController extends BaseController {
   }
 
   private async initializeService(): Promise<void> {
-    this.repoId = await getRepoId(getCwd());
+    // Step 1: Get repo identity (local, no DB needed)
+    try {
+      this.repoId = await getRepoId(getCwd());
+    } catch (error) {
+      logger.both.error('ChatController: Failed to get repo ID:', error);
+      this.initError = `Failed to determine repository identity: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
 
+    // Step 2: Initialize threads from DB with a timeout to prevent blocking
+    try {
+      const INIT_TIMEOUT_MS = 10_000;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Database connection timed out after 10 seconds')),
+          INIT_TIMEOUT_MS
+        )
+      );
+
+      await Promise.race([this._initializeThreads(), timeoutPromise]);
+    } catch (error) {
+      logger.both.error('ChatController: Database initialization failed:', error);
+      this.initError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  /**
+   * Performs the DB-dependent part of initialization (thread setup).
+   * Separated so it can be wrapped in a timeout.
+   */
+  private async _initializeThreads(): Promise<void> {
     const threads = await this.threadRepository.getThreads(this.repoId);
     const persisted = this.extensionContext.workspaceState.get<string>(
       'repomix.chat.activeThreadId'
@@ -961,7 +1015,7 @@ export class ChatController extends BaseController {
   /**
    * Applies all pending edits at once (H3 fix: approve ALL edits, not just already-approved).
    */
-  private async handleApplyAllEdits(): Promise<void> {
+  private async handleApplyAllEdits(approvedEditsFromWebview?: string[]): Promise<void> {
     try {
       if (!this.activeThreadId) {
         logger.both.warn('ChatController: No active thread for applyAllEdits');
@@ -974,8 +1028,11 @@ export class ChatController extends BaseController {
       const state = await graph.getState(config);
       const fileEdits = this.getSnapshotFileEdits(state);
 
-      // Approve ALL pending edits — at interrupt time, none are approved yet
-      const allEditPaths = fileEdits.map((edit) => edit.filePath);
+      // Use webview selection when provided, otherwise approve all pending edits.
+      const allEditPaths =
+        Array.isArray(approvedEditsFromWebview) && approvedEditsFromWebview.length > 0
+          ? approvedEditsFromWebview
+          : fileEdits.map((edit) => edit.filePath);
 
       if (allEditPaths.length === 0) {
         logger.both.warn('ChatController: No edits found to apply');
@@ -1065,20 +1122,27 @@ export class ChatController extends BaseController {
     try {
       const config = vscode.workspace.getConfiguration('repomix.chat');
       
-      // Get architecture status
-      const archDoc = await this.architectureRepository.getArchitectureByRepoId(this.repoId);
+      // Get architecture status (only if DB is initialized and repoId is available)
       let architectureLastGenerated: number | undefined;
       let architectureStatus: 'fresh' | 'stale' | 'missing' = 'missing';
       
-      if (archDoc) {
-        architectureLastGenerated = archDoc.generatedAt;
-        const refreshHours = config.get<number>('architectureRefreshHours', 24);
-        const hoursSinceGeneration = (Date.now() - archDoc.generatedAt) / (1000 * 60 * 60);
-        
-        if (hoursSinceGeneration < refreshHours) {
-          architectureStatus = 'fresh';
-        } else {
-          architectureStatus = 'stale';
+      if (this.repoId && !this.initError) {
+        try {
+          const archDoc = await this.architectureRepository.getArchitectureByRepoId(this.repoId);
+          if (archDoc) {
+            architectureLastGenerated = archDoc.generatedAt;
+            const refreshHours = config.get<number>('architectureRefreshHours', 24);
+            const hoursSinceGeneration = (Date.now() - archDoc.generatedAt) / (1000 * 60 * 60);
+            
+            if (hoursSinceGeneration < refreshHours) {
+              architectureStatus = 'fresh';
+            } else {
+              architectureStatus = 'stale';
+            }
+          }
+        } catch (archError) {
+          // DB may be unavailable — architecture status will show as 'missing'
+          logger.both.warn('ChatController: Could not fetch architecture status', archError);
         }
       }
 
@@ -1087,6 +1151,7 @@ export class ChatController extends BaseController {
         settings: {
           postgresConnectionString: undefined, // Don't send connection string back
           planningModel: config.get<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('planningModel', 'gemini-2.5-flash'),
+          planningRpm: config.get<number>('planningRpm', 60),
           batchModel: config.get<string>('batchModel', 'claude-opus-4-20250514'),
           batchMaxTokens: config.get<number>('batchMaxTokens', 16384),
           batchThinkingBudget: config.get<number>('batchThinkingBudget', 10000),
@@ -1324,63 +1389,6 @@ export class ChatController extends BaseController {
       );
     }
     return this.compiledGraph;
-  }
-
-  /**
-   * Runs the HITL chat graph with the given input.
-   */
-  private async runChatGraph(input: string) {
-    try {
-      if (!this.activeThreadId) {
-        const thread = await this.threadRepository.createThread(this.repoId);
-        this.activeThreadId = thread.id;
-        await this.extensionContext.workspaceState.update(
-          'repomix.chat.activeThreadId',
-          thread.id
-        );
-      }
-
-      logger.both.info(`ChatController: Processing user input: "${input}"`);
-
-      // Save user message
-      const userMessage: ThreadMessage = {
-        id: randomUUID(),
-        role: 'user',
-        content: input,
-        timestamp: Date.now(),
-      };
-      await this.messageRepository.saveMessage(this.activeThreadId, userMessage);
-
-      // Load message history
-      const messages = await this.messageRepository.getMessages(this.activeThreadId);
-      const history = messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      }));
-
-      // Get the compiled graph
-      const graph = await this.getGraph();
-      const config = createGraphConfig(this.activeThreadId);
-
-      // Invoke the graph
-      const result = await graph.invoke(
-        {
-          userQuery: input,
-          threadId: this.activeThreadId,
-          messages: history,
-        },
-        config
-      );
-
-      // Handle the result (may be an interrupt or final response)
-      await this.handleGraphResult(result, config);
-    } catch (error) {
-      logger.both.error('ChatController: Error running chat graph:', error);
-      this.context.postMessage({
-        command: 'chatResponse',
-        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
-    }
   }
 
   /**
@@ -1726,15 +1734,6 @@ export class ChatController extends BaseController {
     const entry = this.messageQueue.enqueue(this.activeThreadId, text, priority);
     logger.both.info(`ChatController: Enqueued message ${entry.id} with priority ${priority}`);
 
-    // Save user message to history immediately
-    const userMessage: ThreadMessage = {
-      id: randomUUID(),
-      role: 'user',
-      content: text,
-      timestamp: Date.now(),
-    };
-    await this.messageRepository.saveMessage(this.activeThreadId, userMessage);
-
     // Start processing if not already running
     this.processQueue();
   }
@@ -1797,6 +1796,15 @@ export class ChatController extends BaseController {
       }
 
       const graph = await this.getGraph();
+
+      // Persist right before processing so later queued messages are not visible too early.
+      const userMessage: ThreadMessage = {
+        id: randomUUID(),
+        role: 'user',
+        content: entry.text,
+        timestamp: Date.now(),
+      };
+      await this.messageRepository.saveMessage(entry.threadId, userMessage);
 
       // Load message history for the thread
       const messages = await this.messageRepository.getMessages(entry.threadId);

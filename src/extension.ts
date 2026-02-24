@@ -78,16 +78,13 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize PostgreSQL pool for chat storage
   let chatPgPool: Pool | null = null;
   // Chat-related secrets (PRD 010)
-  const SECRET_POSTGRES_CONNECTION = 'repomix.chat.postgresConnectionString';
+  const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
   const pgConnectionString = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
 
   if (pgConnectionString) {
     try {
       chatPgPool = await initPool(pgConnectionString);
       console.log('[quick-repomix] PostgreSQL chat storage initialized');
-      
-      // Expose PG pool globally for architecture loading in gatherContext
-      (global as any).chatPgPool = chatPgPool;
     } catch (error) {
       console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
       const selection = await vscode.window.showErrorMessage(
@@ -100,15 +97,13 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   } else {
     console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
-    const selection = await vscode.window.showWarningMessage(
-      'Chat is disabled because no PostgreSQL connection string is configured. Configure it in Repomix Runner settings.',
-      'Open Repomix Settings'
-    );
-    if (selection === 'Open Repomix Settings') {
-      await vscode.commands.executeCommand('repomixRunner.openSettings');
-    }
+    // Non-blocking: don't show warning on every activation, only log to console
+    // Users can configure this in settings when they want to use chat features
   }
 
+  console.log('[quick-repomix] Continuing activation (chat may be disabled)...');
+
+  console.log('[quick-repomix] Registering pool disposal hook...');
   // Register pool disposal hook for reliable cleanup on extension deactivation
   context.subscriptions.push({
     dispose: () => {
@@ -117,6 +112,7 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     }
   });
+  console.log('[quick-repomix] Pool disposal hook registered');
 
   // ==============================================================================
   // BATCH POLLER LIFECYCLE MANAGEMENT
@@ -131,6 +127,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Here we just set up early-activation resume using the shared poller after it's created.
   // (See "Creating AiChatWebviewProvider" section below for shared instance creation.)
 
+  console.log('[quick-repomix] About to initialize embedding service...');
   // Initialize embedding service with saved configuration
   console.log('[quick-repomix] Initializing embedding service...');
   try {
@@ -165,20 +162,29 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       console.log('[quick-repomix] ✓ Embedding service initialized with Ollama provider');
     }
+    console.log('[quick-repomix] Embedding service initialization complete');
   } catch (error) {
     console.error('[quick-repomix] ✗ Failed to initialize embedding service:', error);
     // Non-fatal - extension can still function without embeddings
   }
+  console.log('[quick-repomix] Proceeding after embedding service...');
 
+  console.log('[quick-repomix] Exposing global context...');
   // Expose context for agent graph
   (global as any).extensionContext = context;
   // Expose PG pool for chat architecture loading (PRD 008)
   (global as any).chatPgPool = chatPgPool;
+  console.log('[quick-repomix] Global context exposed');
 
+  console.log('[quick-repomix] Getting CWD...');
   const cwd = getCwd();
+  console.log(`[quick-repomix] CWD: ${cwd}`);
+  console.log('[quick-repomix] Creating BundleManager...');
   const bundleManager = new BundleManager(cwd);
+  console.log('[quick-repomix] BundleManager created');
 
   // Initialize ExtensionServices singleton
+  console.log('[quick-repomix] Initializing ExtensionServices...');
   const extensionServices = ExtensionServices.initialize(
     databaseService,
     bundleManager,
@@ -223,6 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log(`[BackgroundMonitor] ===== INITIALIZING BACKGROUND MONITOR =====`);
 
   try {
+    console.log(`[BackgroundMonitor] Starting background monitor setup...`);
     // Check if background indexing is enabled in settings
     const bgConfig = vscode.workspace.getConfiguration('repomix.backgroundIndexing');
     const backgroundIndexingEnabled = bgConfig.get<boolean>('enabled', true);
@@ -231,6 +238,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!backgroundIndexingEnabled) {
       console.log(`[BackgroundMonitor] Background indexing disabled in settings - skipping setup`);
     } else {
+      console.log(`[BackgroundMonitor] Background indexing is enabled, proceeding with setup...`);
       console.log(`[BackgroundMonitor] Background indexing enabled (debounce: ${debounceMs}ms)`);
 
       const repoRoot = getCwd();
@@ -530,6 +538,7 @@ export async function activate(context: vscode.ExtensionContext) {
       logger.both.info('[BackgroundMonitor] Skipping (missing API keys or vector database configuration)');
     }
     } // Close backgroundIndexingEnabled check
+    console.log(`[BackgroundMonitor] Background monitor setup complete`);
   } catch (error) {
     // Non-fatal error: log it but continue extension activation
     console.error(`[BackgroundMonitor] ✗ Failed to initialize file watcher:`);
@@ -539,6 +548,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   console.log(`[BackgroundMonitor] ===== INITIALIZATION COMPLETE =====`);
+  console.log('[quick-repomix] Continuing after background monitor...');
   // ==============================================================================
   // END BACKGROUND INDEXING MONITOR
   // ==============================================================================
@@ -557,10 +567,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const decorationProviderSubscription =
     vscode.window.registerFileDecorationProvider(decorationProvider);
 
+  console.log('[quick-repomix] About to create RepomixWebviewProvider...');
   console.log('[quick-repomix] Creating RepomixWebviewProvider...');
   const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices, chatPgPool);
   console.log('[quick-repomix] RepomixWebviewProvider created');
 
+  console.log('[quick-repomix] About to create AiChatWebviewProvider...');
   console.log('[quick-repomix] Creating AiChatWebviewProvider...');
   // Pass shared batch manager and poller to avoid duplicate instances (PRD 005 / H1 fix)
   const sharedBatchManager = chatPgPool ? new BatchManager(chatPgPool, context) : undefined;
@@ -663,10 +675,12 @@ export async function activate(context: vscode.ExtensionContext) {
     RepomixWebviewProvider.viewType,
     provider
   );
+  console.log('[quick-repomix] RepomixWebviewProvider registered');
   const aiChatViewSubscription = vscode.window.registerWebviewViewProvider(
     AiChatWebviewProvider.viewType,
     aiChatProvider
   );
+  console.log('[quick-repomix] AiChatWebviewProvider registered');
   console.log('[quick-repomix] Webview view providers registered successfully');
 
   const addSelectedFilesToNewBundleCommand = vscode.commands.registerCommand(
@@ -1149,6 +1163,7 @@ export async function activate(context: vscode.ExtensionContext) {
     refreshArchitectureCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
+  console.log('[quick-repomix] ===== EXTENSION ACTIVATION COMPLETE =====');
 }
 
 // Helper function to generate a unique 4-character ID

@@ -277,9 +277,7 @@ export class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_debug_repo_name ON debug_runs(repo_name)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_files_repo_id ON repo_files(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id ON repo_indexing_progress(repo_id)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id_branch ON repo_indexing_progress(repo_id, branch_name)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_status ON repo_indexing_progress(status)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_branch_status ON repo_file_state(repo_id, branch_name, status)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_timestamp ON index_history(timestamp)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_repo_id ON index_history(repo_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_blueprints_repo_id ON repo_blueprints(repo_id)`);
@@ -313,10 +311,19 @@ export class DatabaseService {
 
       await this.migrateRepoIndexingProgressToBranchAware();
       await this.migrateRepoFileStateToBranchAware();
+      await this.createBranchAwareIndexes();
     } catch (error) {
       // Migration errors are non-fatal - the table might not exist yet
       console.debug('Migration check completed:', error);
     }
+  }
+
+  private async createBranchAwareIndexes(): Promise<void> {
+    if (!this.db) return;
+
+    // These indexes depend on branch_name column which may be added by migrations
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_indexing_progress_repo_id_branch ON repo_indexing_progress(repo_id, branch_name)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_repo_file_state_repo_id_branch_status ON repo_file_state(repo_id, branch_name, status)`);
   }
 
   private getTableColumns(tableName: string): string[] {

@@ -92,8 +92,7 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist')],
-    } as vscode.WebviewOptions & { enableNodeIntegration?: boolean };
-    (webviewView.webview.options as any).enableNodeIntegration = true;
+    };
     console.log('[quick-repomix] Webview options configured');
 
     console.log('[quick-repomix] Generating HTML for webview...');

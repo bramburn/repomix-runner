@@ -24,3 +24,7 @@ src/**/*.js
 .idea/
 .repomix-clipboard-*.md 
 .repomix-runner/
+
+# repomix
+repomix-*.md
+repomix-*.xml

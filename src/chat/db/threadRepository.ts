@@ -43,6 +43,20 @@ function normalizeTitle(title: string): string {
   return trimmed;
 }
 
+function assertNonNegativeInteger(value: number, fieldName: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${fieldName} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function assertNonNegativeNumber(value: number, fieldName: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be a non-negative number.`);
+  }
+  return value;
+}
+
 export class ThreadRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -105,11 +119,11 @@ export class ThreadRepository {
     }
     if (patch.totalTokens !== undefined) {
       sets.push(`total_tokens = $${paramIndex++}`);
-      values.push(patch.totalTokens);
+      values.push(assertNonNegativeInteger(patch.totalTokens, 'totalTokens'));
     }
     if (patch.totalCostUsd !== undefined) {
       sets.push(`total_cost_usd = $${paramIndex++}`);
-      values.push(patch.totalCostUsd);
+      values.push(assertNonNegativeNumber(patch.totalCostUsd, 'totalCostUsd'));
     }
 
     if (sets.length === 0) {

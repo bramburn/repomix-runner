@@ -90,11 +90,21 @@ const useStyles = makeStyles({
   slider: {
     width: '100%',
   },
+  loadingError: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalS,
+    padding: tokens.spacingVerticalM,
+    textAlign: 'center',
+  },
 });
+
+const SETTINGS_LOAD_TIMEOUT_MS = 8000;
 
 export const ChatSettingsTab: React.FC = () => {
   const styles = useStyles();
   const [settings, setSettings] = useState<ChatSettings | null>(null);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusType>('disconnected');
   const [connectionError, setConnectionError] = useState<string>();
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -105,10 +115,17 @@ export const ChatSettingsTab: React.FC = () => {
   useEffect(() => {
     vscode.postMessage({ command: 'getChatSettings' });
 
+    // If settings don't arrive within the timeout, show an error instead of spinning forever
+    const timeoutId = setTimeout(() => {
+      setLoadTimedOut(true);
+    }, SETTINGS_LOAD_TIMEOUT_MS);
+
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message.command === 'chatSettingsResult') {
         setSettings(message.settings);
+        setLoadTimedOut(false);
+        clearTimeout(timeoutId);
       }
       if (message.command === 'postgresConnectionResult') {
         setIsTestingConnection(false);
@@ -141,13 +158,13 @@ export const ChatSettingsTab: React.FC = () => {
             : prev
         );
       }
-      if (message.command === 'chatSettingsResult' && isRefreshingArchitecture) {
-        setIsRefreshingArchitecture(false);
-      }
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const handleTestConnection = useCallback(() => {
@@ -164,8 +181,6 @@ export const ChatSettingsTab: React.FC = () => {
   const handleRefreshArchitecture = useCallback(() => {
     setIsRefreshingArchitecture(true);
     vscode.postMessage({ command: 'refreshArchitectureNow' });
-    // The isRefreshingArchitecture flag will be cleared when we receive
-    // the updated chatSettingsResult or architectureStatus message
   }, []);
 
   const handleSettingChange = useCallback((key: keyof ChatSettings, value: any) => {
@@ -177,7 +192,62 @@ export const ChatSettingsTab: React.FC = () => {
     });
   }, []);
 
+  const handleRetryLoadSettings = useCallback(() => {
+    setLoadTimedOut(false);
+    vscode.postMessage({ command: 'getChatSettings' });
+  }, []);
+
   if (!settings) {
+    if (loadTimedOut) {
+      return (
+        <div className={styles.container}>
+          <div className={styles.loadingError}>
+            <Text size={400} weight="semibold">
+              Settings could not be loaded
+            </Text>
+            <Text size={200}>
+              The backend did not respond in time. This usually means the database connection is
+              unavailable. You can still configure your connection string below.
+            </Text>
+            <Button appearance="primary" onClick={handleRetryLoadSettings}>
+              Retry
+            </Button>
+          </div>
+          {/* Always show the Database Connection section so users can configure it */}
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>
+              <Database20Regular />
+              Database Connection
+            </div>
+            <SecretInput
+              secretKey="postgresConnectionString"
+              label="PostgreSQL Connection String"
+              placeholder="postgresql://user:pass@host:5432/dbname"
+              description="Connection string for chat storage PostgreSQL database"
+            />
+            <ConnectionStatus status={connectionStatus} errorMessage={connectionError} />
+            <div className={styles.buttonRow}>
+              <Button
+                appearance="primary"
+                onClick={handleTestConnection}
+                disabled={isTestingConnection || isRunningMigrations}
+                icon={<Play20Regular />}
+              >
+                {isTestingConnection ? 'Testing...' : 'Test Connection'}
+              </Button>
+              <Button
+                appearance="secondary"
+                onClick={handleRunMigrations}
+                disabled={isRunningMigrations || connectionStatus !== 'connected'}
+              >
+                {isRunningMigrations ? 'Running...' : 'Run Migrations'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={styles.container}>
         <Text>Loading settings...</Text>

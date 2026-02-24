@@ -97,6 +97,16 @@ const useStyles = makeStyles({
     justifyContent: 'center',
     padding: tokens.spacingVerticalL,
   },
+  disabledBanner: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: tokens.spacingVerticalXXL,
+    color: tokens.colorNeutralForeground3,
+    textAlign: 'center',
+    gap: tokens.spacingVerticalS,
+  },
 });
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -109,10 +119,31 @@ export const MemoryPanel: React.FC = () => {
   const [newValue, setNewValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDisabled, setIsDisabled] = useState(false);
+  const [disabledMessage, setDisabledMessage] = useState<string>('');
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Listen for chatDisabled message to show appropriate UI
+  useEffect(() => {
+    const handleDisabledMessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (message?.command === 'chatDisabled' && typeof message.message === 'string') {
+        setIsDisabled(true);
+        setDisabledMessage(message.message);
+        setIsLoading(false);
+      }
+    };
+
+    window.addEventListener('message', handleDisabledMessage);
+    return () => window.removeEventListener('message', handleDisabledMessage);
+  }, []);
 
   // Request memories when scope or search query changes
   useEffect(() => {
+    if (isDisabled) {
+      return;
+    }
+
     setIsLoading(true);
 
     if (searchTimerRef.current) {
@@ -132,7 +163,7 @@ export const MemoryPanel: React.FC = () => {
         clearTimeout(searchTimerRef.current);
       }
     };
-  }, [activeScope, searchQuery]);
+  }, [activeScope, searchQuery, isDisabled]);
 
   // Listen for memory list updates
   useEffect(() => {
@@ -200,6 +231,26 @@ export const MemoryPanel: React.FC = () => {
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
   }, []);
+
+  if (isDisabled) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.header}>
+          <Text size={500} weight="semibold">
+            Memory Manager
+          </Text>
+        </div>
+        <div className={styles.disabledBanner}>
+          <Text size={300} weight="semibold">
+            Database Not Available
+          </Text>
+          <Text size={200}>
+            {disabledMessage || 'Memory features require a PostgreSQL connection. Please configure your database in the Settings tab.'}
+          </Text>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>

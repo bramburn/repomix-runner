@@ -6,6 +6,9 @@ assets/create-bundle.mp4
 assets/run-on-selection.mp4
 src/
 out/
+#
+PRDs/
+.kilocodemodes
 .repomix
 .repomixignore
 .gitignore

@@ -42,7 +42,7 @@ interface FileEdit {
 
 export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [toolCalls] = useState<ToolCall[]>([]);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [progressText, setProgressText] = useState<string>('');
   const [pendingPackage, setPendingPackage] = useState<PendingPackageReview | null>(null);
   const [pendingEdits, setPendingEdits] = useState<FileEdit[] | null>(null);
@@ -87,6 +87,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
         } else {
           shouldAutoScrollRef.current = true;
           setMessages(incoming);
+          setToolCalls([]);
         }
 
         if (typeof message.threadId === 'string') {
@@ -107,6 +108,22 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
         setProgressText('');
         shouldAutoScrollRef.current = true;
         setMessages((prev) => [...prev, { role: 'assistant', content: message.text }]);
+        if (Array.isArray(message.toolCalls)) {
+          setToolCalls(
+            message.toolCalls.map((tool: { name?: string; result?: string; args?: unknown }) => ({
+              name: tool.name ?? 'unknown_tool',
+              status: tool.result ? 'completed' : 'invoked',
+              details:
+                typeof tool.result === 'string'
+                  ? tool.result
+                  : tool.args
+                    ? JSON.stringify(tool.args)
+                    : 'No details',
+            }))
+          );
+        } else {
+          setToolCalls([]);
+        }
         return;
       }
       if (message?.command === 'chatProgress' && typeof message.text === 'string') {
@@ -144,6 +161,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ onOpenPackagesTab }) => {
 
   const handleSend = (text: string) => {
     setProgressText('');
+    setToolCalls([]);
     shouldAutoScrollRef.current = true;
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
     vscode.postMessage({ command: 'chatSubmit', text });
