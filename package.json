@@ -337,6 +337,13 @@
         "order": 10,
         "type": "object",
         "properties": {
+          "repomix.chat.postgresConnectionString": {
+            "order": 0,
+            "type": "string",
+            "default": "",
+            "description": "🐘 PostgreSQL connection string for chat storage (e.g., postgresql://user:pass@host:5432/dbname). If set, this takes precedence over the secret storage.",
+            "scope": "machine-overridable"
+          },
           "repomix.chat.contextThresholdPercent": {
             "order": 1,
             "type": "number",

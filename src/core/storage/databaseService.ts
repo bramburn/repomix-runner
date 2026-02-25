@@ -123,36 +123,61 @@ export class DatabaseService {
   }
 
   async initialize(): Promise<void> {
-    if (this.isInitialized) return;
-
-    this.SQL = await initSqlJs({
-      locateFile: (file: string) => {
-        const candidates = [
-          path.join(__dirname, file),
-          path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file),
-          path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
-          path.join(path.dirname(__dirname), 'node_modules', 'sql.js', 'dist', file),
-        ];
-        return candidates.find(fs.existsSync) ?? path.join(__dirname, file);
-      }
-    });
-
-    await vscode.workspace.fs.createDirectory(
-      vscode.Uri.file(path.dirname(this.dbPath))
-    );
-
-    if (fs.existsSync(this.dbPath)) {
-      try {
-        this.db = new this.SQL.Database(fs.readFileSync(this.dbPath));
-      } catch {
-        this.db = new this.SQL.Database();
-      }
-    } else {
-      this.db = new this.SQL.Database();
+    if (this.isInitialized) {
+      console.log('[DatabaseService] Already initialized, skipping');
+      return;
     }
 
-    await this.createTables();
-    this.isInitialized = true;
+    const startTime = Date.now();
+    console.log('[DatabaseService] Starting initialization...');
+
+    try {
+      console.log('[DatabaseService] Loading sql.js...');
+      const sqlJsStart = Date.now();
+      this.SQL = await initSqlJs({
+        locateFile: (file: string) => {
+          console.log(`[DatabaseService] Looking for sql.js WASM file: ${file}`);
+          const candidates = [
+            path.join(__dirname, file),
+            path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file),
+            path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+            path.join(path.dirname(__dirname), 'node_modules', 'sql.js', 'dist', file),
+          ];
+          const found = candidates.find(fs.existsSync);
+          console.log(`[DatabaseService] sql.js WASM found at: ${found || candidates[0]}`);
+          return found ?? candidates[0];
+        }
+      });
+      console.log(`[DatabaseService] sql.js loaded in ${Date.now() - sqlJsStart}ms`);
+
+      console.log(`[DatabaseService] Creating directory: ${path.dirname(this.dbPath)}`);
+      await vscode.workspace.fs.createDirectory(
+        vscode.Uri.file(path.dirname(this.dbPath))
+      );
+
+      console.log(`[DatabaseService] Opening database at: ${this.dbPath}`);
+      if (fs.existsSync(this.dbPath)) {
+        try {
+          this.db = new this.SQL.Database(fs.readFileSync(this.dbPath));
+          console.log('[DatabaseService] Existing database loaded');
+        } catch (err) {
+          console.warn('[DatabaseService] Failed to load existing database, creating new one:', err);
+          this.db = new this.SQL.Database();
+        }
+      } else {
+        console.log('[DatabaseService] Creating new database');
+        this.db = new this.SQL.Database();
+      }
+
+      console.log('[DatabaseService] Creating tables...');
+      await this.createTables();
+
+      this.isInitialized = true;
+      console.log(`[DatabaseService] Initialization complete in ${Date.now() - startTime}ms`);
+    } catch (error) {
+      console.error(`[DatabaseService] Initialization failed after ${Date.now() - startTime}ms:`, error);
+      throw error;
+    }
   }
 
   private async createTables(): Promise<void> {

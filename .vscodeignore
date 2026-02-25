@@ -7,6 +7,8 @@ assets/run-on-selection.mp4
 src/
 out/
 #
+repomix-*.md
+repomix-*.xml
 PRDs/
 .kilocodemodes
 .repomix

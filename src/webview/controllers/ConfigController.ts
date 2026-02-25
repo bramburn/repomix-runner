@@ -209,10 +209,16 @@ export class ConfigController extends BaseController {
 
   private async handleCheckPostgresConnection() {
     try {
-      const secret = await this.extensionContext.secrets.get(SECRET_POSTGRES_CONNECTION);
-      this.context.postMessage({ 
-        command: 'postgresConnectionStatus', 
-        exists: !!secret 
+      // Check settings first, then secrets
+      const config = vscode.workspace.getConfiguration('repomix.chat');
+      const settingValue = config.get<string>('postgresConnectionString');
+      const secretValue = await this.extensionContext.secrets.get(SECRET_POSTGRES_CONNECTION);
+      const exists = !!(settingValue?.trim() || secretValue);
+
+      this.context.postMessage({
+        command: 'postgresConnectionStatus',
+        exists,
+        source: settingValue?.trim() ? 'settings' : (secretValue ? 'secrets' : 'none')
       });
     } catch (err) {
       console.error('Failed to check postgres connection:', err);

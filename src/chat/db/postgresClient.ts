@@ -284,12 +284,20 @@ async function runMigrations(p: Pool): Promise<void> {
 }
 
 export async function initPool(connectionString: string): Promise<Pool> {
+  const startTime = Date.now();
+  console.log('[PostgreSQL] Starting pool initialization...');
+
   if (!poolPromise) {
+    console.log('[PostgreSQL] Creating new pool promise...');
     poolPromise = _initPoolImpl(connectionString);
   }
+
   try {
-    return await poolPromise;
+    const result = await poolPromise;
+    console.log(`[PostgreSQL] Pool initialized in ${Date.now() - startTime}ms`);
+    return result;
   } catch (error) {
+    console.error(`[PostgreSQL] Pool initialization failed after ${Date.now() - startTime}ms:`, error);
     poolPromise = null;
     pool = null;
     throw error;

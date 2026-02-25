@@ -170,12 +170,17 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
 
     if (data.command === 'testPostgresConnection') {
       try {
-        const connectionString = await this._extensionContext.secrets.get('postgresConnectionString');
+        // Check settings first, then secrets
+        const config = vscode.workspace.getConfiguration('repomix.chat');
+        const settingValue = config.get<string>('postgresConnectionString');
+        const secretValue = await this._extensionContext.secrets.get('postgresConnectionString');
+        const connectionString = settingValue?.trim() || secretValue;
+
         if (!connectionString) {
           webview.postMessage({
             command: 'postgresConnectionResult',
             success: false,
-            error: 'PostgreSQL connection string not configured. Save your connection string above first.',
+            error: 'PostgreSQL connection string not configured. Set it in VS Code Settings (repomix.chat.postgresConnectionString) or save it in the Repomix Settings tab.',
           });
           return;
         }
@@ -198,12 +203,17 @@ export class AiChatWebviewProvider implements vscode.WebviewViewProvider {
 
     if (data.command === 'runMigrations') {
       try {
-        const connectionString = await this._extensionContext.secrets.get('postgresConnectionString');
+        // Check settings first, then secrets
+        const config = vscode.workspace.getConfiguration('repomix.chat');
+        const settingValue = config.get<string>('postgresConnectionString');
+        const secretValue = await this._extensionContext.secrets.get('postgresConnectionString');
+        const connectionString = settingValue?.trim() || secretValue;
+
         if (!connectionString) {
           webview.postMessage({
             command: 'migrationsComplete',
             success: false,
-            error: 'PostgreSQL connection string not configured',
+            error: 'PostgreSQL connection string not configured. Set it in VS Code Settings (repomix.chat.postgresConnectionString) or save it in the Repomix Settings tab.',
           });
           return;
         }

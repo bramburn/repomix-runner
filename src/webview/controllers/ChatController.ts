@@ -1376,10 +1376,13 @@ export class ChatController extends BaseController {
           text: message,
         });
       };
-      
-      // Get the PostgreSQL connection string from secrets
-      const connectionString = await this.extensionContext.secrets.get('postgresConnectionString') || '';
-      
+
+      // Get the PostgreSQL connection string from settings or secrets
+      const config = vscode.workspace.getConfiguration('repomix.chat');
+      const settingConnectionString = config.get<string>('postgresConnectionString');
+      const secretConnectionString = await this.extensionContext.secrets.get('postgresConnectionString');
+      const connectionString = settingConnectionString?.trim() || secretConnectionString || '';
+
       this.compiledGraph = await createHitlChatGraph(
         this.extensionContext,
         this.pgPool,

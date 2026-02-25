@@ -53,6 +53,59 @@ import { BatchPoller } from './chat/batch/batchPoller.js';
 import type { BatchCompletionResult } from './chat/batch/types.js';
 import { executeArchitectureGeneration } from './chat/architecture/architectureGraph.js';
 
+/**
+ * Wraps an async operation with a timeout and logs timing information.
+ * Returns null if the operation times out or fails.
+ */
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  operationName: string
+): Promise<T | null> {
+  const startTime = Date.now();
+  console.log(`[quick-repomix] Starting ${operationName}...`);
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`${operationName} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([operation, timeoutPromise]);
+    const duration = Date.now() - startTime;
+    console.log(`[quick-repomix] ${operationName} completed in ${duration}ms`);
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(`[quick-repomix] ${operationName} failed after ${duration}ms:`, error);
+    return null;
+  }
+}
+
+/**
+ * Gets the PostgreSQL connection string from VS Code settings or secrets.
+ * Settings take precedence over secrets for easier configuration.
+ */
+async function getPostgresConnectionString(context: vscode.ExtensionContext): Promise<string | undefined> {
+  // First check VS Code settings (takes precedence)
+  const config = vscode.workspace.getConfiguration('repomix.chat');
+  const settingValue = config.get<string>('postgresConnectionString');
+
+  if (settingValue && settingValue.trim()) {
+    console.log('[quick-repomix] Using PostgreSQL connection string from settings');
+    return settingValue.trim();
+  }
+
+  // Fall back to secrets storage (backward compatibility)
+  const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
+  const secretValue = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
+
+  if (secretValue) {
+    console.log('[quick-repomix] Using PostgreSQL connection string from secrets (backward compatibility)');
+    return secretValue;
+  }
+
+  return undefined;
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] ===== EXTENSION ACTIVATION START =====');
@@ -69,39 +122,54 @@ export async function activate(context: vscode.ExtensionContext) {
     console.error('[Repomix] Failed to initialize WASM path:', error);
   }
 
-  // Initialize database service
+  // Initialize database service (with timeout protection)
   console.log('[quick-repomix] Initializing database service...');
   const databaseService = new DatabaseService(context);
-  await databaseService.initialize();
-  console.log('[quick-repomix] Database service initialized');
+  const dbInitResult = await withTimeout(
+    databaseService.initialize(),
+    10000, // 10 second timeout
+    'SQLite database initialization'
+  );
 
-  // Initialize PostgreSQL pool for chat storage
-  let chatPgPool: Pool | null = null;
-  // Chat-related secrets (PRD 010)
-  const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
-  const pgConnectionString = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
-
-  if (pgConnectionString) {
-    try {
-      chatPgPool = await initPool(pgConnectionString);
-      console.log('[quick-repomix] PostgreSQL chat storage initialized');
-    } catch (error) {
-      console.error('[quick-repomix] Failed to initialize PostgreSQL chat storage:', error);
-      const selection = await vscode.window.showErrorMessage(
-        `PostgreSQL connection failed: ${error instanceof Error ? error.message : String(error)}. Chat feature is disabled until PostgreSQL is configured correctly.`,
-        'Open Repomix Settings'
-      );
-      if (selection === 'Open Repomix Settings') {
-        await vscode.commands.executeCommand('repomixRunner.openSettings');
-      }
-    }
+  if (dbInitResult === null) {
+    console.warn('[quick-repomix] Database initialization timed out - continuing without database');
+    // DatabaseService will handle null db internally
   } else {
-    console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
-    // Non-blocking: don't show warning on every activation, only log to console
-    // Users can configure this in settings when they want to use chat features
+    console.log('[quick-repomix] Database service initialized successfully');
   }
 
-  console.log('[quick-repomix] Continuing activation (chat may be disabled)...');
+  // Initialize PostgreSQL pool for chat storage (non-blocking)
+  console.log('[quick-repomix] Starting PostgreSQL initialization (non-blocking)...');
+  let chatPgPool: Pool | null = null;
+
+  // Run PostgreSQL init in background to not block activation
+  (async () => {
+    const pgStartTime = Date.now();
+    try {
+      const pgConnectionString = await getPostgresConnectionString(context);
+
+      if (pgConnectionString) {
+        console.log('[quick-repomix] Found PostgreSQL connection string, attempting connection...');
+        chatPgPool = await initPool(pgConnectionString);
+        console.log(`[quick-repomix] PostgreSQL chat storage initialized in ${Date.now() - pgStartTime}ms`);
+      } else {
+        console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
+      }
+    } catch (error) {
+      console.error(`[quick-repomix] Failed to initialize PostgreSQL chat storage after ${Date.now() - pgStartTime}ms:`, error);
+      // Show error notification without blocking
+      vscode.window.showWarningMessage(
+        `Chat feature unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        'Open Settings'
+      ).then(selection => {
+        if (selection === 'Open Settings') {
+          vscode.commands.executeCommand('repomixRunner.openSettings');
+        }
+      });
+    }
+  })();
+
+  console.log('[quick-repomix] Continuing activation (database operations in background)...');
 
   console.log('[quick-repomix] Registering pool disposal hook...');
   // Register pool disposal hook for reliable cleanup on extension deactivation
@@ -627,6 +695,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // This ensures the document is available for chat context gathering.
   // ==============================================================================
   if (chatPgPool) {
+    const pgPool = chatPgPool;
     const workspaceFolder = getCwd();
     if (workspaceFolder) {
       // Defer to avoid blocking activation
@@ -636,7 +705,7 @@ export async function activate(context: vscode.ExtensionContext) {
           
           // Check freshness by attempting to load existing document
           const { ArchitectureRepository } = await import('./chat/db/architectureRepository.js');
-          const archRepo = new ArchitectureRepository(chatPgPool);
+          const archRepo = new ArchitectureRepository(pgPool);
           const existingArch = await archRepo.getArchitectureByRepoId(repoId);
           
           const needsRefresh = !existingArch || (existingArch.expiresAt && Date.now() > existingArch.expiresAt);
@@ -649,7 +718,7 @@ export async function activate(context: vscode.ExtensionContext) {
               workspaceFolder,
               repoId,
               {
-                pgPool: chatPgPool,
+                pgPool,
                 secrets: context.secrets,
               },
               (message: string) => {
@@ -1090,6 +1159,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('PostgreSQL not configured - architecture generation disabled');
         return;
       }
+      const pgPool = chatPgPool;
 
       const workspaceFolder = getCwd();
       if (!workspaceFolder) {
@@ -1111,7 +1181,7 @@ export async function activate(context: vscode.ExtensionContext) {
             workspaceFolder,
             repoId,
             {
-              pgPool: chatPgPool,
+              pgPool,
               secrets: context.secrets,
             },
             (message: string) => {
