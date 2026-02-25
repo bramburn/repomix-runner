@@ -1,82 +1,77 @@
 # Compression Module Guidelines
 
 ## Purpose
-- This module builds AST-based skeletons for LLM context compression.
-- It supports selective full-code retention via `keepNames`.
-- Keep this module separate from `src/core/indexing/treeSitterService.ts`.
 
-## Supported Languages
-- **TypeScript/JavaScript**: Uses `typescript.wasm` and `TypeScriptParseStrategy`.
-- **Dart**: Uses `dart.wasm` and `DartParseStrategy`.
-- **Python**: Uses `python.wasm` and `PythonParseStrategy` (handles decorators and indentation).
-- **C#**: Uses `csharp.wasm` and `CsharpParseStrategy` (handles namespaces and properties).
-- **Rust**: Uses `rust.wasm` and `RustParseStrategy` (handles structs, impls, and traits).
+- Build AST-based skeletons for context compression and semantic-folding workflows.
+- Support selective full-code retention via `CompressionOptions.keepNames`.
+- Stay independent from indexing tree-sitter logic in `src/core/indexing/treeSitterService.ts`.
 
 ## Public API
-- Entrypoint: `compressFile(filePath, fileContent, options?)` in `compressFile.ts`.
-- Exported options type: `CompressionOptions` from `index.ts`.
-- `CompressionOptions.keepNames` accepts identifiers (for example `['MyClass', 'calculateTotal']`) that should remain full source.
 
-## Query Guidelines
+- `compressFile(filePath, fileContent, options?)` in `compressFile.ts`
+- `compressFileWithTokens(filePath, fileContent, options?)` for token-aware callers
+- `isSupportedExtension(filePath)` and `getSupportedExtensions()`
+- Re-exported via `src/core/compression/index.ts`
 
-The module uses Tree-sitter queries to identify nodes for compression. Queries use a specific set of tags that the `ParseStrategy` implementations expect:
+## Supported Languages and Extensions
 
-- `@definition.import`: Matches import/using/require statements. Usually preserved in full or slightly cleaned.
-- `@definition.class`: Matches class, struct, record, or mixin definitions. Strategies typically extract the header and collapse the body.
-- `@definition.function`: Matches top-level function definitions. Strategies extract the signature and collapse the body.
-- `@definition.method`: Matches methods within classes or interfaces.
-- `@definition.interface`: Matches interface definitions.
-- `@definition.enum`: Matches enum definitions.
-- `@definition.type`: Matches type aliases or typedefs.
-- `@definition.module`: Matches namespaces or module declarations.
-
-### Writing Effective Queries
-- **Group nodes**: Use `[ (node_type) ... ]` to group multiple node types under the same tag.
-- **Specific nodes**: Target the most relevant nodes to avoid over-capturing. For example, in Python, `(decorated_definition)` is captured to include decorators, and the strategy then resolves whether it wraps a class or a function.
-- **Tagging**: Always use the `@definition.*` tags defined in `CaptureType` ([`src/core/compression/types.ts`](src/core/compression/types.ts)).
-
-## Workflow: Adding a New Language
-
-1.  **Create Query**: Add a new query file in `queries/` (e.g., `queryGo.ts`). Use Tree-sitter tags like `@definition.import`, `@definition.class`, `@definition.function`.
-2.  **Create Strategy**: Add a new strategy file in `strategies/` (e.g., `GoParseStrategy.ts`) extending `BaseParseStrategy`. Implement `parseCapture` and `extractNodeName`.
-3.  **Register Language**: 
-    - In `LanguageParser.ts`, import the new query and strategy.
-    - Instantiate the strategy as a singleton.
-    - Add a new entry to the `configs` record with the `wasmFile`, `query`, and `strategy`.
-4.  **Enable Detection**: 
-    - In `compressFile.ts`, update the `detectLanguage` function's return type and the `languageByExtension` map to include the new extension.
-5.  **Provide WASM**: Ensure the corresponding `.wasm` parser is available in `assets/tree-sitter-wasm/`.
-
-## Workflow: Editing/Removing a Language
-
-- **Edit**: Modify the query in `queries/` or the logic in the corresponding `strategies/` file.
-- **Remove**: 
-    - Delete the query and strategy files.
-    - Remove the registration from `LanguageParser.ts`.
-    - Remove the extension mapping from `detectLanguage` in `compressFile.ts`.
-
-## Selective Compression Rules
-- For captures matching `keepNames`, return full node text.
-- For non-matching captures, return compressed skeleton text (signatures/interfaces/imports).
-- Hierarchy cursor logic in `compressFile` tracks processed ranges.
-- If a parent capture is emitted, nested captures are skipped to avoid duplication.
+- TypeScript: `.ts`, `.tsx`, `.mts`, `.cts`
+- JavaScript: `.js`, `.jsx`, `.mjs`, `.cjs` (uses TypeScript grammar/query strategy)
+- Dart: `.dart`
+- Python: `.py`
+- C#: `.cs`
+- Rust: `.rs`
 
 ## Architecture
-- `LanguageParser.ts`: Tree-sitter init, language/query caching, WASM path resolution.
+
+- `compressFile.ts`: language detection, query capture iteration, replacement assembly, token helpers.
+- `LanguageParser.ts`: Tree-sitter init, parser/query/language caching, WASM path resolution.
 - `queries/`: language capture queries.
-- `strategies/`: per-language parse strategies.
-- `types.ts`: contracts (`ParseStrategy`, `CompressionOptions`, capture/chunk types).
+- `strategies/`: per-language parsing/replacement strategy implementations.
+- `types.ts`: contracts (`ParseStrategy`, `CompressionOptions`, capture/replacement types).
 
-## WASM Requirements
-- Parsers are loaded from configured path, then `dist/tree-sitter-wasm/`, then `assets/tree-sitter-wasm/`.
-- On parser/query/WASM failures, return `null` from `compressFile` so callers can fall back to raw content.
+## Query and Strategy Contract
 
-## Agent Integration
-- Tier-B context optimization should call `compressFile(file.path, file.content, { keepNames: [] })`.
-- Future selective retention can wire `keepNames` from planner/LLM state.
+Use `@definition.*` tags expected by strategies:
+- `@definition.import`
+- `@definition.class`
+- `@definition.function`
+- `@definition.method`
+- `@definition.interface`
+- `@definition.enum`
+- `@definition.type`
+- `@definition.module`
+
+Keep query captures and strategy handling aligned; if you add/remove tags, update `types.ts` and affected strategies.
+
+## WASM Resolution
+
+Lookup order in `LanguageParser.resolveWasmPath(...)`:
+1. configured parser path via `setWasmDirectory(...)`
+2. `dist/tree-sitter-wasm/` (runtime)
+3. `assets/tree-sitter-wasm/` (fallback)
+
+Return `null` from compression APIs on parser/query/WASM failure so callers can fall back gracefully.
+
+## Behavior Rules
+
+- Process captures in reverse order to preserve replacement offsets.
+- For `keepNames` matches, preserve full node text.
+- Skip nested duplicate emission by relying on capture/replacement bounds.
+- If captures exist but no body replacement applies, return original content (not `null`).
+
+## Workflow: Add a New Language
+
+1. Add query in `queries/` (e.g., `queryGo.ts`).
+2. Add strategy in `strategies/` (e.g., `GoParseStrategy.ts`) extending `BaseParseStrategy`.
+3. Register language config in `LanguageParser.ts` (`wasmFile`, `query`, `strategy`).
+4. Extend `detectLanguage(...)` and extension map in `compressFile.ts`.
+5. Add parser WASM under `assets/tree-sitter-wasm/` and ensure packaging includes it.
 
 ## Validation
-- Manual: run `Repomix: Test Compression` (`repomixRunner.testCompression`) and enter optional keep name.
+
+- Manual: run `Repomix: Test Compression` (`repomixRunner.testCompression`) from an active editor.
 - Pre-commit checks:
   - `npm run check-types`
   - `npm run lint`
+  - `npm run test`

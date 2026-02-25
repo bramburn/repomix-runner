@@ -370,7 +370,7 @@ export const GetEmbeddingConfigSchema = z.object({
 
 export const SetEmbeddingConfigSchema = z.object({
   command: z.literal('setEmbeddingConfig'),
-  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
+  provider: z.enum(['gemini', 'ollama', 'lmstudio', 'openrouter']),
   ollamaUrl: z.string().min(1, "Ollama URL is required").optional(),
   ollamaModel: z.string().min(1, "Ollama model is required").optional(),
   ollamaDimension: z.number().int().positive().optional(),
@@ -378,6 +378,13 @@ export const SetEmbeddingConfigSchema = z.object({
   lmstudioApiKey: z.string().optional(),
   lmstudioModel: z.string().optional(),
   lmstudioDimension: z.number().int().positive().optional(),
+  openrouterBaseUrl: z.string().min(1, 'OpenRouter base URL is required').optional(),
+  openrouterApiKey: z.string().optional(),
+  openrouterModel: z.string().optional(),
+  openrouterDimension: z.number().int().positive().optional(),
+  openrouterProviderOrder: z.array(z.string()).optional(),
+  openrouterAllowFallbacks: z.boolean().optional(),
+  openrouterQuantizations: z.array(z.string()).optional(),
 });
 
 export const FetchOllamaModelsSchema = z.object({
@@ -417,9 +424,72 @@ export const OllamaDimensionResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const FetchOpenRouterModelsSchema = z.object({
+  command: z.literal('fetchOpenRouterModels'),
+});
+
+export const OpenRouterModelsResultSchema = z.object({
+  command: z.literal('openrouterModelsResult'),
+  models: z.array(z.object({
+    id: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    context_length: z.number().optional(),
+  })),
+  error: z.string().optional(),
+});
+
+export const TestOpenRouterDimensionSchema = z.object({
+  command: z.literal('testOpenRouterDimension'),
+  baseUrl: z.string().min(1, "OpenRouter base URL is required"),
+  apiKey: z.string().min(1, "OpenRouter API key is required"),
+  model: z.string().min(1, "Model name is required"),
+  providerOrder: z.array(z.string()).optional(),
+  allowFallbacks: z.boolean().optional(),
+  quantizations: z.array(z.string()).optional(),
+});
+
+export const OpenRouterDimensionResultSchema = z.object({
+  command: z.literal('openrouterDimensionResult'),
+  dimension: z.number().int().positive().optional(),
+  error: z.string().optional(),
+});
+
+export const TestOpenRouterConnectionSchema = z.object({
+  command: z.literal('testOpenRouterConnection'),
+  baseUrl: z.string().min(1, "OpenRouter base URL is required"),
+  apiKey: z.string().min(1, "OpenRouter API key is required"),
+  model: z.string().min(1, "Model name is required"),
+  providerOrder: z.array(z.string()).optional(),
+  allowFallbacks: z.boolean().optional(),
+  quantizations: z.array(z.string()).optional(),
+});
+
+export const OpenRouterConnectionResultSchema = z.object({
+  command: z.literal('openrouterConnectionResult'),
+  success: z.boolean(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const GetOpenRouterConfigSchema = z.object({
+  command: z.literal('getOpenRouterConfig'),
+});
+
+export const OpenRouterConfigSchema = z.object({
+  command: z.literal('openrouterConfig'),
+  baseUrl: z.string(),
+  apiKey: z.string(),
+  model: z.string(),
+  dimension: z.number(),
+  providerOrder: z.array(z.string()).optional(),
+  allowFallbacks: z.boolean().optional(),
+  quantizations: z.array(z.string()).optional(),
+});
+
 export const EmbeddingConfigSchema = z.object({
   command: z.literal('embeddingConfig'),
-  provider: z.enum(['gemini', 'ollama', 'lmstudio']),
+  provider: z.enum(['gemini', 'ollama', 'lmstudio', 'openrouter']),
   ollamaUrl: z.string().optional(),
   ollamaModel: z.string().optional(),
   ollamaDimension: z.number().int().positive().optional(),
@@ -427,6 +497,13 @@ export const EmbeddingConfigSchema = z.object({
   lmstudioApiKey: z.string().optional(),
   lmstudioModel: z.string().optional(),
   lmstudioDimension: z.number().int().positive().optional(),
+  openrouterBaseUrl: z.string().optional(),
+  openrouterApiKey: z.string().optional(),
+  openrouterModel: z.string().optional(),
+  openrouterDimension: z.number().int().positive().optional(),
+  openrouterProviderOrder: z.array(z.string()).optional(),
+  openrouterAllowFallbacks: z.boolean().optional(),
+  openrouterQuantizations: z.array(z.string()).optional(),
 });
 
 export const EmbeddingTestResultSchema = z.object({
@@ -1222,6 +1299,14 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   TestEmbeddingSchema,
   TestOllamaDimensionSchema,
   OllamaDimensionResultSchema,
+  FetchOpenRouterModelsSchema,
+  OpenRouterModelsResultSchema,
+  TestOpenRouterDimensionSchema,
+  OpenRouterDimensionResultSchema,
+  TestOpenRouterConnectionSchema,
+  OpenRouterConnectionResultSchema,
+  GetOpenRouterConfigSchema,
+  OpenRouterConfigSchema,
   EmbeddingConfigSchema,
   EmbeddingTestResultSchema,
   CheckCompatibilitySchema,

@@ -41,15 +41,15 @@
 - [AGENTS.md](file://src/core/compression/AGENTS.md)
 - [COMPRESSION_TESTING.md](file://COMPRESSION_TESTING.md)
 - [diagnose-compression.js](file://scripts/diagnose-compression.js)
+- [prompt.md](file://prompt.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Complete rewrite of compression engine from chunk-based to advanced body replacement strategy
-- Updated multi-language support to include Rust with dedicated AST parsing
-- Enhanced language strategies with comprehensive metadata tracking system
-- Implemented selective compression capabilities with keepNames configuration
-- Strengthened compression engine with improved error handling and fallback mechanisms
+- Enhanced branch-aware indexing architecture with comprehensive database service capabilities for multi-branch repository management
+- Improved tool call tracking in ChatController with structured tool call representation and enhanced token accounting
+- Added new prompt guidelines documentation for improved AI interaction quality
+- Implemented comprehensive branch maintenance with automatic cleanup and schema migration support
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -68,7 +68,7 @@ This document details the three primary feature pillars of Repomix Runner Plus:
 - AI-Powered File Selection: a smart agent workflow that performs semantic search, relevance confirmation, and automated packaging.
 - Enhanced Clipboard Operations: cross-platform copy modes, remote clipboard support, and binary integration.
 
-**Updated** The compression engine has been completely rewritten from a chunk-based approach to an advanced body replacement strategy. The system now provides comprehensive metadata tracking with detailed compression insights, improved error handling, and better user transparency about compression results. Multi-language support expanded to include Rust with dedicated AST-based file skeleton generation and selective compression capabilities with keepNames configuration.
+**Updated** The system now features an enhanced branch-aware indexing architecture with comprehensive database service capabilities, improved tool call tracking in ChatController for better workflow transparency, and new prompt guidelines documentation for optimized AI interactions. These enhancements provide robust multi-branch repository management, structured tool call representation, and improved conversational intelligence.
 
 It explains how each feature addresses user needs, the workflows they enable, interdependencies among components, configuration options, and practical examples.
 
@@ -76,12 +76,12 @@ It explains how each feature addresses user needs, the workflows they enable, in
 The core features span several subsystems:
 - Bundles: persistent storage and lifecycle management for user-defined groups of files and settings.
 - Agent: a LangGraph-based workflow orchestrating retrieval, filtering, summarization, command generation, and execution.
-- Indexing: repository indexing, embedding generation, and vector database adapters for semantic search.
+- Indexing: repository indexing, embedding generation, and vector database adapters for semantic search with branch-aware capabilities.
 - Files and Clipboard: cross-platform copy-to-clipboard logic, temp file handling, and remote clipboard binary integration.
 - Commands and Webview: orchestration of runs, queueing, and UI-driven agent interactions.
-- **New** Enhanced Compression: AST-based file compression system supporting seven programming languages with comprehensive metadata tracking and improved user transparency.
-- **New** Branch Maintenance: branch-aware indexing with automatic cleanup and maintenance.
-- **New** Chat System: persistent conversation threads with plan execution capabilities.
+- **New** Enhanced Branch-Aware Indexing: comprehensive multi-branch repository management with automatic cleanup and schema migration.
+- **New** Improved Chat System: structured tool call tracking, enhanced token accounting, and message queue management.
+- **New** Prompt Guidelines: standardized AI interaction patterns for consistent and effective conversations.
 
 ```mermaid
 graph TB
@@ -96,31 +96,18 @@ EMB["EmbeddingService"]
 VDF["VectorDB Factory"]
 PF["ProcessedFile Metadata<br/>compressionLevel/tokens/relevance"]
 end
-subgraph "Indexing"
-RI["RepoIndexer"]
+subgraph "Enhanced Branch-Aware Indexing"
+RI["RepoIndexer<br/>branch-aware indexing"]
 LLMR["LLM Reranking"]
-BMS["BranchMaintenanceService"]
+BMS["BranchMaintenanceService<br/>cleanup + migration"]
+DB["DatabaseService<br/>multi-branch tracking"]
 end
-subgraph "Enhanced Compression"
-CF["compressFile<br/>body replacement strategy"]
-LP["LanguageParser<br/>Tree-sitter integration"]
-TPS["TypeScriptParseStrategy"]
-DPS["DartParseStrategy"]
-PPS["PythonParseStrategy"]
-CSP["CsharpParseStrategy"]
-RPS["RustParseStrategy<br/>+Selective Compression"]
-QT["queryTypescript"]
-QD["queryDart"]
-QP["queryPython"]
-QC["queryCsharp"]
-QR["queryRust"]
-TC["testCompression<br/>validation utility"]
-end
-subgraph "Chat System"
+subgraph "Improved Chat System"
 CS["ConversationService<br/>persistent threads"]
 PC["PlanService<br/>plan execution"]
-CC["ChatController<br/>UI integration"]
+CC["ChatController<br/>tool call tracking + queue"]
 CG["ChatGraph<br/>plan & execute loop"]
+MQ["MessageQueue<br/>PRD 007"]
 end
 subgraph "Files & Clipboard"
 CT["copyToClipboard"]
@@ -142,21 +129,13 @@ ND --> VDF
 RI --> EMB
 LLMR --> ND
 BMS --> RI
-CF --> LP
-LP --> TPS
-LP --> DPS
-LP --> PPS
-LP --> CSP
-LP --> RPS
-TPS --> QT
-DPS --> QD
-PPS --> QP
-CSP --> QC
-RPS --> QR
-TC --> CF
+BMS --> DB
+DB --> RI
+DB --> BMS
 CS --> PC
 PC --> CC
 CC --> CG
+CC --> MQ
 CT --> RCH
 EQM --> RR
 ```
@@ -172,21 +151,10 @@ EQM --> RR
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
 - [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L143)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L6-L25)
-- [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L26-L88)
-- [TypeScriptParseStrategy.ts](file://src/core/compression/strategies/TypeScriptParseStrategy.ts#L11-L62)
-- [DartParseStrategy.ts](file://src/core/compression/strategies/DartParseStrategy.ts#L1-L118)
-- [PythonParseStrategy.ts](file://src/core/compression/strategies/PythonParseStrategy.ts#L1-L118)
-- [CsharpParseStrategy.ts](file://src/core/compression/strategies/CsharpParseStrategy.ts#L1-L118)
-- [RustParseStrategy.ts](file://src/core/compression/strategies/RustParseStrategy.ts#L11-L118)
-- [queryTypescript.ts](file://src/core/compression/queries/queryTypescript.ts#L1-L18)
-- [queryDart.ts](file://src/core/compression/queries/queryDart.ts#L1-L118)
-- [queryPython.ts](file://src/core/compression/queries/queryPython.ts#L1-L118)
-- [queryCsharp.ts](file://src/core/compression/queries/queryCsharp.ts#L1-L118)
-- [queryRust.ts](file://src/core/compression/queries/queryRust.ts#L1-L22)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
 - [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
 - [planService.ts](file://src/services/planService.ts#L10-L96)
-- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L14-L303)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1719-L1952)
 - [graph.ts](file://src/chat/graph.ts#L11-L67)
 - [copyToClipboard.ts](file://src/core/files/copyToClipboard.ts#L52-L160)
 - [remoteClipboardHandler.ts](file://src/webview/handlers/remoteClipboardHandler.ts#L10-L190)
@@ -225,30 +193,29 @@ EQM --> RR
   - Creation, retrieval, saving, and deletion of bundles.
 - AI-Powered File Selection
   - LangGraph workflow with nodes for objective analysis, retrieval, filtering, relevance confirmation, summary, command generation, and execution.
-  - Semantic search powered by embeddings and vector databases.
+  - Semantic search powered by embeddings and vector databases with branch-aware capabilities.
   - Structured LLM prompts and caching for performance.
   - **Enhanced** ProcessedFile metadata tracking with compression levels, token counts, and relevance scores for transparent context optimization.
 - Enhanced Clipboard Operations
   - Cross-platform copy modes: content (text) and file (binary).
   - Remote clipboard support via a Windows helper binary invoked from a temp directory.
   - OS-specific clipboard commands and dependency checks.
-- **New** Enhanced AST-Based Compression System
-  - Comprehensive file compression using Tree-sitter AST parsing across seven programming languages.
-  - Multi-language support including TypeScript, JavaScript, Dart, Python, C#, Rust, and enhanced language strategies.
-  - Selective full-code retention via `keepNames` configuration.
-  - Advanced body replacement strategy with hierarchical chunk processing and deduplication.
-  - Dedicated language-specific strategies for optimal compression quality.
-  - **Enhanced** Comprehensive metadata tracking including compression levels, token usage, and relevance scoring.
-  - Improved error handling with fallback mechanisms and detailed logging.
-- **New** Branch-Aware Indexing Architecture
-  - Repository indexing with branch-specific tracking and cleanup.
-  - Automatic maintenance of stale branches across vector databases and local storage.
-  - Unique indexing progress tracking per repository and branch combination.
-  - Schema-aware branch detection with timestamped legacy table naming for database reliability.
-- **New** Persistent Chat Threads with Plan Execution
-  - Thread-based conversation management with token usage tracking.
-  - Plan execution capabilities with surgical text replacement.
-  - Integration with chat graph workflow for plan & execute loops.
+- **New** Enhanced Branch-Aware Indexing Architecture
+  - Comprehensive multi-branch repository management with automatic cleanup and schema migration.
+  - DatabaseService provides branch-aware unique indexes and tracking for repo indexing progress.
+  - BranchMaintenanceService automatically detects and cleans stale branches across vector databases.
+  - Schema migration support with timestamped legacy table naming for backward compatibility.
+  - Transaction-safe branch data cleanup with rollback protection.
+- **New** Improved Chat System with Enhanced Tool Call Tracking
+  - Structured tool call representation with standardized naming conventions (file_edit, file_create, etc.).
+  - Enhanced token accounting with input/output token separation and total calculation.
+  - Message queue system (PRD 007) for sequential processing with force-send and cancellation capabilities.
+  - Abort controller integration for graceful execution cancellation.
+  - Comprehensive queue status reporting and persistence across extension restarts.
+- **New** Prompt Guidelines Documentation
+  - Standardized AI interaction patterns for consistent and effective conversations.
+  - Structured role definitions and task-oriented instructions.
+  - Follow-up pass methodology for code review and maintenance.
 
 **Section sources**
 - [bundleManager.ts](file://src/core/bundles/bundleManager.ts#L6-L117)
@@ -262,42 +229,45 @@ EQM --> RR
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 - [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L26-L88)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
 - [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
-- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L14-L303)
-- [planService.ts](file://src/services/planService.ts#L10-L96)
-- [state.ts](file://src/agent/state.ts#L3-L12)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1569-L1644)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1719-L1952)
+- [prompt.md](file://prompt.md#L1-L52)
 
 ## Architecture Overview
-The system integrates three pillars around a central execution pipeline with enhanced compression and indexing capabilities:
+The system integrates three pillars around a central execution pipeline with enhanced branch-aware indexing and improved chat capabilities:
 - Users define or select bundles to run.
-- The agent optionally discovers relevant files using semantic search and LLM-based filtering.
+- The agent optionally discovers relevant files using semantic search and LLM-based filtering with branch-aware indexing.
 - **Enhanced** File compression using AST-based techniques improves context quality across seven programming languages with comprehensive metadata tracking.
-- **New** Branch-aware indexing ensures accurate search results across repository branches.
-- **New** Persistent chat threads enable long-term conversation management with plan execution.
+- **New** Branch-aware indexing ensures accurate search results across repository branches with automatic maintenance and schema migration.
+- **New** Enhanced chat system provides structured tool call tracking, message queuing, and improved conversational intelligence.
 - Repomix executes with discovered files, and output is copied according to configuration.
 
 ```mermaid
 sequenceDiagram
 participant User as "User"
-participant Webview as "AgentController"
+participant Webview as "ChatController"
+participant Queue as "MessageQueue"
 participant Graph as "createSmartRepomixGraph"
 participant Nodes as "Agent Nodes"
 participant Embed as "EmbeddingService"
 participant VDB as "VectorDB Adapter"
-participant Compress as "Enhanced AST Compression"
 participant BranchMaint as "BranchMaintenanceService"
+participant DB as "DatabaseService"
 participant Runner as "runRepomix"
 participant Clip as "copyToClipboard"
 User->>Webview : "Submit query"
-Webview->>Graph : "stream() workflow"
+Webview->>Queue : "enqueueMessage()"
+Queue->>Graph : "processQueue() + executeQueueEntry()"
 Graph->>Nodes : "analyzeObjective()"
 Nodes->>Embed : "embedText(query)"
 Embed-->>Nodes : "query vector"
 Nodes->>VDB : "queryVectors(topK)"
 VDB-->>Nodes : "matches -> candidate files"
-Nodes->>Compress : "compressFile() AST parsing (7 languages)"
-Compress-->>Nodes : "compressed context + metadata"
 Nodes->>BranchMaint : "cleanupStaleBranches()"
+BranchMaint->>DB : "getTrackedBranches()"
+DB-->>BranchMaint : "branch list"
 BranchMaint-->>Nodes : "cleaned stale data"
 Nodes->>Nodes : "initialFiltering() + relevanceConfirmation()"
 Nodes->>Nodes : "generateSummary()"
@@ -308,13 +278,15 @@ Clip-->>User : "Clipboard updated"
 ```
 
 **Diagram sources**
-- [AgentController.ts](file://src/webview/controllers/AgentController.ts#L44-L178)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1719-L1952)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1787-L1853)
 - [graph.ts](file://src/agent/graph.ts#L8-L67)
 - [nodes.ts](file://src/agent/nodes.ts#L129-L742)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L48-L60)
 - [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L17-L62)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L1819-L1845)
 - [runRepomix.ts](file://src/commands/runRepomix.ts#L88-L123)
 - [copyToClipboard.ts](file://src/core/files/copyToClipboard.ts#L52-L160)
 
@@ -393,7 +365,7 @@ Workflow
 - EmbeddingService supports multiple providers and exposes dimensionality.
 - VectorDB factory selects provider and adapter per repository.
 - RepoIndexer builds a file catalog and clears old entries before indexing.
-- **New** BranchMaintenanceService automatically cleans stale branches across vector databases.
+- **New** BranchMaintenanceService automatically cleans stale branches across vector databases with transaction-safe cleanup.
 
 **Enhanced** Compression Metadata Tracking
 - ProcessedFile interface tracks compressionLevel ('full' | 'skeleton' | 'summary'), tokens, and relevanceScore for each processed file.
@@ -489,6 +461,112 @@ Remote-->>Ext : "processing complete"
 **Section sources**
 - [copyToClipboard.ts](file://src/core/files/copyToClipboard.ts#L52-L160)
 - [remoteClipboardHandler.ts](file://src/webview/handlers/remoteClipboardHandler.ts#L10-L190)
+
+### **New** Enhanced Branch-Aware Indexing Architecture
+Purpose
+- Enable accurate semantic search across multiple repository branches with comprehensive branch management.
+- Maintain separate indexing progress and vector data per branch with automatic cleanup.
+- Provide schema migration support for backward compatibility and transaction-safe operations.
+
+**Enhanced** Database Service Capabilities
+- DatabaseService maintains branch-aware unique indexes for repository indexing progress with composite keys (repo_id, branch_name, file_path).
+- Schema migration support with timestamped legacy table naming for backward compatibility.
+- Transaction-safe branch data cleanup with rollback protection for reliability.
+- Comprehensive branch tracking with getTrackedBranches() method supporting both legacy and branch-aware schemas.
+
+**Enhanced** Branch Maintenance Workflow
+- Automatic cleanup of stale branches across vector databases and local storage.
+- Schema-aware branch detection comparing tracked branches with actual Git branches.
+- Transaction-safe deletion of vectors and branch data with error handling and logging.
+- Legacy table migration with timestamped naming for seamless upgrades.
+
+**Enhanced** Migration and Compatibility
+- migrateRepoIndexingProgressToBranchAware() handles schema evolution with transaction safety.
+- migrateRepoFileStateToBranchAware() adds branch_name column and required indexes.
+- Backward compatibility maintained through legacy table preservation during migration.
+
+```mermaid
+flowchart TD
+Start(["cleanupStaleBranches(repoId, repoRoot)"]) --> GetTracked["databaseService.getTrackedBranches(repoId)"]
+GetTracked --> GetGit["gitService.getAllBranches(repoRoot)"]
+GetGit --> Compare["compare tracked vs git branches"]
+Compare --> Stale["filter stale branches"]
+Stale --> Loop["for each stale branch"]
+Loop --> DeleteVec["adapter.deleteVectorsForBranch()"]
+DeleteVec --> ClearDB["databaseService.clearBranchData(repoId, branchName)"]
+ClearDB --> Txn["BEGIN TRANSACTION"]
+Txn --> DeleteFS["DELETE FROM repo_file_state"]
+DeleteFS --> DeleteIP["DELETE FROM repo_indexing_progress"]
+DeleteIP --> Commit["COMMIT"]
+Commit --> Log["log cleanup result"]
+Log --> Next["next stale branch"]
+Next --> Done(["cleanup complete"])
+```
+
+**Diagram sources**
+- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L1847-L1861)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
+
+**Section sources**
+- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L6-L33)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L1819-L1845)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L1847-L1861)
+- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+
+### **New** Improved Chat System with Enhanced Tool Call Tracking
+Purpose
+- Provide structured tool call representation for better workflow transparency and debugging.
+- Enable message queue management with sequential processing, force-send, and cancellation capabilities.
+- Support comprehensive token accounting and enhanced conversational intelligence.
+
+**Enhanced** Tool Call Tracking
+- Structured tool call representation with standardized naming conventions (file_edit, file_create, update_plan).
+- Enhanced token accounting with separate input/output token tracking and total calculation.
+- Comprehensive tool call metadata including path, relativePath, and isNew flags for plan updates.
+- File edit tracking with approval status and action categorization.
+
+**Enhanced** Message Queue System (PRD 007)
+- Sequential message processing with queue management and status reporting.
+- Force-send capability to bypass queue order for urgent messages.
+- Abort controller integration for graceful execution cancellation with proper error handling.
+- Queue persistence across extension restarts with serialization/deserialization support.
+
+**Enhanced** Conversation Management
+- Thread-based conversation storage with automatic ordering and token usage tracking.
+- Enhanced interrupt handling with structured payload types for different workflow states.
+- Comprehensive error handling with user notifications and graceful degradation.
+
+```mermaid
+sequenceDiagram
+participant User as "User"
+participant CC as "ChatController"
+participant MQ as "MessageQueue"
+participant Graph as "ChatGraph"
+participant PG as "PostgreSQL"
+User->>CC : "chatSubmit(text, priority)"
+CC->>MQ : "enqueueMessage(text, priority)"
+MQ->>CC : "processQueue()"
+CC->>Graph : "executeQueueEntry(entry)"
+Graph->>PG : "save user message"
+Graph->>Graph : "handleGraphResult(result)"
+Graph-->>CC : "handleFinalResponse(toolCalls, tokens)"
+CC->>CC : "construct ThreadMessage with toolCalls"
+CC->>PG : "save assistant message"
+CC-->>User : "chatResponse with toolCalls"
+```
+
+**Diagram sources**
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1569-L1644)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1719-L1952)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1787-L1853)
+
+**Section sources**
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1569-L1644)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1719-L1952)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1787-L1853)
+- [chat.ts](file://src/types/chat.ts#L1-L35)
 
 ### **New** Enhanced AST-Based Compression System
 Purpose
@@ -589,99 +667,32 @@ Result --> Meta["track metadata<br/>compressionLevel/tokens/relevance"]
 - [COMPRESSION_TESTING.md](file://COMPRESSION_TESTING.md#L1-L68)
 - [diagnose-compression.js](file://scripts/diagnose-compression.js#L1-L62)
 
-### **New** Branch-Aware Indexing Architecture
+### **New** Prompt Guidelines Documentation
 Purpose
-- Enable accurate semantic search across multiple repository branches.
-- Maintain separate indexing progress and vector data per branch.
-- Automatically clean up stale branch data to prevent index bloat.
+- Establish standardized AI interaction patterns for consistent and effective conversations.
+- Provide structured role definitions and task-oriented instructions for optimal AI performance.
+- Implement follow-up pass methodology for code review and maintenance workflows.
 
-**Enhanced** Indexing Infrastructure
-- DatabaseService maintains branch-aware unique indexes for repository indexing progress.
-- BranchMaintenanceService compares tracked branches with actual Git branches.
-- Automatic cleanup of stale branches across vector databases and local storage.
-- Unique indexing progress tracking per repository and branch combination.
-- Schema-aware branch detection with timestamped legacy table naming for database reliability.
+**Enhanced** AI Interaction Patterns
+- Role-based AI positioning with clear task definitions and responsibilities.
+- Follow-up pass methodology targeting lower-priority risks, cleanup items, and maintainability improvements.
+- Structured validation processes with concrete findings and implemented fixes.
+- Risk assessment prioritization with High, Medium, Low severity categorization.
 
-Branch Maintenance Workflow
-- Retrieve tracked branches from database using schema-aware detection.
-- Compare with actual Git branches.
-- Delete vectors for stale branches via vector database adapter.
-- Clear branch data from local storage.
-- Log and handle cleanup errors gracefully.
-- Legacy tables migrated with timestamped naming for backward compatibility.
+**Enhanced** Code Review Methodology
+- Second focused review after initial fixes for comprehensive coverage.
+- Targeted auditing of leftover items and identification of concrete issues.
+- Minimal patch implementation for valid findings with validation checks.
+- Comprehensive reporting with findings, implemented fixes, and residual risks.
 
-```mermaid
-flowchart TD
-Start(["cleanupStaleBranches(repoId, repoRoot)"]) --> GetTracked["getTrackedBranches(repoId)<br/>schema-aware detection"]
-GetTracked --> GetGit["getAllBranches(repoRoot)"]
-GetGit --> Compare["compare tracked vs git branches"]
-Compare --> Stale["filter stale branches"]
-Stale --> Loop["for each stale branch"]
-Loop --> DeleteVec["adapter.deleteVectorsForBranch()"]
-DeleteVec --> ClearDB["clearBranchData(repoId, branchName)"]
-ClearDB --> Log["log cleanup result"]
-Log --> Next["next stale branch"]
-Next --> Done(["cleanup complete"])
-```
-
-**Diagram sources**
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L334-L363)
+**Enhanced** Documentation Standards
+- Required process adherence with confirmation of scope and assumptions.
+- Evidence-based findings with file and line references where possible.
+- Incremental changes focused on specific issues without broad refactors.
+- Validation results with commands run and pass/fail outcomes.
 
 **Section sources**
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L6-L33)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L334-L363)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L929-L941)
-- [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
-
-### **New** Persistent Chat Threads with Plan Execution
-Purpose
-- Provide long-term conversation management with thread persistence.
-- Enable plan-based execution with surgical text replacement capabilities.
-- Support token usage tracking and conversation history management.
-
-**Enhanced** Chat Infrastructure
-- ConversationService manages thread lifecycle with JSON persistence.
-- Thread-based conversation storage with automatic ordering by update time.
-- PlanService enables plan execution with markdown file storage.
-- ChatController orchestrates chat graph execution with thread management.
-
-Chat Thread Management
-- Thread creation with UUID generation and timestamp tracking.
-- Automatic thread ordering by last update time.
-- Conversation persistence with separate JSON files per thread.
-- Token usage tracking and preview generation for thread lists.
-
-Plan Execution Workflow
-- PlanService stores plans in `.repomix/plans` directory.
-- Surgical text replacement with exact whitespace matching.
-- Ambiguity detection and error handling for plan edits.
-- Integration with chat graph for plan & execute loops.
-
-```mermaid
-flowchart TD
-Start(["ChatController.handleMessage()"]) --> Load["conversationService.getThreads()"]
-Load --> Create["conversationService.createThread()"]
-Create --> GetConv["conversationService.getConversation(threadId)"]
-GetConv --> RunGraph["createChatGraph().invoke()"]
-RunGraph --> SaveMsg["conversationService.saveMessage()"]
-SaveMsg --> UpdateThread["updateThreadAfterMessage()"]
-UpdateThread --> PostThreads["postThreads()"]
-PostThreads --> Response["post chatResponse"]
-Response --> End(["Chat Complete"])
-```
-
-**Diagram sources**
-- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L38-L302)
-- [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
-- [graph.ts](file://src/chat/graph.ts#L11-L67)
-
-**Section sources**
-- [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
-- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L14-L303)
-- [chat.ts](file://src/types/chat.ts#L1-L35)
-- [planService.ts](file://src/services/planService.ts#L10-L96)
-- [graph.ts](file://src/chat/graph.ts#L11-L67)
+- [prompt.md](file://prompt.md#L1-L52)
 
 ## Dependency Analysis
 - Bundle Management
@@ -692,7 +703,15 @@ Response --> End(["Chat Complete"])
   - Uses structured LLM clients and caches.
   - Persists run history via DatabaseService.
   - **Enhanced** Integrates with enhanced AST compression system for improved context across seven programming languages with comprehensive metadata tracking.
-  - **New** Utilizes BranchMaintenanceService for branch-aware cleanup.
+  - **New** Utilizes BranchMaintenanceService for branch-aware cleanup with transaction safety.
+- **New** Enhanced Branch-Aware Indexing
+  - DatabaseService provides branch-aware unique indexes and comprehensive branch tracking.
+  - BranchMaintenanceService depends on DatabaseService and GitService for cleanup operations.
+  - Schema migration support with backward compatibility and transaction safety.
+- **New** Improved Chat System
+  - ChatController depends on MessageQueue for sequential processing and AbortController for cancellation.
+  - Enhanced tool call tracking with structured representation and comprehensive metadata.
+  - Token accounting integration with DatabaseService for conversation persistence.
 - **New** Enhanced Compression System
   - Depends on Tree-sitter WASM parsers and language-specific strategies.
   - Integrates with LanguageParser for unified access to parsers.
@@ -700,11 +719,6 @@ Response --> End(["Chat Complete"])
   - Dedicated strategies for TypeScript, JavaScript, Dart, Python, C#, and Rust.
   - **Enhanced** Provides ProcessedFile metadata for transparent compression tracking.
   - Includes comprehensive error handling and fallback mechanisms.
-- **New** Chat System
-  - Depends on ConversationService for thread persistence.
-  - Integrates with PlanService for plan execution capabilities.
-  - Uses ChatController for UI integration and message handling.
-  - Leverages DatabaseService for agent run history storage.
 - Clipboard
   - Uses OS-specific commands and a Windows helper binary.
   - Integrates with temp directory manager and VS Code clipboard API.
@@ -723,19 +737,23 @@ ND --> PF["ProcessedFile Metadata"]
 ND --> EMB["EmbeddingService"]
 ND --> VDF["VectorDB Factory"]
 ND --> COMP["Enhanced AST Compression"]
+CT --> RCH["RemoteClipboardHandler"]
+EQM["ExecutionQueueManager"] --> RR
+BMS["BranchMaintenanceService"] --> RI["RepoIndexer"]
+BMS --> DB["DatabaseService"]
+DB --> RI
+CS["ConversationService"] --> PC["PlanService"]
+PC --> CC["ChatController"]
+CC --> CG["ChatGraph"]
+CC --> MQ["MessageQueue"]
+CC --> TC["Tool Call Tracking"]
+TC --> DB
 COMP --> LP["LanguageParser"]
 LP --> TPS["TypeScriptParseStrategy"]
 LP --> DPS["DartParseStrategy"]
 LP --> PPS["PythonParseStrategy"]
 LP --> CSP["CsharpParseStrategy"]
 LP --> RPS["RustParseStrategy"]
-CT --> RCH["RemoteClipboardHandler"]
-EQM["ExecutionQueueManager"] --> RR
-BMS["BranchMaintenanceService"] --> RI["RepoIndexer"]
-CS["ConversationService"] --> PC["PlanService"]
-PC --> CC["ChatController"]
-CC --> CG["ChatGraph"]
-TC["testCompression"] --> COMP
 ```
 
 **Diagram sources**
@@ -758,6 +776,7 @@ TC["testCompression"] --> COMP
 - [remoteClipboardHandler.ts](file://src/webview/handlers/remoteClipboardHandler.ts#L10-L190)
 - [ExecutionQueueManager.ts](file://src/webview/services/ExecutionQueueManager.ts#L15-L133)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
 - [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
 - [planService.ts](file://src/services/planService.ts#L10-L96)
 - [ChatController.ts](file://src/webview/controllers/ChatController.ts#L14-L303)
@@ -778,6 +797,7 @@ TC["testCompression"] --> COMP
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 - [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L26-L88)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [databaseService.ts](file://src/core/storage/databaseService.ts#L383-L507)
 - [conversationService.ts](file://src/services/conversationService.ts#L39-L157)
 - [ChatController.ts](file://src/webview/controllers/ChatController.ts#L14-L303)
 - [planService.ts](file://src/services/planService.ts#L10-L96)
@@ -791,6 +811,17 @@ TC["testCompression"] --> COMP
   - Fallbacks prevent stalls when vector DB or network calls fail.
   - **Enhanced** AST compression reduces context size while preserving semantic meaning across seven programming languages with comprehensive metadata tracking.
   - **Enhanced** ProcessedFile metadata enables better context optimization decisions with compressionLevel and token tracking.
+- **New** Enhanced Branch-Aware Indexing
+  - Transaction-safe operations prevent data corruption during cleanup and migration.
+  - Schema migration with timestamped legacy tables ensures backward compatibility.
+  - Batch processing of stale branches prevents performance degradation.
+  - Graceful error handling ensures cleanup doesn't block main operations.
+  - Efficient branch comparison using Set data structures minimizes computational overhead.
+- **New** Improved Chat System
+  - Message queue processing with AbortController provides responsive cancellation.
+  - Structured tool call representation reduces parsing overhead and improves debugging.
+  - Enhanced token accounting with separate input/output tracking improves cost monitoring.
+  - Queue persistence prevents message loss across extension restarts.
 - **New** Enhanced Compression System
   - Tree-sitter parser initialization and caching minimize overhead.
   - Language-specific strategies optimize parsing for different code constructs.
@@ -799,15 +830,10 @@ TC["testCompression"] --> COMP
   - Support for seven programming languages with efficient resource sharing.
   - **Enhanced** Comprehensive error handling with fallback mechanisms prevents performance degradation from compression failures.
   - **Enhanced** Metadata tracking adds minimal overhead while providing valuable insights for optimization.
-- **New** Branch Maintenance
-  - Batch processing of stale branches prevents performance degradation.
-  - Graceful error handling ensures cleanup doesn't block main operations.
-  - Efficient branch comparison using Set data structures.
-  - Schema-aware detection with timestamped legacy table migration ensures database reliability.
 - Indexing
   - Chunked saves and deterministic sorting improve reliability for large repositories.
   - Binary pattern exclusions reduce noise and speed up scans.
-  - **Enhanced** Branch-aware indexing prevents redundant processing across branches.
+  - **Enhanced** Branch-aware indexing prevents redundant processing across branches with transaction safety.
 - Clipboard
   - Content mode avoids disk I/O and is instant.
   - File mode leverages native OS mechanisms or a lightweight helper binary.
@@ -823,6 +849,17 @@ Common Issues and Resolutions
   - Remote clipboard sessions require the Windows helper binary; verify its presence and permissions.
 - Bundle Persistence Errors
   - Initialization and save operations log and surface errors; check workspace permissions and disk availability.
+- **New** Enhanced Branch-Aware Indexing Issues
+  - Schema migration failures require manual intervention with timestamped legacy table cleanup.
+  - Transaction failures during cleanup indicate database corruption requiring rollback and retry.
+  - Branch maintenance failures may result from insufficient permissions with vector database adapters.
+  - Git branch detection failures require proper Git installation and repository access.
+  - Database connection issues prevent branch tracking and cleanup operations.
+- **New** Improved Chat System Issues
+  - Message queue persistence failures indicate workspace permission issues or disk space constraints.
+  - Tool call tracking failures suggest malformed tool call data or missing tool implementations.
+  - Abort controller failures may result from improper signal handling or concurrent operations.
+  - Token accounting discrepancies require manual reconciliation of input/output token counts.
 - **New** Enhanced Compression Issues
   - Tree-sitter WASM parser loading failures indicate missing language support files.
   - AST parsing errors often result from unsupported language features or corrupted source code.
@@ -831,15 +868,10 @@ Common Issues and Resolutions
   - **Enhanced** Compression failures trigger fallback to full content with detailed logging for debugging.
   - **Enhanced** ProcessedFile metadata helps identify which files failed compression and why.
   - **Enhanced** Advanced body replacement strategy requires proper body detection and replacement logic.
-- **New** Branch Maintenance Failures
-  - Stale branch cleanup may fail due to permission issues with vector database adapters.
-  - Git branch detection failures require proper Git installation and repository access.
-  - Database connection issues prevent branch tracking and cleanup operations.
-  - Schema migration failures with timestamped legacy tables require manual intervention.
-- **New** Chat Thread Persistence
-  - Thread creation failures indicate workspace permission issues or disk space constraints.
-  - Plan file corruption requires manual recovery or regeneration of plan content.
-  - Conversation loading errors suggest JSON format issues in thread files.
+- **New** Prompt Guidelines Issues
+  - AI interaction failures may result from unclear role definitions or ambiguous task instructions.
+  - Follow-up pass methodology requires proper validation checks and concrete findings.
+  - Risk assessment prioritization should follow established severity categories (High, Medium, Low).
 
 **Section sources**
 - [AgentController.ts](file://src/webview/controllers/AgentController.ts#L51-L55)
@@ -852,14 +884,15 @@ Common Issues and Resolutions
 - [conversationService.ts](file://src/services/conversationService.ts#L46-L49)
 - [planService.ts](file://src/services/planService.ts#L66-L94)
 - [state.ts](file://src/agent/state.ts#L3-L12)
+- [prompt.md](file://prompt.md#L1-L52)
 
 ## Conclusion
 Repomix Runner Plus delivers a comprehensive toolkit with enhanced capabilities:
 - Bundle Management enables persistent, reusable configurations.
 - AI-Powered File Selection automates discovery and packaging with semantic search, LLM-based filtering, and **enhanced** AST-based compression across seven programming languages with comprehensive metadata tracking.
 - Enhanced Clipboard Operations provide flexible, cross-platform output delivery, including remote environments.
-- **New** Enhanced AST-Based Compression System improves context quality through intelligent file compression across TypeScript, JavaScript, Dart, Python, C#, Rust, and enhanced language strategies, plus comprehensive metadata tracking for transparency and debugging.
-- **New** Branch-Aware Indexing Architecture ensures accurate search results across repository branches with automatic maintenance and schema-aware database reliability.
-- **New** Persistent Chat Threads with Plan Execution enable long-term conversation management and plan-based task execution.
+- **New** Enhanced Branch-Aware Indexing Architecture ensures accurate search results across repository branches with automatic maintenance, schema migration, and transaction safety.
+- **New** Improved Chat System provides structured tool call tracking, message queue management, and enhanced conversational intelligence with comprehensive token accounting.
+- **New** Prompt Guidelines establish standardized AI interaction patterns for consistent and effective conversations with structured validation and risk assessment methodologies.
 
-These features integrate cleanly through commands, webview controllers, and shared services, offering robust workflows for developers who want reliable, repeatable, and intelligent file packaging with enhanced semantic understanding, comprehensive compression tracking, and conversation management capabilities across multiple programming languages.
+These features integrate cleanly through commands, webview controllers, and shared services, offering robust workflows for developers who want reliable, repeatable, and intelligent file packaging with enhanced semantic understanding, comprehensive compression tracking, conversation management capabilities, and improved multi-branch repository management across multiple programming languages.

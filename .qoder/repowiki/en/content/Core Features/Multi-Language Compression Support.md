@@ -28,12 +28,13 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive reactive context management system with intelligent token budget allocation
+- Enhanced reactive context management system with intelligent token budget allocation
 - Implemented conversation summarization using Gemini 2.5 Flash for long-running chat sessions
 - Integrated targeted file extraction for large repository management using Tree-Sitter
 - Enhanced compression engine with multi-level compression strategies (0-3 levels)
 - Added sophisticated token counting and budget calculation mechanisms
 - Introduced sliding window with anchors for batch prompt optimization
+- Added comprehensive multi-language support with specialized parsing strategies
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -114,8 +115,8 @@ CM --> CT
 ```
 
 **Diagram sources**
-- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
-- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L209)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L308)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L227)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L1-L157)
 - [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
 
@@ -123,7 +124,7 @@ CM --> CT
 - [index.ts](file://src/core/compression/index.ts#L1-L3)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L1-L157)
 - [LanguageParser.ts](file://src/core/compression/LanguageParser.ts#L1-L218)
-- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L308)
 
 ## Core Components
 
@@ -321,11 +322,11 @@ Progressive compression approach:
 - [PythonParseStrategy.ts](file://src/core/compression/strategies/PythonParseStrategy.ts#L12-L238)
 - [CsharpParseStrategy.ts](file://src/core/compression/strategies/CsharpParseStrategy.ts#L12-L195)
 - [RustParseStrategy.ts](file://src/core/compression/strategies/RustParseStrategy.ts#L12-L193)
-- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L303)
-- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L209)
-- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L1-L192)
-- [targetedExtractor.ts](file://src/chat/compression/targetedExtractor.ts#L1-L275)
-- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L1-L212)
+- [contextManager.ts](file://src/chat/compression/contextManager.ts#L1-L308)
+- [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L1-L227)
+- [historySummarizer.ts](file://src/chat/compression/historySummarizer.ts#L1-L206)
+- [targetedExtractor.ts](file://src/chat/compression/targetedExtractor.ts#L1-L188)
+- [fileCompressor.ts](file://src/chat/compression/fileCompressor.ts#L1-L265)
 
 ### Tree-Sitter Query System
 

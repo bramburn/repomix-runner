@@ -55,6 +55,31 @@ export async function getVectorDbAdapterForRepo(
       );
     }
 
+    // Verify collection exists before returning adapter
+    try {
+      const { QdrantClient } = await import('@qdrant/js-client-rest');
+      const client = new QdrantClient({
+        url: baseUrl,
+        apiKey: apiKey,
+        timeout: 10000,
+        checkCompatibility: false
+      });
+      
+      // Check if collection exists
+      await client.getCollection(collection);
+      console.log(`[VectorDB Factory] Verified Qdrant collection "${collection}" exists`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.toLowerCase().includes('not found') || errorMsg.includes('404')) {
+        throw new Error(
+          `Qdrant collection "${collection}" does not exist. ` +
+          `Please open the Settings tab and click "Test Connection" to create it with the correct dimensions.`
+        );
+      }
+      // Log but don't fail on other errors (network issues, etc.)
+      console.warn(`[VectorDB Factory] Could not verify collection existence:`, errorMsg);
+    }
+
     return { provider, adapter: new QdrantAdapter(baseUrl, apiKey, collection) };
   }
 

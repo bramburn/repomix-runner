@@ -15,7 +15,17 @@
 - [packageAssembler.ts](file://src/chat/batch/packageAssembler.ts)
 - [BatchStatusBadge.tsx](file://src/webview/components/ai-chat/BatchStatusBadge.tsx)
 - [CostEstimator.tsx](file://src/webview/components/ai-chat/CostEstimator.tsx)
+- [messageSchemas.ts](file://src/webview/messageSchemas.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced PackagePreview component with collapsible raw prompt display functionality
+- Added comprehensive token counting system for context files with sorting and totals
+- Implemented error messaging for failed or cancelled packages with visual indicators
+- Improved UI state management with better form validation and user feedback
+- Enhanced PackageCard component with error display capabilities
+- Updated data models to support token counting and compression level information
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -115,6 +125,12 @@ class PackageSummary {
 +number completedAt
 +string errorMessage
 }
+class PackagePreviewContextFile {
++string path
++number tokenCount
++string content
++string compressionLevel
+}
 class PackagePreviewData {
 +ContextFile[] contextFiles
 +string repoArchitecture
@@ -142,6 +158,7 @@ class BatchJob {
 PackagePayload --> PackageSummary : "maps to"
 PackageSummary --> PackagePreviewData : "extends"
 PackagePayload --> BatchJob : "stored in"
+PackagePreviewData --> PackagePreviewContextFile : "contains"
 ```
 
 **Diagram sources**
@@ -149,7 +166,7 @@ PackagePayload --> BatchJob : "stored in"
 - [batchRepository.ts](file://src/chat/db/batchRepository.ts#L23-L39)
 
 **Section sources**
-- [packageTypes.ts](file://src/webview/components/ai-chat/packageTypes.ts#L1-L49)
+- [packageTypes.ts](file://src/webview/components/ai-chat/packageTypes.ts#L1-L63)
 - [batchRepository.ts](file://src/chat/db/batchRepository.ts#L1-L237)
 
 ### Batch Processing Engine
@@ -215,8 +232,32 @@ Packages are categorized into three distinct types based on their intended outpu
 - **code_change**: Code modifications and refactoring suggestions
 - **code_review**: Code review and quality assessment reports
 
+### Enhanced Context File Management
+
+**Updated** The system now includes comprehensive token counting and compression level tracking for context files.
+
+```mermaid
+classDiagram
+class ContextFile {
++string path
++number tokenCount
++string content
++string compressionLevel
+}
+class TokenCounting {
++calculateTokenCount(content : string) : number
++sortFilesByTokenCount(files : ContextFile[]) : ContextFile[]
++calculateTotalTokens(files : ContextFile[]) : number
+}
+ContextFile --> TokenCounting : "processed by"
+```
+
+**Diagram sources**
+- [PackagePreview.tsx](file://src/webview/components/ai-chat/PackagePreview.tsx#L28-L36)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts#L1035-L1045)
+
 **Section sources**
-- [packageTypes.ts](file://src/webview/components/ai-chat/packageTypes.ts#L1-L10)
+- [packageTypes.ts](file://src/webview/components/ai-chat/packageTypes.ts#L47-L63)
 - [batchRepository.ts](file://src/chat/db/batchRepository.ts#L6-L18)
 
 ## Package Lifecycle Management
@@ -233,7 +274,8 @@ GoalValid --> |No| ErrorGoal["Return Validation Error"]
 GoalValid --> |Yes| AssemblePayload["Assemble Package Payload"]
 AssemblePayload --> RenderDependencies["Render Dependencies"]
 RenderDependencies --> RenderContext["Render Context Files"]
-RenderContext --> CreateBatch["Create Batch Job"]
+RenderContext --> CalculateTokens["Calculate Token Counts"]
+CalculateTokens --> CreateBatch["Create Batch Job"]
 CreateBatch --> SetStatus["Set Status to Draft"]
 SetStatus --> StoreJob["Store in Database"]
 StoreJob --> End([Package Ready])
@@ -292,13 +334,15 @@ PCARD[PackageCard]
 BST[BatStatusBadge]
 CE[CostEstimator]
 ACTIONS[Action Buttons]
+ERROR[Error Display]
 end
 subgraph "Preview Components"
 GOAL[Goal Editor]
 TYPE[Output Type Selector]
 FILES[Context Files List]
-PROMPT[Raw Prompt Display]
-end
+TOKENS[Token Count Display]
+PROMPT[Collapsible Raw Prompt]
+END
 PTAB --> FILTER
 PTAB --> LIST
 PTAB --> PREVIEW
@@ -306,9 +350,11 @@ LIST --> PCARD
 PCARD --> BST
 PCARD --> CE
 PCARD --> ACTIONS
+PCARD --> ERROR
 PREVIEW --> GOAL
 PREVIEW --> TYPE
 PREVIEW --> FILES
+PREVIEW --> TOKENS
 PREVIEW --> PROMPT
 ```
 
@@ -321,10 +367,12 @@ PREVIEW --> PROMPT
 
 The interface supports advanced interactive features including real-time filtering, bulk operations, and comprehensive preview capabilities.
 
+**Updated** Enhanced with collapsible raw prompt display, token counting visualization, and improved error messaging.
+
 **Section sources**
-- [PackagesTab.tsx](file://src/webview/components/ai-chat/PackagesTab.tsx#L1-L158)
-- [PackageCard.tsx](file://src/webview/components/ai-chat/PackageCard.tsx#L1-L88)
-- [PackagePreview.tsx](file://src/webview/components/ai-chat/PackagePreview.tsx#L1-L148)
+- [PackagesTab.tsx](file://src/webview/components/ai-chat/PackagesTab.tsx#L1-L191)
+- [PackageCard.tsx](file://src/webview/components/ai-chat/PackageCard.tsx#L1-L127)
+- [PackagePreview.tsx](file://src/webview/components/ai-chat/PackagePreview.tsx#L1-L195)
 
 ## Batch Processing System
 
@@ -491,6 +539,10 @@ The system includes built-in scalability features for handling large volumes of 
 - **Symptom**: Batch processing fails with memory allocation errors
 - **Solution**: Reduce batch size or increase available memory for the extension
 
+**Enhanced Error Handling**
+- **Symptom**: Failed or cancelled packages show generic error messages
+- **Solution**: The system now displays specific error messages with visual indicators for failed/cancelled packages
+
 ### Diagnostic Tools
 
 The system provides comprehensive logging and diagnostic capabilities for troubleshooting package management issues.
@@ -504,5 +556,7 @@ The system provides comprehensive logging and diagnostic capabilities for troubl
 The Packages Management System represents a sophisticated solution for handling AI-generated content within the Repomix Runner extension. Through its comprehensive architecture, the system provides users with powerful tools for creating, managing, and processing AI packages while maintaining robust backend operations and data persistence.
 
 The system's modular design ensures maintainability and extensibility, while its comprehensive error handling and performance optimizations provide a reliable foundation for production use. The integration with VS Code and external AI services creates a seamless workflow for developers working with AI-assisted development tools.
+
+Recent enhancements have significantly improved the user experience with collapsible raw prompt display, comprehensive token counting for context files, and enhanced error messaging for failed or cancelled packages. These improvements provide users with better visibility into package processing and more intuitive control over their AI-generated content.
 
 Future enhancements could include expanded AI provider support, enhanced package templating systems, and advanced analytics for package performance tracking.

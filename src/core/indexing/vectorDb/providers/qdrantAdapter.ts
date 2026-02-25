@@ -67,19 +67,115 @@ export class QdrantAdapter implements VectorDbAdapter {
             };
         });
 
+        // Pre-flight validation: Check collection exists and validate dimensions
+        try {
+            const collectionInfo = await this.client.getCollection(this.collection);
+            
+            // Extract expected dimension from collection config
+            const vectorsConfig = collectionInfo.config?.params?.vectors;
+            let expectedDim: number | undefined;
+            
+            if (typeof vectorsConfig === 'object' && vectorsConfig !== null && 'size' in vectorsConfig) {
+                expectedDim = (vectorsConfig as { size: number }).size;
+            }
+
+            if (expectedDim !== undefined) {
+                // Validate all vectors have correct dimension
+                for (const point of points) {
+                    if (point.vector.length !== expectedDim) {
+                        throw new Error(
+                            `Vector dimension mismatch: collection "${this.collection}" expects ${expectedDim} dimensions, ` +
+                            `but vector "${point.id}" has ${point.vector.length} dimensions. ` +
+                            `Please ensure your embedding provider configuration matches the collection dimension.`
+                        );
+                    }
+                    
+                    // Validate vector values are valid numbers
+                    if (!point.vector.every(v => typeof v === 'number' && !isNaN(v) && isFinite(v))) {
+                        throw new Error(
+                            `Invalid vector values in point "${point.id}": contains NaN or Infinity. ` +
+                            `This may indicate an issue with the embedding provider.`
+                        );
+                    }
+                }
+
+                console.log(`[QdrantAdapter] Pre-flight validation passed: ${points.length} vectors, ${expectedDim} dimensions`);
+            } else {
+                console.warn(`[QdrantAdapter] Could not determine collection dimension, skipping validation`);
+            }
+        } catch (error) {
+            if (error instanceof Error && error.message.includes('dimension mismatch')) {
+                // Re-throw dimension mismatch errors
+                throw error;
+            }
+            if (error instanceof Error && error.message.includes('Invalid vector values')) {
+                // Re-throw validation errors
+                throw error;
+            }
+            // Collection might not exist or getCollection failed
+            const collectionError = error instanceof Error ? error.message : String(error);
+            if (collectionError.toLowerCase().includes('not found') || collectionError.includes('404')) {
+                throw new Error(
+                    `Collection "${this.collection}" does not exist in Qdrant. ` +
+                    `Please open Settings tab and click "Test Connection" to create it with the correct dimensions.`
+                );
+            }
+            // Log other collection check errors but continue (may be transient)
+            console.warn(`[QdrantAdapter] Collection validation warning:`, collectionError);
+        }
+
         try {
             await this.client.upsert(this.collection, {
                 wait: true,
                 points: points
             });
         } catch (error) {
-            console.error('QdrantAdapter: Failed to upsert vectors', {
+            // Enhanced error logging with full API response details
+            const errorDetails: any = {
                 collection: this.collection,
                 repoId: args.repoId,
                 vectorCount: args.vectors.length,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            throw new Error(`Failed to upsert vectors to Qdrant: ${error instanceof Error ? error.message : String(error)}`);
+                errorType: error instanceof Error ? error.constructor.name : typeof error,
+                errorMessage: error instanceof Error ? error.message : String(error)
+            };
+
+            // Log sample vector for debugging (first vector only)
+            if (points.length > 0) {
+                const sample = points[0];
+                errorDetails.sampleVector = {
+                    id: sample.id,
+                    dimension: sample.vector.length,
+                    metadataKeys: Object.keys(sample.payload || {}),
+                    hasValidValues: sample.vector.every(v => typeof v === 'number' && !isNaN(v) && isFinite(v))
+                };
+            }
+
+            // Extract additional error details if available
+            if (error && typeof error === 'object') {
+                const err = error as any;
+                if (err.status) errorDetails.httpStatus = err.status;
+                if (err.statusText) errorDetails.statusText = err.statusText;
+                if (err.response) errorDetails.apiResponse = err.response;
+                if (err.code) errorDetails.errorCode = err.code;
+            }
+
+            console.error('QdrantAdapter: Failed to upsert vectors', errorDetails);
+
+            // Provide specific error messages based on error type
+            let errorMessage = `Failed to upsert vectors to Qdrant: ${error instanceof Error ? error.message : String(error)}`;
+            
+            if (error instanceof Error) {
+                const msg = error.message.toLowerCase();
+                if (msg.includes('not found') || msg.includes('404')) {
+                    errorMessage = `Collection "${this.collection}" does not exist in Qdrant. Please use the Settings tab to create it.`;
+                } else if (msg.includes('dimension') || msg.includes('422')) {
+                    errorMessage = `Vector dimension mismatch for collection "${this.collection}". Check that your embedding provider matches the collection configuration.`;
+                } else if (msg.includes('bad request') || msg.includes('400')) {
+                    errorMessage = `Bad request to Qdrant collection "${this.collection}". This may indicate dimension mismatch or invalid vector data. Check the console for details.`;
+                }
+            }
+
+            throw new Error(errorMessage);
         }
     }
 
@@ -336,5 +432,21 @@ export class QdrantAdapter implements VectorDbAdapter {
     async deleteIndex(args: { repoId: string }): Promise<void> {
         // Use existing deleteRepo which does filtered deletion
         await this.deleteRepo(args);
+    }
+
+    /**
+     * Helper method to validate collection dimension matches expected embedding dimension
+     * @param expectedDim The expected dimension from the embedding provider
+     * @throws Error if dimension mismatch detected
+     */
+    private async validateCollectionDimension(expectedDim: number): Promise<void> {
+        const metadata = await this.getIndexMetadata({ repoId: 'validate' });
+        if (metadata && metadata.dimension !== expectedDim) {
+            throw new Error(
+                `Collection dimension mismatch: collection "${this.collection}" has ${metadata.dimension} dimensions ` +
+                `but embedding provider produces ${expectedDim} dimensions. ` +
+                `Please recreate the collection in Settings with the correct dimension, or change your embedding provider.`
+            );
+        }
     }
 }

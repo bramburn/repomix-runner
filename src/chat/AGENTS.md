@@ -1,95 +1,88 @@
 # Chat Graph Guide
 
-This folder contains the Chat Graph used by the webview chat UI. It is a small LangGraph workflow that takes user input, optionally enriches it (RAG), and returns a response to the webview.
+This folder contains the HITL chat workflow used by the AI Chat webview.
 
 ## Structure
 
-- `src/chat/state.ts`
-  - Defines the `ChatState` (shared state for the graph).
-  - Add fields here when you need to store new data across nodes.
-- `src/chat/nodes.ts`
-  - Graph nodes (functions) such as `vectorSearchNode` and `helloWorldNode`.
-  - Each node reads from and returns updates to the state.
 - `src/chat/graph.ts`
-  - Graph wiring (nodes + edges). This is the flow definition.
-- `src/webview/controllers/ChatController.ts`
-  - Runs the graph and sends the result back to the webview.
-- `src/webview/components/ChatTab.tsx`
-  - UI that sends user input (`chatSubmit`) and receives responses (`chatResponse`).
+  - Main `createHitlChatGraph(...)` workflow.
+  - Includes interrupt-driven review/approval steps and optional review loop.
+- `src/chat/state.ts`
+  - `ChatState` shared schema for graph execution, UI phase sync, compression metadata, batch/edit data, and memory extraction.
+- `src/chat/nodes/`
+  - HITL node implementations (gather/compress/prepare/review/package/submit/poll/process/apply/summary/memory).
+- `src/chat/nodes.ts`
+  - Legacy node file kept for older flows; prefer adding new behavior under `src/chat/nodes/`.
+- `src/chat/compression/`
+  - Context compression system (token budget, history summarization, file compression, targeted extraction).
+- `src/chat/batch/`
+  - Anthropic batch integration, package assembly, polling, and response parsing.
+- `src/chat/queue/`
+  - Queue + graph executor for serialized processing/cancellation.
+- `src/chat/db/`
+  - PostgreSQL repositories, migrations, and connection/bootstrap utilities.
+- `src/chat/architecture/`
+  - Repository architecture generation workflow and storage integration.
 
-## How The Chat Graph Communicates With ChatTab
+## Current HITL Flow
 
-1. `ChatTab` posts a message to the extension:
-   - `command: 'chatSubmit'`
-   - `text: <user input>`
-2. `ChatController` receives it and runs `createChatGraph(...)`.
-3. The graph produces a final state with `aiResponse` (and optional extras like `tokensUsed`, `costUsd`).
-4. `ChatController` sends a `chatResponse` message to the webview.
-5. `ChatTab` updates UI when it receives `chatResponse`.
+1. `gatherContext`
+2. `compressContext`
+3. `prepareGoal`
+4. `humanReviewGoal` (interrupt)
+5. `packagePrompt`
+6. `humanApproveSend` (interrupt)
+7. `submitBatch`
+8. `awaitBatchResponse` (interrupt)
+9. `processBatchResponse`
+10. `humanReviewEdits` (interrupt)
+11. `applyEdits`
+12. `humanReviewCode` (interrupt + optional loop back to `packagePrompt`)
+13. `generateSummary`
+14. `extractMemory`
 
-## Add Or Edit State
+## Webview Communication
 
-Edit `src/chat/state.ts`:
+Primary controller: `src/webview/controllers/ChatController.ts`.
 
-- Add a new field with `Annotation<...>()`.
-- Provide a `default` and `reducer` when needed.
+Key inbound commands include:
+- `chatSubmit`, `chatForceSubmit`, `chatStop`
+- `chatCancelQueued`, `chatClearQueue`, `getQueueStatus`
+- thread/memory/settings/batch management commands defined in `src/webview/messageSchemas.ts`
 
-Example:
+If you add state or node outputs needed in UI:
+- update `ChatController` payload mapping,
+- update `src/webview/messageSchemas.ts`,
+- update relevant UI components in `src/webview/components/ai-chat/`.
 
-```ts
-newField: Annotation<number>({
-  reducer: (_, y) => y,
-  default: () => 0,
-}),
-```
+## State Change Rules
 
-If this data needs to reach the UI, also update:
+- Add new cross-node fields in `state.ts` with explicit reducers/defaults.
+- Use replace reducers for mutable collections that user review steps can modify.
+- Keep workflow phase transitions (`workflowPhase`) accurate for UI synchronization.
 
-- `src/webview/controllers/ChatController.ts` (include the new field in `chatResponse`)
-- `src/webview/messageSchemas.ts` (schema for `chatResponse`)
-- `src/webview/components/ChatTab.tsx` (read and render it)
+## Compression Integration
 
-## Add A Node
+- Compression is threshold-based and model-budget aware (`src/chat/compression/tokenBudget.ts`).
+- File compression levels are progressive (full -> AST skeleton -> targeted extraction -> LLM summary/truncation fallback).
+- Keep compression metadata fields in sync with prompt packaging and telemetry fields.
 
-1. Create the node function in `src/chat/nodes.ts`:
+## Batch, Queue, and Persistence
 
-```ts
-export async function myNode(state: typeof ChatState.State, deps: MyDeps) {
-  // read state, do work
-  return { someField: newValue };
-}
-```
+- Batch operations are owned by `BatchManager` and `BatchPoller`.
+- Queue execution and cancellation semantics are handled in `src/chat/queue/`.
+- Threads/messages/memory/packages/architecture persist in PostgreSQL via `src/chat/db/`.
+- Changes to SQL schema require corresponding migration and repository updates.
 
-2. Register the node and wire edges in `src/chat/graph.ts`:
+## Testing Checklist
 
-```ts
-const workflow = new StateGraph(ChatState)
-  .addNode("myNode", (state) => nodes.myNode(state, deps))
-  .addEdge("__start__", "myNode")
-  .addEdge("myNode", "__end__");
-```
+Before merging chat changes, run:
+- `npm run check-types`
+- `npm run lint`
+- `npm run test`
 
-3. If the node needs dependencies, pass them through `createChatGraph(...)` and inject from `ChatController`.
-
-## Edit An Existing Node
-
-- Update the node in `src/chat/nodes.ts`.
-- If you change its inputs or dependencies, update `src/chat/graph.ts` and `ChatController` accordingly.
-- If you change state fields, update `src/chat/state.ts` and any UI wiring (see above).
-
-## Example: RAG Node Flow
-
-- `vectorSearchNode`:
-  - Embeds the query with `embeddingService`.
-  - Queries the vector DB adapter (`getVectorDbAdapterForRepo`).
-  - Loads snippet content from files on disk.
-  - Writes `retrievedContext` into state.
-- `helloWorldNode`:
-  - Reads `retrievedContext` to build the response.
-
-## Tips
-
-- Keep nodes small and return only the fields you need to update.
-- Prefer `groupBy: "filePath"` in vector queries to avoid many hits from one file.
-- Use `getRepoId(...)` and `getVectorDbAdapterForRepo(...)` for repo-scoped queries.
-
+Recommended targeted tests:
+- `src/test/chat/compression/*.test.ts`
+- `src/test/chat/batch/*.test.ts`
+- `src/test/chat/architecture/*.test.ts`
+- `src/test/webview/messageSchemas.test.ts`

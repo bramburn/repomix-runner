@@ -2,9 +2,10 @@ import { IEmbeddingProvider } from './embeddings/types';
 import { GeminiProvider } from './embeddings/GeminiProvider';
 import { OllamaProvider } from './embeddings/OllamaProvider';
 import { LMStudioProvider } from './embeddings/LMStudioProvider';
+import { OpenRouterProvider } from './embeddings/OpenRouterProvider';
 
 export interface EmbeddingProviderConfig {
-    provider: 'gemini' | 'ollama' | 'lmstudio';
+    provider: 'gemini' | 'ollama' | 'lmstudio' | 'openrouter';
     gemini?: {
         apiKey: string;
     };
@@ -18,6 +19,17 @@ export interface EmbeddingProviderConfig {
         apiKey: string;
         model: string;
         dimension: number;
+    };
+    openrouter?: {
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+        dimension: number;
+        provider?: {
+            order?: string[];
+            allow_fallbacks?: boolean;
+            quantizations?: string[];
+        };
     };
 }
 
@@ -67,6 +79,12 @@ export class EmbeddingService {
             throw new Error('LM Studio config is missing for embedding provider.');
         }
         this.provider = new LMStudioProvider(config.lmstudio);
+        break;
+      case 'openrouter':
+        if (!config.openrouter) {
+            throw new Error('OpenRouter config is missing for embedding provider.');
+        }
+        this.provider = new OpenRouterProvider(config.openrouter);
         break;
       default:
         const exhaustiveCheck: never = config.provider;

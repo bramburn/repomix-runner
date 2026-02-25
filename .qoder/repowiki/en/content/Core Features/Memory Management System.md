@@ -7,6 +7,9 @@
 - [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts)
 - [types.ts](file://src/chat/memory/types.ts)
 - [memoryRepository.ts](file://src/chat/db/memoryRepository.ts)
+- [MemoryPanel.tsx](file://src/webview/components/ai-chat/MemoryPanel.tsx)
+- [MemoryEntryCard.tsx](file://src/webview/components/ai-chat/MemoryEntryCard.tsx)
+- [ChatController.ts](file://src/webview/controllers/ChatController.ts)
 - [extractMemory.ts](file://src/chat/nodes/extractMemory.ts)
 - [prepareGoal.ts](file://src/chat/nodes/prepareGoal.ts)
 - [state.ts](file://src/chat/state.ts)
@@ -14,7 +17,18 @@
 - [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql)
 - [memoryManager.test.ts](file://src/test/chat/memory/memoryManager.test.ts)
 - [004_memory_manager_crud.md](file://PRDs/004_memory_manager_crud.md)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added comprehensive keyword search functionality for memories with debounced search input
+- Simplified memory scoping to session and repository levels (removed global scope)
+- Improved memory panel with loading states and enhanced user interface
+- Added upsertMemory() method with PostgreSQL ON CONFLICT clause implementation
+- Enhanced memory repository APIs with improved error handling and conflict resolution
+- Updated memory extraction and injection mechanisms with better validation and formatting
+- Integrated compression workflow considerations with memory management
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,7 +46,9 @@
 
 ## Introduction
 
-The Memory Management System is a sophisticated persistent knowledge storage solution designed for the Repomix Runner chat system. This system enables the AI assistant to maintain contextual awareness across conversations by storing, retrieving, updating, and deleting key-value pairs of project-related information. The system operates at three distinct scopes: session-level (thread-specific), repository-level (shared across all threads), and global-level (cross-repository knowledge).
+The Memory Management System is a sophisticated persistent knowledge storage solution designed for the Repomix Runner chat system. This system enables the AI assistant to maintain contextual awareness across conversations by storing, retrieving, updating, and deleting key-value pairs of project-related information. The system operates at two distinct scopes: session-level (thread-specific) and repository-level (shared across all threads).
+
+**Updated** Enhanced with comprehensive keyword search functionality featuring debounced search input, simplified scoping to session and repository levels, improved memory panel with loading states, and new upsertMemory() method supporting PostgreSQL ON CONFLICT clause for seamless create/update operations.
 
 The primary objective is to eliminate the current statelessness of chat threads by providing persistent context about user preferences, architectural decisions, and project-specific knowledge that survives across conversations. This enhancement significantly improves the AI's ability to provide coherent, context-aware assistance tailored to each user's specific projects and development workflows.
 
@@ -74,10 +90,10 @@ DB --> PG
 ```
 
 **Diagram sources**
-- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L159)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L243)
+- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L156)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L331)
 - [memoryExtractor.ts](file://src/chat/memory/memoryExtractor.ts#L106-L145)
-- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L97)
+- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L112)
 
 The architecture ensures loose coupling between components while maintaining clear data flow patterns. The system is designed to be non-blocking and resilient, with proper error handling throughout the pipeline.
 
@@ -115,18 +131,21 @@ class MemoryRepository {
 +searchByKeyword(scope : MemoryScope, scopeId : string, query : string) : Promise~MemoryEntry[]~
 +deleteAllByScope(scope : MemoryScope, scopeId : string) : Promise~number~
 +existsByKey(scope : MemoryScope, scopeId : string, key : string) : Promise~boolean~
++upsertMemory(data : Object) : Promise~MemoryEntry~
 }
 MemoryManager --> MemoryRepository : "uses"
 ```
 
 **Diagram sources**
-- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L159)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L243)
+- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L156)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L331)
 
 The MemoryManager encapsulates business logic including scope validation, input sanitization, and concurrent operation handling. It provides a unified interface for all memory operations while delegating database interactions to the repository layer.
 
+**Updated** Added new upsertMemory() method to MemoryManager that delegates to MemoryRepository for PostgreSQL ON CONFLICT operations, enabling seamless create/update functionality. Enhanced search functionality with comprehensive keyword matching on both key and value fields.
+
 **Section sources**
-- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L159)
+- [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L18-L156)
 
 ### MemoryExtractor Service
 
@@ -158,11 +177,13 @@ MM-->>Node : Updated memories
 ```
 
 **Diagram sources**
-- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L168)
+- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L166)
 - [memoryExtractor.ts](file://src/chat/memory/memoryExtractor.ts#L106-L145)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L48-L86)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L48-L123)
 
 The extractor processes recent conversation messages, builds specialized prompts, and leverages LLM capabilities to identify valuable knowledge patterns that should be preserved for future interactions.
+
+**Updated** Enhanced memory extraction with improved validation and duplicate prevention, filtering out memories that already exist in the system to prevent redundancy.
 
 **Section sources**
 - [memoryExtractor.ts](file://src/chat/memory/memoryExtractor.ts#L106-L145)
@@ -192,12 +213,14 @@ ReturnString --> End
 ```
 
 **Diagram sources**
-- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L97)
+- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L112)
 
 The injector implements sophisticated truncation algorithms that prioritize session memories over repository memories, ensuring the most relevant context is preserved within token limits.
 
+**Updated** Enhanced memory injection with improved character limit handling (8000 characters vs previous 2000 tokens), better truncation logic, and more efficient memory formatting for display purposes.
+
 **Section sources**
-- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L97)
+- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L112)
 
 ## Memory Scopes and Validation
 
@@ -207,7 +230,6 @@ The system enforces strict scope-based validation to maintain data integrity and
 |-------|---------------------|---------------|--------------|
 | session | Valid UUID v4 thread ID | Thread-specific knowledge | `react_query_preference`, `testing_framework_choice` |
 | repo | Repository identifier | Project-wide knowledge | `monorepo_structure`, `auth_module_location`, `coding_standards` |
-| global | Must be exactly "global" | Cross-project knowledge | `common_design_patterns`, `framework_guidelines` |
 
 ```mermaid
 flowchart TD
@@ -216,10 +238,8 @@ ValidateKey --> ValidateValue["Validate Value Length & Content"]
 ValidateValue --> CheckScope{"Scope Type?"}
 CheckScope --> |session| ValidateThread["Validate UUID v4 Format"]
 CheckScope --> |repo| ValidateRepo["Ensure scopeId equals repoId"]
-CheckScope --> |global| ValidateGlobal["Ensure scopeId = 'global'"]
 ValidateThread --> NormalizeInputs["Trim & Sanitize Inputs"]
 ValidateRepo --> NormalizeInputs
-ValidateGlobal --> NormalizeInputs
 NormalizeInputs --> CreateMemory["Create Memory Entry"]
 ```
 
@@ -227,6 +247,8 @@ NormalizeInputs --> CreateMemory["Create Memory Entry"]
 - [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L27-L42)
 
 The validation system prevents common data integrity issues while maintaining flexibility for different use cases. Each scope type enforces specific constraints that align with its intended usage pattern.
+
+**Updated** Enhanced validation with stricter character limits (100 chars for keys, 10000 chars for values) and improved error messaging for better debugging. Removed global scope option, simplifying the system to session and repository levels only.
 
 **Section sources**
 - [memoryManager.ts](file://src/chat/memory/memoryManager.ts#L27-L42)
@@ -259,13 +281,15 @@ UI-->>User : Show Updated Memory Panel
 ```
 
 **Diagram sources**
-- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L168)
+- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L166)
 - [memoryExtractor.ts](file://src/chat/memory/memoryExtractor.ts#L106-L145)
 
 The workflow includes comprehensive error handling, health monitoring, and progress reporting to ensure reliability and user feedback.
 
+**Updated** Enhanced auto-extraction with improved duplicate prevention, better error handling, and more robust API key validation. The system now includes health monitoring with failure counting and alert thresholds.
+
 **Section sources**
-- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L168)
+- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L166)
 
 ## Memory Injection Pipeline
 
@@ -297,13 +321,15 @@ J --> M
 ```
 
 **Diagram sources**
-- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L97)
+- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L112)
 - [prepareGoal.ts](file://src/chat/nodes/prepareGoal.ts#L39-L50)
 
 The pipeline prioritizes session memories for maximum relevance, followed by repository memories, with global knowledge as the lowest priority. This hierarchical approach ensures the most pertinent information is presented to the LLM.
 
+**Updated** Enhanced memory injection with improved truncation algorithms, better character limit management (8000 characters), and more efficient memory formatting for both display and prompt injection.
+
 **Section sources**
-- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L97)
+- [memoryInjector.ts](file://src/chat/memory/memoryInjector.ts#L68-L112)
 - [prepareGoal.ts](file://src/chat/nodes/prepareGoal.ts#L39-L50)
 
 ## Database Schema and Operations
@@ -340,13 +366,41 @@ CHAT_MEMORY ||--|| REPO_IDENTIFIERS : "scope_id references when scope='repo'"
 ```
 
 **Diagram sources**
-- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L38-L50)
+- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L42-L54)
 
 The database schema includes unique constraints on (scope, scope_id, key) combinations to prevent duplicate entries and maintains timestamps for audit trails. The embedding_vector column supports future semantic search capabilities.
 
+**Updated** Enhanced database operations with new upsertMemory() method using PostgreSQL ON CONFLICT clause to handle create/update operations atomically. Improved error handling for unique constraint violations and better conflict resolution. Simplified scope options to session and repository levels only.
+
+### Memory Repository Operations
+
+The MemoryRepository provides comprehensive database operations with enhanced error handling and validation:
+
+```mermaid
+flowchart TD
+Create[createMemory] --> UniqueCheck{Unique Constraint?}
+UniqueCheck --> |Exists| Error[Throw Duplicate Error]
+UniqueCheck --> |Not Exists| Insert[INSERT Query]
+Insert --> Success[Return MemoryEntry]
+Upsert[upsertMemory] --> Conflict{ON CONFLICT?}
+Conflict --> |Exists| Update[UPDATE EXCLUDED Values]
+Conflict --> |Not Exists| Insert2[INSERT New Record]
+Update --> Success2[Return Updated MemoryEntry]
+Insert2 --> Success2
+Search[searchByKeyword] --> EscapePattern[Escape Wildcards]
+EscapePattern --> ILIKEQuery[ILIKE Pattern Matching]
+ILIKEQuery --> FilterExpired[Filter Expired Memories]
+FilterExpired --> ReturnResults[Return MemoryEntries]
+```
+
+**Diagram sources**
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L48-L86)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L294-L331)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L245-L263)
+
 **Section sources**
-- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L38-L50)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L243)
+- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L42-L54)
+- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L331)
 
 ## Integration Points
 
@@ -376,7 +430,7 @@ end
 ```
 
 **Diagram sources**
-- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L168)
+- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L62-L166)
 - [prepareGoal.ts](file://src/chat/nodes/prepareGoal.ts#L16-L92)
 
 ### State Management Integration
@@ -389,9 +443,11 @@ The system maintains memory state through the ChatState annotation system, enabl
 | memoryContext | string | Memory context for LLM prompts | Injected into goal preparation |
 | memoryHealth | object | Extraction failure tracking | Monitored for reliability |
 
+**Updated** Enhanced state management with improved memory health monitoring, better error tracking, and more granular progress reporting for memory operations.
+
 **Section sources**
 - [state.ts](file://src/chat/state.ts#L232-L238)
-- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L150-L159)
+- [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L150-L166)
 
 ## Testing and Quality Assurance
 
@@ -424,14 +480,16 @@ ET --> FE
 ```
 
 **Diagram sources**
-- [memoryManager.test.ts](file://src/test/chat/memory/memoryManager.test.ts#L5-L72)
+- [memoryManager.test.ts](file://src/test/chat/memory/memoryManager.test.ts#L5-L88)
 
 ### Test Scenarios
 
 The testing framework covers essential scenarios including invalid scope IDs, boundary condition validation, and concurrent access patterns. Each test validates specific aspects of the memory management system to ensure robust operation under various conditions.
 
+**Updated** Enhanced testing with improved validation scenarios, better error handling coverage, and more comprehensive edge case testing for the new upsertMemory() functionality.
+
 **Section sources**
-- [memoryManager.test.ts](file://src/test/chat/memory/memoryManager.test.ts#L5-L72)
+- [memoryManager.test.ts](file://src/test/chat/memory/memoryManager.test.ts#L5-L88)
 
 ## Performance Considerations
 
@@ -440,9 +498,9 @@ The testing framework covers essential scenarios including invalid scope IDs, bo
 The system implements sophisticated token budget management to prevent context overflow:
 
 - **Maximum Memory Characters**: 8,000 characters (~2,000 tokens)
-- **Priority Hierarchy**: Session > Repository > Global
+- **Priority Hierarchy**: Session > Repository
 - **Truncation Strategy**: Aggressive truncation of lower-priority contexts
-- **Character Limits**: Keys (≤100 chars), Values (≤500 chars for extraction)
+- **Character Limits**: Keys (≤100 chars), Values (≤10000 chars for extraction)
 
 ### Database Optimization
 
@@ -450,6 +508,7 @@ The PostgreSQL schema includes strategic indexing for optimal query performance:
 
 - **Composite Index**: (scope, scope_id) for efficient scoping
 - **Unique Constraint**: Prevents duplicate key entries within scopes
+- **ON CONFLICT Support**: Enables atomic upsert operations
 - **Timestamp Indexes**: Support for expiration and sorting operations
 
 ### Concurrency Handling
@@ -459,6 +518,9 @@ The system handles concurrent operations through:
 - **Non-blocking Operations**: Memory extraction doesn't block user workflows
 - **Error Containment**: Individual failures don't impact overall system
 - **Health Monitoring**: Automatic detection and alerting for repeated failures
+- **Atomic Operations**: PostgreSQL ON CONFLICT ensures data consistency
+
+**Updated** Enhanced performance with PostgreSQL ON CONFLICT clause for atomic upsert operations, improved memory injection with better truncation algorithms, and more efficient database queries with proper indexing. Added debounced search functionality to reduce database load during frequent searches.
 
 ## Troubleshooting Guide
 
@@ -470,6 +532,8 @@ The system handles concurrent operations through:
 | Scope Validation Errors | "Invalid threadId UUID" or "Invalid scopeId" errors | Verify UUID format for session scopes, ensure "global" for global scope |
 | Memory Not Persisting | Memories disappear after restart | Check database connectivity, verify unique constraint violations |
 | Performance Degradation | Slow response times with many memories | Review memory count per thread, consider pruning old memories |
+| Upsert Conflicts | ON CONFLICT errors during upsert operations | Check unique constraint violations, verify scope/key combinations |
+| Search Not Working | Keyword search returns no results | Verify search query syntax, check wildcard escaping |
 
 ### Health Monitoring
 
@@ -478,6 +542,7 @@ The system includes built-in health monitoring for memory extraction:
 - **Failure Count Tracking**: Monitors consecutive extraction failures
 - **Alert Thresholds**: Automatic alerts after 3+ failures within 30 minutes
 - **Cooldown Periods**: Prevents alert spamming during extended outages
+- **Memory Health State**: Tracks extraction success/failure rates
 
 ### Debug Information
 
@@ -486,6 +551,10 @@ Key debug indicators include:
 - **Extraction Logs**: Detailed logging of extraction attempts and results
 - **Memory Counts**: Track number of memories per scope for performance analysis
 - **API Key Validation**: Clear indication when API key is missing or invalid
+- **Upsert Operations**: Monitor atomic create/update operations for consistency
+- **Search Queries**: Log keyword search patterns and performance metrics
+
+**Updated** Enhanced troubleshooting with improved health monitoring, better error tracking for upsert operations, and more detailed logging for debugging memory conflicts. Added search query monitoring and performance metrics.
 
 **Section sources**
 - [extractMemory.ts](file://src/chat/nodes/extractMemory.ts#L32-L60)
@@ -493,6 +562,8 @@ Key debug indicators include:
 ## Conclusion
 
 The Memory Management System represents a significant advancement in conversational AI capabilities for the Repomix Runner platform. By implementing persistent knowledge storage across multiple scopes with sophisticated validation, auto-extraction, and injection mechanisms, the system provides users with a more coherent and context-aware conversational experience.
+
+**Updated** The system now includes enhanced memory management with new upsertMemory() method supporting PostgreSQL ON CONFLICT clause, comprehensive keyword search functionality with debounced input, simplified scoping to session and repository levels, improved memory panel with loading states, and better performance through atomic database operations. These enhancements provide seamless create/update operations, efficient search capabilities, and more reliable memory management overall.
 
 The modular architecture ensures maintainability and extensibility, while comprehensive error handling and health monitoring guarantee reliable operation. The integration with the LangGraph workflow demonstrates seamless incorporation of memory capabilities into existing chat infrastructure.
 
