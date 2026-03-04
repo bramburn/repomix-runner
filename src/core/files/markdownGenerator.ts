@@ -56,7 +56,7 @@ const TEXT_BASENAMES = new Set([
  */
 const TEXT_EXTENSIONS = new Set([
     // Code files
-    '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
+    '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
     '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.kts', '.scala', '.dart',
     '.m', '.mm',
     // Web / markup

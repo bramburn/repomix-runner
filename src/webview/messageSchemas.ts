@@ -53,6 +53,27 @@ export const CheckSecretSchema = z.object({
   key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
 });
 
+// --- PostgreSQL Connection Management ---
+
+export const SavePostgresConnectionSchema = z.object({
+  command: z.literal('savePostgresConnection'),
+  value: z.string(),
+});
+
+export const CheckPostgresConnectionSchema = z.object({
+  command: z.literal('checkPostgresConnection'),
+});
+
+export const DeletePostgresConnectionSchema = z.object({
+  command: z.literal('deletePostgresConnection'),
+});
+
+export const PostgresConnectionStatusSchema = z.object({
+  command: z.literal('postgresConnectionStatus'),
+  exists: z.boolean(),
+  source: z.enum(['settings', 'secrets', 'none']).optional(),
+});
+
 export const GetAgentHistorySchema = z.object({
   command: z.literal('getAgentHistory'),
 });
@@ -1249,6 +1270,10 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   SaveApiKeySchema,
   SaveSecretSchema,
   CheckSecretSchema,
+  SavePostgresConnectionSchema,
+  CheckPostgresConnectionSchema,
+  DeletePostgresConnectionSchema,
+  PostgresConnectionStatusSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
   CopyAgentOutputSchema,

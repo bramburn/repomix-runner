@@ -256,7 +256,8 @@
             "enum": [
               "gemini",
               "ollama",
-              "lmstudio"
+              "lmstudio",
+              "openrouter"
             ],
             "default": "gemini",
             "description": "🤖 \n Embedding provider to use"
@@ -302,6 +303,48 @@
             "type": "number",
             "default": 768,
             "description": "📏 \n LM Studio embedding dimension size"
+          },
+          "repomix.openrouter.baseUrl": {
+            "order": 9,
+            "type": "string",
+            "default": "https://openrouter.ai/api/v1",
+            "description": "🌐 \n OpenRouter API base URL"
+          },
+          "repomix.openrouter.model": {
+            "order": 10,
+            "type": "string",
+            "default": "openai/text-embedding-3-small",
+            "description": "📦 \n OpenRouter embedding model name (use 'Fetch Models' button to see available embedding models)"
+          },
+          "repomix.openrouter.dimension": {
+            "order": 11,
+            "type": "number",
+            "default": 1536,
+            "description": "📏 \n OpenRouter embedding dimension size (text-embedding-3-small: 1536, text-embedding-3-large: 3072)"
+          },
+          "repomix.openrouter.providerOrder": {
+            "order": 12,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": ["nebius"],
+            "description": "🔀 \n Provider routing order (e.g., [\"nebius\"])"
+          },
+          "repomix.openrouter.allowFallbacks": {
+            "order": 13,
+            "type": "boolean",
+            "default": true,
+            "description": "🔄 \n Allow fallback to other providers if primary fails (recommended: true)"
+          },
+          "repomix.openrouter.quantizations": {
+            "order": 14,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": ["fp8"],
+            "description": "⚡ \n Quantization preferences (e.g., [\"fp8\", \"fp16\"])"
           }
         }
       },

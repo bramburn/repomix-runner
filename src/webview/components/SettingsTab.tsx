@@ -187,10 +187,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   // OpenRouter State
   const [openrouterBaseUrl, setOpenrouterBaseUrl] = useState('https://openrouter.ai/api/v1');
   const [openrouterApiKey, setOpenrouterApiKey] = useState('');
-  const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-embedding-8b');
-  const [openrouterDimension, setOpenrouterDimension] = useState(4096);
+  const [openrouterModel, setOpenrouterModel] = useState('openai/text-embedding-3-small');
+  const [openrouterDimension, setOpenrouterDimension] = useState(1536);
   const [openrouterProviderOrder, setOpenrouterProviderOrder] = useState(['nebius']);
-  const [openrouterAllowFallbacks, setOpenrouterAllowFallbacks] = useState(false);
+  const [openrouterAllowFallbacks, setOpenrouterAllowFallbacks] = useState(true);
   const [openrouterQuantizations, setOpenrouterQuantizations] = useState(['fp8']);
   const [openrouterModels, setOpenrouterModels] = useState<Array<{ id: string; name?: string; description?: string; context_length?: number }>>([]);
   const [openrouterModelsError, setOpenrouterModelsError] = useState<string | null>(null);

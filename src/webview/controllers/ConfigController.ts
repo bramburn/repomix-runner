@@ -528,6 +528,8 @@ export class ConfigController extends BaseController {
         expectedDim = config.get<number>('repomix.ollama.dimension') || 768;
       } else if (embeddingProvider === 'lmstudio') {
         expectedDim = config.get<number>('repomix.lmstudio.dimension') || 768;
+      } else if (embeddingProvider === 'openrouter') {
+        expectedDim = config.get<number>('repomix.openrouter.dimension') || 1536;
       }
       
       console.log(`[ConfigController] Current embedding provider: ${embeddingProvider}, expected dimension: ${expectedDim}`);
@@ -750,10 +752,10 @@ export class ConfigController extends BaseController {
       // OpenRouter config
       const openrouterBaseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
       const openrouterApiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER) || '';
-      const openrouterModel = config.get<string>('repomix.openrouter.model') || 'qwen/qwen3-embedding-8b';
-      const openrouterDimension = config.get<number>('repomix.openrouter.dimension') || 4096;
+      const openrouterModel = config.get<string>('repomix.openrouter.model') || 'openai/text-embedding-3-small';
+      const openrouterDimension = config.get<number>('repomix.openrouter.dimension') || 1536;
       const openrouterProviderOrder = config.get<string[]>('repomix.openrouter.providerOrder') || ['nebius'];
-      const openrouterAllowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? false;
+      const openrouterAllowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? true;
       const openrouterQuantizations = config.get<string[]>('repomix.openrouter.quantizations') || ['fp8'];
 
       this.context.postMessage({
@@ -1239,10 +1241,10 @@ export class ConfigController extends BaseController {
       const config = vscode.workspace.getConfiguration();
       const baseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
       const apiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER) || '';
-      const model = config.get<string>('repomix.openrouter.model') || 'qwen/qwen3-embedding-8b';
-      const dimension = config.get<number>('repomix.openrouter.dimension') || 4096;
+      const model = config.get<string>('repomix.openrouter.model') || 'openai/text-embedding-3-small';
+      const dimension = config.get<number>('repomix.openrouter.dimension') || 1536;
       const providerOrder = config.get<string[]>('repomix.openrouter.providerOrder') || ['nebius'];
-      const allowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? false;
+      const allowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? true;
       const quantizations = config.get<string[]>('repomix.openrouter.quantizations') || ['fp8'];
 
       this.context.postMessage({
@@ -1266,35 +1268,38 @@ export class ConfigController extends BaseController {
       const baseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
       const apiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER);
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
+      if (!apiKey) {
+        throw new Error('OpenRouter API key is required. Please set it in the settings.');
       }
 
-      const response = await fetch(`${baseUrl}/models`, {
-        method: 'GET',
-        headers,
+      console.log('[ConfigController] Fetching OpenRouter embedding models using SDK...');
+
+      // Use the OpenRouter SDK to list embedding models
+      const { OpenRouter } = await import('@openrouter/sdk');
+      const client = new OpenRouter({
+        apiKey,
+        serverURL: baseUrl,
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`[ConfigController] OpenRouter models fetch failed: ${response.status}`, errorBody);
-        throw new Error(`OpenRouter API request failed: ${response.statusText} (${response.status})`);
+      // Use the SDK's embeddings.listModels() method
+      const response = await client.embeddings.listModels();
+
+      if (typeof response === 'string') {
+        throw new Error('Invalid response from OpenRouter API');
       }
 
-      const data = await response.json();
-      const models = Array.isArray(data?.data)
-        ? data.data
+      const models = Array.isArray(response.data)
+        ? response.data
             .filter((model: any) => typeof model?.id === 'string')
             .map((model: any) => ({
               id: model.id,
-              name: model.name,
+              name: model.name || model.id,
               description: model.description,
               context_length: model.context_length,
             }))
         : [];
+
+      console.log(`[ConfigController] Fetched ${models.length} embedding models`);
 
       this.context.postMessage({
         command: 'openrouterModelsResult',
@@ -1308,7 +1313,7 @@ export class ConfigController extends BaseController {
         models: [],
         error: errorMessage,
       });
-      vscode.window.showErrorMessage(`Failed to fetch OpenRouter models: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Failed to fetch OpenRouter embedding models: ${errorMessage}`);
     }
   }
 
@@ -1321,43 +1326,40 @@ export class ConfigController extends BaseController {
     quantizations?: string[]
   ) {
     try {
-      const provider: Record<string, unknown> = {};
-      if (providerOrder && providerOrder.length > 0) {
-        provider.order = providerOrder;
-      }
-      if (typeof allowFallbacks === 'boolean') {
-        provider.allow_fallbacks = allowFallbacks;
-      }
-      if (quantizations && quantizations.length > 0) {
-        provider.quantizations = quantizations;
-      }
+      console.log(`[ConfigController] Testing OpenRouter dimension for model: ${model}`);
 
-      const body: Record<string, unknown> = {
-        model,
-        input: 'test text for dimension detection',
-        encoding_format: 'float',
-      };
-      if (Object.keys(provider).length > 0) {
-        body.provider = provider;
-      }
-
-      const response = await fetch(`${baseUrl}/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
+      // Use the OpenRouter SDK properly
+      const { OpenRouter } = await import('@openrouter/sdk');
+      const client = new OpenRouter({
+        apiKey,
+        serverURL: baseUrl,
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`[ConfigController] OpenRouter dimension test failed: ${response.status}`, errorBody);
-        throw new Error(`OpenRouter API request failed: ${response.statusText} (${response.status})`);
+      const providerConfig: any = {};
+      if (providerOrder && providerOrder.length > 0) {
+        providerConfig.order = providerOrder;
+      }
+      if (typeof allowFallbacks === 'boolean') {
+        providerConfig.allowFallbacks = allowFallbacks;
+      }
+      if (quantizations && quantizations.length > 0) {
+        providerConfig.quantizations = quantizations;
       }
 
-      const data = await response.json();
-      const embedding = data?.data?.[0]?.embedding;
+      const response = await client.embeddings.generate({
+        requestBody: {
+          model,
+          input: 'test text for dimension detection',
+          encodingFormat: 'float',
+          provider: Object.keys(providerConfig).length > 0 ? providerConfig : undefined,
+        },
+      });
+
+      if (typeof response === 'string') {
+        throw new Error('Invalid response from OpenRouter API');
+      }
+
+      const embedding = response.data?.[0]?.embedding;
       if (!Array.isArray(embedding)) {
         throw new Error('Invalid response from OpenRouter API: missing or invalid embedding');
       }
@@ -1392,44 +1394,50 @@ export class ConfigController extends BaseController {
   ) {
     try {
       console.log(`[ConfigController] Testing OpenRouter connection with model ${model}`);
+      console.log(`[ConfigController] Provider config:`, { providerOrder, allowFallbacks, quantizations });
 
-      const provider: Record<string, unknown> = {};
-      if (providerOrder && providerOrder.length > 0) {
-        provider.order = providerOrder;
-      }
-      if (typeof allowFallbacks === 'boolean') {
-        provider.allow_fallbacks = allowFallbacks;
-      }
-      if (quantizations && quantizations.length > 0) {
-        provider.quantizations = quantizations;
-      }
-
-      const body: Record<string, unknown> = {
-        model,
-        input: 'Hello, this is a connection test.',
-        encoding_format: 'float',
-      };
-      if (Object.keys(provider).length > 0) {
-        body.provider = provider;
-      }
-
-      const response = await fetch(`${baseUrl}/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
+      // Use the OpenRouter SDK properly
+      const { OpenRouter } = await import('@openrouter/sdk');
+      const client = new OpenRouter({
+        apiKey,
+        serverURL: baseUrl,
       });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`[ConfigController] OpenRouter connection test failed: ${response.status}`, errorBody);
-        throw new Error(`OpenRouter API request failed: ${response.statusText} (${response.status})`);
+      // Build provider config only if at least one option is provided
+      const providerConfig: any = {};
+      if (providerOrder && providerOrder.length > 0) {
+        providerConfig.order = providerOrder;
+      }
+      if (typeof allowFallbacks === 'boolean') {
+        providerConfig.allowFallbacks = allowFallbacks;
+      }
+      if (quantizations && quantizations.length > 0) {
+        providerConfig.quantizations = quantizations;
       }
 
-      const data = await response.json();
-      const embedding = data?.data?.[0]?.embedding;
+      // Only include provider config if it has any properties
+      const hasProviderConfig = Object.keys(providerConfig).length > 0;
+
+      console.log(`[ConfigController] Sending embedding request with config:`, {
+        model,
+        hasProviderConfig,
+        providerConfig: hasProviderConfig ? providerConfig : 'none',
+      });
+
+      const response = await client.embeddings.generate({
+        requestBody: {
+          model,
+          input: 'Hello, this is a connection test.',
+          encodingFormat: 'float',
+          provider: hasProviderConfig ? providerConfig : undefined,
+        },
+      });
+
+      if (typeof response === 'string') {
+        throw new Error('Invalid response from OpenRouter API');
+      }
+
+      const embedding = response.data?.[0]?.embedding;
       if (!Array.isArray(embedding)) {
         throw new Error('Invalid response from OpenRouter API: missing or invalid embedding');
       }
@@ -1446,7 +1454,20 @@ export class ConfigController extends BaseController {
       vscode.window.showInformationMessage('OpenRouter connection test successful!');
     } catch (error: unknown) {
       console.error('[ConfigController] Failed to test OpenRouter connection:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Provide better error messages for common issues
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check for common error patterns
+      if (errorMessage.includes('No endpoints found')) {
+        errorMessage = `Model "${model}" may not support embeddings or the provider routing is incorrect. ` +
+          `Try: 1) Use a different model from the embeddings list, 2) Remove provider order settings, or 3) Try provider order ["nebius"] with allowFallbacks=true. ` +
+          `Original error: ${errorMessage}`;
+      } else if (errorMessage.includes('Invalid API key')) {
+        errorMessage = 'Invalid OpenRouter API key. Please check your API key in the settings.';
+      } else if (errorMessage.includes('401')) {
+        errorMessage = 'Authentication failed. Please verify your OpenRouter API key.';
+      }
       
       this.context.postMessage({
         command: 'openrouterConnectionResult',

@@ -87,3 +87,286 @@ A CLI tool for code structural search, lint, and rewrite across many languages.
 - `$VAR` - Meta variable (matches any single node)
 - `$$$VAR` - Multi-meta variable (matches multiple nodes)
 - Use concrete syntax for the language you're searching
+
+---
+
+## Adding New Settings Configuration
+
+When adding new configuration options that appear in the Settings UI, you **MUST** update these files:
+
+### 1. **package.json** - Register Configuration Schema (REQUIRED)
+
+All settings must be registered in the `contributes.configuration.properties` section of `package.json`. This is the most critical step and is often missed!
+
+**Location:** Lines ~250-320 (Embedding section example)
+
+**Example: Adding OpenRouter Settings**
+```json
+{
+  "contributes": {
+    "configuration": [
+      {
+        "title": "Embedding",
+        "order": 7,
+        "properties": {
+          // Provider enum
+          "repomix.embedding.provider": {
+            "order": 1,
+            "type": "string",
+            "enum": ["gemini", "ollama", "lmstudio", "openrouter"],  // ✅ Add new provider here
+            "default": "gemini",
+            "description": "🤖 \n Embedding provider to use"
+          },
+          
+          // Provider-specific settings
+          "repomix.openrouter.baseUrl": {
+            "order": 9,
+            "type": "string",
+            "default": "https://openrouter.ai/api/v1",
+            "description": "🌐 \n OpenRouter API base URL"
+          },
+          "repomix.openrouter.model": {
+            "order": 10,
+            "type": "string",
+            "default": "qwen/qwen3-embedding-8b",
+            "description": "📦 \n OpenRouter embedding model name"
+          },
+          "repomix.openrouter.dimension": {
+            "order": 11,
+            "type": "number",
+            "default": 4096,
+            "description": "📏 \n OpenRouter embedding dimension size"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+**⚠️ Common Mistake:** Skipping this step causes runtime error:
+```
+Unable to write to User Settings because repomix.openrouter.baseUrl is not a registered configuration.
+```
+
+### 2. **src/webview/messageSchemas.ts** - Define Message Schemas
+
+Add Zod schemas for type-safe webview-to-extension communication:
+
+```typescript
+// Request schema
+export const FetchOpenRouterModelsSchema = z.object({
+  command: z.literal('fetchOpenRouterModels'),
+});
+
+// Result schema
+export const OpenRouterModelsResultSchema = z.object({
+  command: z.literal('openrouterModelsResult'),
+  models: z.array(z.object({
+    id: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    context_length: z.number().optional()
+  })),
+  error: z.string().optional(),
+});
+
+// Add to WebviewMessageSchema union
+z.discriminatedUnion('command', [
+  FetchOpenRouterModelsSchema,
+  OpenRouterModelsResultSchema,
+  // ... other schemas
+])
+```
+
+### 3. **src/webview/controllers/ConfigController.ts** - Implement Handlers
+
+Add message handlers and helper methods:
+
+```typescript
+// Add secret key constant if storing API keys
+const SECRET_OPENROUTER = 'repomix.embedding.openrouterApiKey';
+type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey' | 'openrouterApiKey';
+
+// In handleMessage():
+case 'fetchOpenRouterModels':
+  await this.handleFetchOpenRouterModels();
+  return true;
+
+// Handler implementation
+private async handleFetchOpenRouterModels() {
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
+    const data = await response.json();
+    
+    this.context.postMessage({
+      command: 'openrouterModelsResult',
+      models: data.data.map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        context_length: m.context_length
+      }))
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.context.postMessage({
+      command: 'openrouterModelsResult',
+      models: [],
+      error: errorMessage
+    });
+  }
+}
+```
+
+### 4. **src/webview/components/SettingsTab.tsx** - Add UI Components
+
+**State Variables:**
+```typescript
+const [openrouterBaseUrl, setOpenrouterBaseUrl] = useState('https://openrouter.ai/api/v1');
+const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-embedding-8b');
+const [openrouterDimension, setOpenrouterDimension] = useState(4096);
+const [openrouterModels, setOpenrouterModels] = useState<Array<{ id: string; name?: string }>>([]);
+const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
+```
+
+**Message Handlers:**
+```typescript
+useEffect(() => {
+  const handleMessage = (event: MessageEvent) => {
+    const message = event.data;
+    switch (message.command) {
+      case 'openrouterModelsResult':
+        setOpenrouterModels(message.models || []);
+        if (message.error) {
+          vscode.postMessage({
+            command: 'showNotification',
+            type: 'error',
+            message: `Failed to fetch models: ${message.error}`,
+          });
+        }
+        break;
+    }
+  };
+}, []);
+```
+
+**Handler Functions:**
+```typescript
+const handleFetchOpenRouterModels = () => {
+  setIsFetchingOpenRouterModels(true);
+  vscode.postMessage({ command: 'fetchOpenRouterModels' });
+};
+
+const handleOpenRouterModelSelect = (_e: any, data: any) => {
+  const modelName = data.optionValue as string;
+  setOpenrouterModel(modelName);
+};
+```
+
+**UI Component (Accordion):**
+```typescript
+<Accordion>
+  <AccordionHeader>
+    OpenRouter Configuration
+  </AccordionHeader>
+  <AccordionPanel>
+    <div>
+      <Label size="small">Base URL</Label>
+      <Input
+        value={openrouterBaseUrl}
+        onChange={(_e, data) => setOpenrouterBaseUrl(data.value)}
+      />
+    </div>
+    
+    <div>
+      <Label size="small">Model</Label>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <Dropdown value={openrouterModel} onOptionSelect={handleOpenRouterModelSelect}>
+          {openrouterModels.map(model => (
+            <Option key={model.id} value={model.id}>{model.name || model.id}</Option>
+          ))}
+        </Dropdown>
+        <Button onClick={handleFetchOpenRouterModels} disabled={isFetchingOpenRouterModels}>
+          {isFetchingOpenRouterModels ? 'Fetching...' : 'Fetch Models'}
+        </Button>
+      </div>
+    </div>
+  </AccordionPanel>
+</Accordion>
+```
+
+### 5. **Core Service Implementation** (If Applicable)
+
+For provider-based features (like embeddings), implement the core logic:
+
+**Create Provider Class:**
+```typescript
+// src/core/indexing/embeddings/OpenRouterProvider.ts
+export class OpenRouterProvider implements IEmbeddingProvider {
+  private client: OpenRouter;
+  private config: OpenRouterProviderConfig;
+
+  constructor(config: OpenRouterProviderConfig) {
+    this.client = new OpenRouter({
+      apiKey: config.apiKey,
+      baseURL: config.baseUrl,
+    });
+  }
+
+  async embedText(text: string): Promise<number[]> {
+    const response = await this.client.embeddings.generate({
+      model: this.config.model,
+      input: text,
+      encodingFormat: 'float',
+    });
+    return response.data[0].embedding;
+  }
+}
+```
+
+**Register in Service:**
+```typescript
+// src/core/indexing/embeddingService.ts
+switchProvider(config.provider) {
+  switch (config.provider) {
+    case 'openrouter':
+      if (!config.openrouter) {
+        throw new Error('OpenRouter config missing');
+      }
+      this.provider = new OpenRouterProvider(config.openrouter);
+      break;
+  }
+}
+```
+
+---
+
+## Checklist: Adding New Settings
+
+When adding new configuration options, verify ALL of these are updated:
+
+- [ ] **package.json**: Added configuration properties to `contributes.configuration.properties`
+- [ ] **package.json**: Updated enum values if adding to existing dropdown (e.g., provider list)
+- [ ] **messageSchemas.ts**: Added request/result Zod schemas
+- [ ] **messageSchemas.ts**: Registered schemas in `WebviewMessageSchema` union
+- [ ] **ConfigController.ts**: Added message handler cases
+- [ ] **ConfigController.ts**: Implemented handler methods
+- [ ] **ConfigController.ts**: Added secret storage constants (if storing API keys)
+- [ ] **SettingsTab.tsx**: Added state variables
+- [ ] **SettingsTab.tsx**: Added message handlers in useEffect
+- [ ] **SettingsTab.tsx**: Added handler functions
+- [ ] **SettingsTab.tsx**: Added UI components (Accordion, Input, Dropdown, etc.)
+- [ ] **Core services**: Implemented business logic (if applicable)
+- [ ] **Testing**: Verified connection/test functionality works
+
+**⚠️ Critical:** The package.json registration step is MANDATORY. VS Code will reject any configuration writes for unregistered properties with:
+```
+Unable to write to User Settings because <property> is not a registered configuration.
+```
+
+---

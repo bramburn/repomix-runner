@@ -30,11 +30,24 @@ export class OpenRouterProvider implements IEmbeddingProvider {
       return undefined;
     }
 
-    return {
-      order: this.config.provider.order,
-      allowFallbacks: this.config.provider.allow_fallbacks,
-      quantizations: this.config.provider.quantizations,
-    };
+    const prefs: any = {};
+    
+    // Only add provider order if specified
+    if (this.config.provider.order && this.config.provider.order.length > 0) {
+      prefs.order = this.config.provider.order;
+    }
+    
+    // Add allowFallbacks (defaults to true for better reliability)
+    prefs.allowFallbacks = this.config.provider.allow_fallbacks ?? true;
+    
+    // Only add quantizations if explicitly specified and not empty
+    // Note: Some models may not support specific quantizations, causing "No endpoints found" errors
+    if (this.config.provider.quantizations && this.config.provider.quantizations.length > 0) {
+      prefs.quantizations = this.config.provider.quantizations;
+    }
+    
+    // Return undefined if no preferences are set (let OpenRouter choose optimally)
+    return Object.keys(prefs).length > 0 ? prefs : undefined;
   }
 
   getDimensions(): number {
