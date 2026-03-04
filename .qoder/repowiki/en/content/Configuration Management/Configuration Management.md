@@ -12,6 +12,7 @@
 - [types.ts](file://src/core/bundles/types.ts)
 - [generateOutputFilename.ts](file://src/utils/generateOutputFilename.ts)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts)
@@ -40,11 +41,12 @@
 
 ## Update Summary
 **Changes Made**
-- Removed `repomix.chat.planningRateLimitRpm` configuration option from documentation as it was dropped from package.json
-- Updated Chat Configuration Management section to reflect simplified planning LLM configuration
-- Revised Planning LLM section to clarify that rate limiting is now handled internally via environment variables
-- Updated troubleshooting guide to remove references to planningRateLimitRpm configuration
-- Removed planningRateLimitRpm from default values reference and migration guidance
+- Enhanced OpenRouter configuration system with comprehensive settings registration in package.json
+- Added OpenRouter provider support with advanced routing, fallback, and quantization controls
+- Expanded configuration schema validation to include OpenRouter-specific properties
+- Updated default values and enhanced security through VS Code secrets storage for OpenRouter API keys
+- Improved embedding provider configuration with OpenRouter integration
+- Enhanced chat configuration management with OpenRouter embedding support
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -61,24 +63,25 @@
 12. [Appendices](#appendices)
 
 ## Introduction
-This document explains the Configuration Management system used by the extension. It covers how VS Code settings and repomix.config.json files combine to form a unified configuration, the precedence rules, inheritance patterns, and override mechanisms. The system now includes enhanced security through VS Code secrets storage for sensitive credentials like PostgreSQL connection strings, comprehensive chat configuration management including architecture document refresh controls, and advanced file edit application mode controls. It also documents the configuration schema validation, supported properties, default values, environment-specific behavior (workspace vs user settings, per-project overrides, global defaults), and practical examples for common scenarios such as custom output directories, bundle definitions, AI provider settings, chat workflow optimization, and fine-grained edit application control. Finally, it describes the configuration loading process, validation errors, troubleshooting steps, migration guidance, and consistency practices across team environments.
+This document explains the Configuration Management system used by the extension. It covers how VS Code settings and repomix.config.json files combine to form a unified configuration, the precedence rules, inheritance patterns, and override mechanisms. The system now includes enhanced security through VS Code secrets storage for sensitive credentials like PostgreSQL connection strings and OpenRouter API keys, comprehensive chat configuration management including architecture document refresh controls, advanced embedding provider configuration with OpenRouter support, and sophisticated file edit application mode controls. It also documents the configuration schema validation, supported properties, default values, environment-specific behavior (workspace vs user settings, per-project overrides, global defaults), and practical examples for common scenarios such as custom output directories, bundle definitions, AI provider settings, chat workflow optimization, and fine-grained edit application control. Finally, it describes the configuration loading process, validation errors, troubleshooting steps, migration guidance, and consistency practices across team environments.
 
 ## Project Structure
-The configuration system spans several modules with enhanced security, chat integration, and file edit application capabilities:
-- Schema definitions and validation
+The configuration system spans several modules with enhanced security, chat integration, embedding provider support, and file edit application capabilities:
+- Schema definitions and validation with OpenRouter integration
 - Configuration loaders and merging logic
-- VS Code contribution declarations
+- VS Code contribution declarations with comprehensive OpenRouter settings
 - Bundle-level configuration and output naming
-- Webview settings and embedding provider configuration
+- Webview settings with OpenRouter provider configuration
+- Embedding service supporting multiple providers including OpenRouter
 - Chat configuration management including architecture refresh controls and edit mode settings
 - File edit application system with three distinct modes (full, search_replace, hybrid)
 - CLI flag compatibility checks
-- Secure secrets storage for sensitive credentials
+- Secure secrets storage for sensitive credentials including OpenRouter API keys
 
 ```mermaid
 graph TB
 subgraph "VS Code Settings"
-PJSON["package.json<br/>contributes.configuration"]
+PJSON["package.json<br/>comprehensive OpenRouter settings"]
 ENDSEC["extension.ts<br/>context.secrets integration"]
 end
 subgraph "Config Files"
@@ -106,7 +109,8 @@ PLANNING["Planning LLM<br/>planningModel (internal rate limiting)"]
 end
 subgraph "UI & Providers"
 SETAB["SettingsTab.tsx<br/>secure credential UI"]
-EMB["embeddingService.ts"]
+EMBSVC["embeddingService.ts<br/>OpenRouter + other providers"]
+OPROV["OpenRouterProvider.ts<br/>advanced routing/fallback"]
 CCTL["ConfigController.ts<br/>secrets management"]
 PGCLIENT["postgresClient.ts<br/>secure connection handling"]
 CHATST["ChatSettingsTab.tsx<br/>enhanced threshold UI"]
@@ -122,7 +126,8 @@ CHATCFG --> EDITAPPLIER
 CHATCFG --> CONTEXTMGR
 CHATCFG --> PLANNING
 SETAB --> CCTL
-CCTL --> EMB
+CCTL --> EMBSVC
+EMBSVC --> OPROV
 ENDSEC --> PGCLIENT
 CHATST --> CONTEXTMGR
 ```
@@ -131,7 +136,7 @@ CHATST --> CONTEXTMGR
 - [configLoader.ts](file://src/config/configLoader.ts#L145-L229)
 - [configSchema.ts](file://src/config/configSchema.ts#L15-L165)
 - [repomix.config.json](file://repomix.config.json#L1-L43)
-- [package.json](file://package.json#L336-L476)
+- [package.json](file://package.json#L307-L348)
 - [getCwd.ts](file://src/config/getCwd.ts#L8-L17)
 - [getOpenFiles.ts](file://src/config/getOpenFiles.ts#L4-L12)
 - [bundleManager.ts](file://src/core/bundles/bundleManager.ts)
@@ -142,7 +147,8 @@ CHATST --> CONTEXTMGR
 - [editModeSelector.ts](file://src/chat/apply/editModeSelector.ts#L1-L51)
 - [searchReplaceApplier.ts](file://src/chat/apply/searchReplaceApplier.ts#L1-L133)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1084-L1093)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L198)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L137)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
 - [extension.ts](file://src/extension.ts#L75-L106)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
@@ -158,17 +164,18 @@ CHATST --> CONTEXTMGR
 - [package.json](file://package.json#L30-L284)
 
 ## Core Components
-- Configuration schemas define supported properties, enums, defaults, and validation rules.
-- VS Code settings contribute default values and UI for configuration.
+- Configuration schemas define supported properties, enums, defaults, and validation rules with OpenRouter integration.
+- VS Code settings contribute default values and UI for configuration including comprehensive OpenRouter settings.
 - repomix.config.json provides per-project overrides.
 - mergeConfigs applies precedence and produces a validated MergedConfig.
 - Bundle-level configPath allows per-bundle overrides.
 - Output filename generation integrates bundle names and configuration paths.
-- **Enhanced Security**: VS Code secrets storage API manages sensitive credentials with encryption and secure storage patterns.
+- **Enhanced Security**: VS Code secrets storage API manages sensitive credentials including OpenRouter API keys with encryption and secure storage patterns.
 - **Chat Configuration**: Comprehensive chat settings including architecture document refresh controls, batch processing parameters, context management, and file edit application modes.
 - **File Edit Application**: Three distinct edit modes (full file write, SEARCH/REPLACE patch, hybrid auto-selection) with configurable thresholds for optimal edit application.
 - **Enhanced Context Management**: Improved user experience with clearer threshold descriptions and real-time visual feedback for context compression settings.
 - **Simplified Planning LLM**: Planning LLM configuration now uses internal rate limiting via environment variables instead of user-configurable RPM settings.
+- **OpenRouter Integration**: Advanced OpenRouter provider support with routing order, fallback mechanisms, and quantization preferences for optimal embedding performance.
 
 **Section sources**
 - [configSchema.ts](file://src/config/configSchema.ts#L15-L165)
@@ -179,7 +186,7 @@ CHATST --> CONTEXTMGR
 - [generateOutputFilename.ts](file://src/utils/generateOutputFilename.ts#L4-L38)
 
 ## Architecture Overview
-The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides. **Enhanced security** ensures sensitive credentials are stored securely using VS Code's secrets storage API. **Chat configuration** provides granular control over AI workflows including architecture document refresh intervals, batch processing parameters, context management, and file edit application modes with fine-grained control over edit behavior.
+The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides. **Enhanced security** ensures sensitive credentials are stored securely using VS Code's secrets storage API. **Chat configuration** provides granular control over AI workflows including architecture document refresh intervals, batch processing parameters, context management, and file edit application modes with fine-grained control over edit behavior. **OpenRouter integration** extends embedding provider capabilities with advanced routing, fallback, and quantization controls for optimal performance.
 
 ```mermaid
 sequenceDiagram
@@ -193,10 +200,13 @@ participant ChatCfg as "Chat Configuration"
 participant ContextMgr as "Context Management"
 participant EditApplier as "Edit Application System"
 participant Planning as "Planning LLM"
+participant Embedding as "Embedding Service"
+participant OpenRouter as "OpenRouter Provider"
 participant Output as "MergedConfig"
 User->>VSCode : "Open settings / run command"
 VSCode-->>Loader : "repomixRunnerConfigDefault"
 VSCode-->>ChatCfg : "repomix.chat settings"
+VSCode-->>Embedding : "repomix.embedding settings"
 Loader->>FS : "readRepomixFileConfig(cwd)"
 FS-->>Loader : "RepomixConfigFile or void"
 Loader->>Schema : "merge and validate"
@@ -204,6 +214,7 @@ Schema-->>Output : "MergedConfig"
 Output-->>User : "Effective configuration applied"
 Note over Secrets : "Sensitive credentials stored securely"
 Note over ChatCfg : "Architecture refresh + edit modes controlled"
+Note over Embedding : "OpenRouter routing + fallback enabled"
 Note over ContextMgr : "Enhanced threshold UI + visual feedback"
 Note over EditApplier : "Three edit modes with thresholds"
 Note over Planning : "Internal rate limiting via env vars"
@@ -213,7 +224,7 @@ Note over Planning : "Internal rate limiting via env vars"
 - [configLoader.ts](file://src/config/configLoader.ts#L145-L229)
 - [configSchema.ts](file://src/config/configSchema.ts#L138-L149)
 - [extension.ts](file://src/extension.ts#L75-L106)
-- [package.json](file://package.json#L418-L476)
+- [package.json](file://package.json#L307-L348)
 - [ChatSettingsTab.tsx](file://src/webview/components/ai-chat/ChatSettingsTab.tsx#L302-L314)
 - [llmClient.ts](file://src/agent/llmClient.ts#L1-L25)
 
@@ -231,6 +242,7 @@ Key behaviors:
 - output.filePath is resolved against cwd and extended with a default extension based on output.style.
 - Special handling: when runner.useTargetAsOutput is enabled and include resolves to a single directory, output is placed inside that directory using the configured output filename.
 - **Enhanced**: Chat configuration settings are merged separately and include architecture refresh controls, edit application mode settings, and improved context management with clearer threshold descriptions.
+- **Enhanced**: OpenRouter configuration settings are integrated with provider routing, fallback, and quantization preferences.
 
 ```mermaid
 flowchart TD
@@ -244,7 +256,9 @@ ResolveOut --> MergeOthers["Merge include, ignore, security, tokenCount"]
 MergeOthers --> MergeChat["Merge chat configuration"]
 MergeChat --> MergeContext["Merge context management settings"]
 MergeContext --> MergePlanning["Merge planning LLM settings"]
-MergePlanning --> VersionCfg["Set version flag"]
+MergePlanning --> MergeEmbedding["Merge embedding provider settings"]
+MergeEmbedding --> MergeOpenRouter["Merge OpenRouter routing/fallback"]
+MergeOpenRouter --> VersionCfg["Set version flag"]
 VersionCfg --> Validate["Validate merged config"]
 Validate --> End(["Return MergedConfig"])
 ```
@@ -263,6 +277,7 @@ Validate --> End(["Return MergedConfig"])
 - Runner-specific schema adds runner.* keys and enforces enums.
 - Merged schema adds runtime-only fields like cwd, version, and optional remote.
 - **Enhanced**: Chat configuration schema includes architecture refresh controls, batch processing parameters, file edit application mode settings, and comprehensive context management with improved threshold descriptions.
+- **Enhanced**: OpenRouter configuration schema includes advanced routing, fallback, and quantization controls with comprehensive validation.
 
 Supported properties include:
 - output: filePath, style, parsableStyle, headerText, instructionFilePath, fileSummary, directoryStructure, removeComments, removeEmptyLines, topFilesLength, showLineNumbers, copyToClipboard, includeEmptyDirectories, compress
@@ -271,6 +286,7 @@ Supported properties include:
 - security: enableSecurityCheck
 - tokenCount: encoding
 - runner: verbose, keepOutputFile, copyMode, useTargetAsOutput, useBundleNameAsOutputName, configPath
+- **Embedding**: provider (gemini, ollama, lmstudio, openrouter), ollama (url, model, dimension), lmstudio (baseUrl, apiKey, model, dimension), **openrouter (baseUrl, model, dimension, providerOrder, allowFallbacks, quantizations)**
 - **Chat configuration**: contextThresholdPercent, maxRecentMessages, batchModel, batchMaxTokens, batchThinkingBudget, batchPollIntervalSeconds, batchSendAllLimit, batchApiMaxRetries, batchApiRetryBaseMs, batchApiRetryMaxMs, architectureRefreshHours, **editMode**, **hybridThresholdLines**, **fuzzyMatchThreshold**, **planningModel**
 - **Context management**: **contextThresholdPercent** (with enhanced UI description), **maxRecentMessages** (with improved slider feedback)
 - **Planning LLM**: **planningModel** (with internal rate limiting via environment variables)
@@ -281,7 +297,7 @@ Defaults are declared in the default schema and enforced by Zod parsing.
 **Section sources**
 - [configSchema.ts](file://src/config/configSchema.ts#L3-L165)
 - [repomix.config.json](file://repomix.config.json#L6-L42)
-- [package.json](file://package.json#L418-L476)
+- [package.json](file://package.json#L307-L348)
 
 ### Environment-Specific Configurations
 - Workspace vs user settings: VS Code settings contribute defaults and can be overridden per workspace via .vscode/settings.json.
@@ -291,6 +307,7 @@ Defaults are declared in the default schema and enforced by Zod parsing.
 - **Chat environment**: Architecture refresh settings and edit mode configurations are environment-specific and control document freshness and edit application behavior across sessions.
 - **Enhanced Context Management**: Context threshold settings provide real-time visual feedback with percentage displays and improved descriptions for better user understanding.
 - **Simplified Planning LLM**: Planning model configuration is environment-specific and uses internal rate limiting via GEMINI_RPM environment variable.
+- **OpenRouter Environment**: OpenRouter provider settings are environment-specific and include routing order, fallback mechanisms, and quantization preferences.
 
 Practical effects:
 - runner.configPath allows selecting a non-default config file path.
@@ -302,6 +319,7 @@ Practical effects:
 - **Chat**: fuzzyMatchThreshold controls similarity requirements for fuzzy matching.
 - **Enhanced Context**: contextThresholdPercent provides real-time percentage display in the UI with improved threshold descriptions.
 - **Planning LLM**: planningModel selects between gemini-2.5-flash and gemini-2.5-flash-lite models with internal rate limiting.
+- **OpenRouter**: providerOrder controls routing order through different providers, allowFallbacks enables automatic fallback, quantizations specify preferred quantization levels.
 
 **Section sources**
 - [package.json](file://package.json#L30-L284)
@@ -311,30 +329,36 @@ Practical effects:
 
 ### AI Provider Settings and Embedding Configuration
 - Embedding provider selection and configuration are exposed in the UI and validated by the embedding service.
-- Gemini requires an API key; Ollama requires URL, model, and dimension.
+- Gemini requires an API key; Ollama requires URL, model, and dimension; **OpenRouter requires API key, model, dimension, and supports advanced routing/fallback/quantization**.
+- **Enhanced**: OpenRouter provider supports provider routing order, automatic fallback mechanisms, and quantization preferences for optimal performance.
 - Changing provider or dimensions triggers compatibility checks and may require re-indexing.
 
 ```mermaid
 sequenceDiagram
 participant UI as "SettingsTab.tsx"
 participant Ctrl as "ConfigController.ts"
-participant EMB as "embeddingService.ts"
+participant EmbedSvc as "embeddingService.ts"
+participant OpenRouter as "OpenRouterProvider.ts"
 UI->>Ctrl : "Save embedding config"
 Ctrl->>Ctrl : "Validate provider + params"
-Ctrl->>EMB : "switchProvider(config)"
-EMB-->>Ctrl : "OK or error"
+Ctrl->>EmbedSvc : "switchProvider(config)"
+EmbedSvc->>OpenRouter : "new OpenRouterProvider(config)"
+OpenRouter-->>EmbedSvc : "Provider instance with routing/fallback"
+EmbedSvc-->>Ctrl : "OK or error"
 Ctrl-->>UI : "Show result + trigger compatibility check"
 ```
 
 **Diagram sources**
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L450-L479)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L198)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L137)
 
 **Section sources**
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L450-L479)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L198)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L137)
 
 ### Practical Examples
 
@@ -350,11 +374,17 @@ Ctrl-->>UI : "Show result + trigger compatibility check"
 - AI provider configuration:
   - For Gemini: set provider to gemini and supply the API key.
   - For Ollama: set provider to ollama and supply URL, model, and dimension.
+  - **For OpenRouter: set provider to openrouter and supply API key, model, dimension, and optional routing/fallback/quantization settings**.
 
 - **Enhanced Security**: PostgreSQL connection management:
   - Store connection strings securely in VS Code secrets storage.
   - Use the Repomix Runner settings panel to configure and manage connections.
   - Connection strings are automatically encrypted and decrypted as needed.
+
+- **Enhanced Security**: OpenRouter API key management:
+  - Store OpenRouter API keys securely in VS Code secrets storage.
+  - Use the Repomix Runner settings panel to configure OpenRouter provider settings.
+  - API keys are automatically encrypted and decrypted as needed.
 
 - **Chat Architecture Management**:
   - Set repomix.chat.architectureRefreshHours to control TTL-based regeneration (default: 24 hours).
@@ -378,6 +408,14 @@ Ctrl-->>UI : "Show result + trigger compatibility check"
   - Rate limiting is handled internally via GEMINI_RPM environment variable (default: 10).
   - Configure Google API key through the settings UI for planning functionality.
 
+- **OpenRouter Advanced Configuration**:
+  - Set repomix.embedding.provider to 'openrouter'.
+  - Configure repomix.openrouter.baseUrl, model, and dimension.
+  - Set repomix.openrouter.providerOrder for routing preference (e.g., ['nebius']).
+  - Enable repomix.openrouter.allowFallbacks for automatic fallback (default: true).
+  - Configure repomix.openrouter.quantizations for preferred quantization levels (e.g., ['fp8', 'fp16']).
+  - Store OpenRouter API key securely in VS Code secrets storage.
+
 Note: These examples describe behaviors implemented by the configuration system and UI; refer to the linked sources for precise property names and defaults.
 
 **Section sources**
@@ -392,13 +430,15 @@ Note: These examples describe behaviors implemented by the configuration system 
 - [ChatSettingsTab.tsx](file://src/webview/components/ai-chat/ChatSettingsTab.tsx#L302-L314)
 - [compressContext.ts](file://src/chat/nodes/compressContext.ts#L22-L27)
 - [llmClient.ts](file://src/agent/llmClient.ts#L1-L25)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L28-L51)
 
 ### Configuration Loading Process
 - getCwd determines the workspace root used as cwd for resolving paths.
-- readRepomixRunnerVscodeConfig reads VS Code settings and validates them against the runner default schema.
+- readRepomixRunnerVscodeConfig reads VS Code settings and validates them against the runner default schema including OpenRouter settings.
 - readRepomixFileConfig attempts to locate and parse repomix.config.json, stripping comments before parsing.
 - mergeConfigs performs the precedence-based merge and validates the final configuration.
 - **Enhanced**: Chat configuration settings are loaded separately and integrated into the merged configuration, including edit mode settings for file application control and enhanced context management with improved UI descriptions.
+- **Enhanced**: OpenRouter configuration settings are validated and integrated with provider routing, fallback, and quantization preferences.
 
 ```mermaid
 flowchart TD
@@ -410,7 +450,9 @@ D --> E["Load chat configuration"]
 E --> F["Load context management settings"]
 F --> G["Load planning LLM settings"]
 G --> H["Load edit application settings"]
-H --> I["Return validated MergedConfig"]
+H --> I["Load embedding provider settings"]
+I --> J["Load OpenRouter routing/fallback"]
+J --> K["Return validated MergedConfig"]
 ```
 
 **Diagram sources**
@@ -485,7 +527,7 @@ The AI Chat interface provides:
 - Last generated timestamp display
 
 **Section sources**
-- [package.json](file://package.json#L418-L425)
+- [package.json](file://package.json#L468-L475)
 - [checkFreshness.ts](file://src/chat/architecture/nodes/checkFreshness.ts#L1-L64)
 - [storeDocument.ts](file://src/chat/architecture/nodes/storeDocument.ts#L1-L41)
 - [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L40-L81)
@@ -560,7 +602,7 @@ The AI Chat Settings tab provides:
 - Better understanding of context management behavior
 
 **Section sources**
-- [package.json](file://package.json#L418-L425)
+- [package.json](file://package.json#L390-L397)
 - [compressContext.ts](file://src/chat/nodes/compressContext.ts#L22-L27)
 - [contextManager.ts](file://src/chat/compression/contextManager.ts#L138-L182)
 - [tokenBudget.ts](file://src/chat/compression/tokenBudget.ts#L196-L208)
@@ -679,7 +721,7 @@ The AI Chat Settings tab provides:
 - Enhanced descriptions for each setting
 
 **Section sources**
-- [package.json](file://package.json#L426-L452)
+- [package.json](file://package.json#L476-L502)
 - [editModeSelector.ts](file://src/chat/apply/editModeSelector.ts#L1-L51)
 - [searchReplaceApplier.ts](file://src/chat/apply/searchReplaceApplier.ts#L1-L133)
 - [contentAnalyst.ts](file://src/core/patching/contentAnalyst.ts#L1-L102)
@@ -759,10 +801,57 @@ The AI Chat Settings tab provides:
 - Clear descriptions for model capabilities
 
 **Section sources**
-- [package.json](file://package.json#L453-L470)
+- [package.json](file://package.json#L503-L512)
 - [llmClient.ts](file://src/agent/llmClient.ts#L1-L25)
 - [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts#L99-L99)
 - [ChatSettingsTab.tsx](file://src/webview/components/ai-chat/ChatSettingsTab.tsx#L302-L333)
+
+### OpenRouter Configuration Management
+
+#### Advanced Provider Configuration
+The OpenRouter provider supports sophisticated configuration options for optimal embedding performance including routing order, fallback mechanisms, and quantization preferences.
+
+**Configuration Details**
+- **Property**: `repomix.embedding.provider`
+- **Type**: string enum
+- **Values**: 'gemini' | 'ollama' | 'lmstudio' | **'openrouter'**
+- **Default**: 'gemini'
+- **Description**: Embedding provider to use
+
+**OpenRouter Specific Properties**
+- **repomix.openrouter.baseUrl**: Base URL for OpenRouter API (default: https://openrouter.ai/api/v1)
+- **repomix.openrouter.model**: Model name for embeddings (default: openai/text-embedding-3-small)
+- **repomix.openrouter.dimension**: Embedding dimension size (default: 1536)
+- **repomix.openrouter.providerOrder**: Ordered list of providers to route through (default: ['nebius'])
+- **repomix.openrouter.allowFallbacks**: Enable automatic fallback to other providers (default: true)
+- **repomix.openrouter.quantizations**: Preferred quantization levels (default: ['fp8'])
+
+#### Provider Routing and Fallback Mechanisms
+The OpenRouter provider implements intelligent routing and fallback:
+- **Routing Order**: Specifies preferred providers in order of preference
+- **Automatic Fallback**: Enables fallback to alternative providers if primary fails
+- **Quantization Preferences**: Allows specifying preferred quantization levels for optimal performance
+
+#### Security and Integration
+- **API Key Management**: Stored securely in VS Code secrets storage
+- **Provider Integration**: Seamlessly integrates with embedding service architecture
+- **Compatibility Checking**: Validates model dimensions and compatibility
+
+#### UI Integration
+The AI Chat Settings tab provides:
+- OpenRouter configuration section with all advanced settings
+- API key input field with secure storage
+- Model selection with dimension auto-detection
+- Provider routing configuration
+- Fallback and quantization preference controls
+- Real-time testing and validation capabilities
+
+**Section sources**
+- [package.json](file://package.json#L253-L348)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L137)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L23-L34)
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L672-L1300)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L752-L778)
 
 ## Security and Secrets Management
 
@@ -773,6 +862,12 @@ The configuration system now uses VS Code's secrets storage API to securely mana
 - **Migration**: Connection strings previously stored in VS Code settings are now managed through the secrets API.
 - **Storage Location**: Credentials are stored in VS Code's secure secrets vault, encrypted at rest.
 - **Access Pattern**: Connection strings are retrieved on-demand using `context.secrets.get()` during extension activation.
+- **UI Integration**: The settings panel provides secure input fields with masking and confirmation dialogs.
+
+#### OpenRouter API Key Security
+- **New Feature**: OpenRouter API keys are now stored securely in VS Code secrets storage.
+- **Storage Location**: API keys are stored in VS Code's secure secrets vault, encrypted at rest.
+- **Access Pattern**: API keys are retrieved on-demand using `context.secrets.get()` during extension activation.
 - **UI Integration**: The settings panel provides secure input fields with masking and confirmation dialogs.
 
 #### Secrets Management Implementation
@@ -813,13 +908,14 @@ InitDB --> Success["Database ready for use"]
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1084-L1093)
 
 ## Dependency Analysis
-The configuration system exhibits clear separation of concerns with enhanced security integration and file edit application capabilities:
-- Schemas define contracts and defaults.
+The configuration system exhibits clear separation of concerns with enhanced security integration, OpenRouter provider support, chat integration, and file edit application capabilities:
+- Schemas define contracts and defaults with OpenRouter integration.
 - Loaders orchestrate reading and merging.
-- VS Code contributes defaults and UI.
+- VS Code contributes defaults and UI with comprehensive OpenRouter settings.
 - Bundles integrate per-bundle configuration.
 - UI components manage provider configuration and compatibility checks.
 - **Enhanced Security**: Secrets management handles sensitive credential storage and retrieval.
+- **OpenRouter Integration**: Advanced provider configuration with routing, fallback, and quantization controls.
 - **Chat Configuration**: Architecture refresh controls integrate with the LangGraph workflow system.
 - **File Edit Application**: Edit mode selection and application system provides flexible file modification capabilities.
 - **Enhanced Context Management**: Improved UI integration with real-time threshold feedback and clearer descriptions.
@@ -834,6 +930,7 @@ CLDR --> BMGR["bundleManager.ts"]
 BTYP["types.ts"] --> GFNM["generateOutputFilename.ts"]
 SETAB["SettingsTab.tsx"] --> CCTL["ConfigController.ts"]
 CCTL --> EMB["embeddingService.ts"]
+CCTL --> OPROV["OpenRouterProvider.ts"]
 EXT["extension.ts"] --> PGCLIENT["postgresClient.ts"]
 CCTL --> EXT
 CHATCFG["Chat Settings"] --> ARCHNODES["Architecture Nodes"]
@@ -848,6 +945,7 @@ CONTEXTMGR --> COMPCTX["compressContext.ts"]
 CONTEXTMGR --> CTXMAN["contextManager.ts"]
 CONTEXTMGR --> TKBUDGET["tokenBudget.ts"]
 PLANNING --> LLMQ["llmClient.ts (geminiQueue)"]
+OPROV --> EMB
 ```
 
 **Diagram sources**
@@ -860,7 +958,8 @@ PLANNING --> LLMQ["llmClient.ts (geminiQueue)"]
 - [generateOutputFilename.ts](file://src/utils/generateOutputFilename.ts#L4-L38)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L450-L479)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
-- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L17-L46)
+- [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L1-L198)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L137)
 - [extension.ts](file://src/extension.ts#L75-L106)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L282-L312)
 - [checkFreshness.ts](file://src/chat/architecture/nodes/checkFreshness.ts#L1-L64)
@@ -885,6 +984,7 @@ PLANNING --> LLMQ["llmClient.ts (geminiQueue)"]
 - Avoid excessive customPatterns; leverage built-in defaults where possible.
 - When using embedding providers, choose appropriate models and dimensions to balance accuracy and performance.
 - **Enhanced Security**: Secrets storage operations are optimized for minimal overhead during extension activation.
+- **OpenRouter Performance**: Provider routing order and fallback mechanisms help optimize embedding performance and reliability.
 - **Chat Performance**: Architecture refresh intervals should balance document freshness with computational overhead; 24-hour default provides reasonable balance.
 - **Edit Application Performance**: Hybrid threshold tuning can optimize performance for large codebases; adjust based on typical file sizes.
 - **Fuzzy Matching**: Lower fuzzyMatchThreshold values increase matching tolerance but may reduce accuracy; tune based on codebase characteristics.
@@ -910,7 +1010,7 @@ Common issues and resolutions:
 
 - Embedding provider misconfiguration:
   - Symptom: Errors when switching provider or saving embedding config.
-  - Resolution: Ensure required keys are present (e.g., Gemini API key, Ollama URL/model/dimension).
+  - Resolution: Ensure required keys are present (e.g., Gemini API key, Ollama URL/model/dimension, **OpenRouter API key/model/dimension**).
   - Reference: [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L30-L41), [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L696-L734)
 
 - CLI flag mismatch:
@@ -927,6 +1027,11 @@ Common issues and resolutions:
   - Symptom: PostgreSQL connection fails despite correct credentials.
   - Resolution: Verify credentials are stored in secrets storage, not VS Code settings. Check extension logs for secrets API errors.
   - Reference: [extension.ts](file://src/extension.ts#L75-L106), [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+
+- **OpenRouter Configuration Issues**:
+  - Symptom: OpenRouter embedding failures or incorrect dimensions.
+  - Resolution: Verify OpenRouter API key is stored in secrets storage, check model compatibility, validate provider routing order, and ensure quantization preferences are appropriate for the selected model.
+  - Reference: [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L28-L51), [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L752-L778)
 
 - **Secrets Storage Problems**:
   - Symptom: Cannot save or retrieve secrets, connection string appears empty.
@@ -974,7 +1079,7 @@ Common issues and resolutions:
 - [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts#L99-L99)
 
 ## Conclusion
-The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. **Enhanced security** through VS Code secrets storage ensures sensitive credentials like PostgreSQL connection strings are protected with automatic encryption and platform-level security. **Chat configuration management** provides comprehensive controls for AI workflows including architecture document refresh intervals, batch processing parameters, context management, and advanced file edit application modes with fine-grained control over edit behavior. The architecture refresh system offers TTL-based document regeneration that balances freshness with computational efficiency. The new file edit application system provides three distinct modes (full, search_replace, hybrid) with configurable thresholds, enabling optimal edit application based on file characteristics and team preferences. **Enhanced context management** delivers improved user experience with clearer threshold descriptions and real-time visual feedback, making it easier for users to understand when and how context compression is triggered. **Simplified planning LLM configuration** removes the complexity of user-configurable rate limiting by handling it internally through environment variables, reducing configuration surface area while maintaining API compliance. By following the documented precedence, defaults, security practices, chat configuration guidelines, edit application controls, enhanced context management features, simplified planning LLM configuration, and troubleshooting steps, teams can maintain consistent and secure configurations across diverse development environments.
+The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. **Enhanced security** through VS Code secrets storage ensures sensitive credentials like PostgreSQL connection strings and OpenRouter API keys are protected with automatic encryption and platform-level security. **Chat configuration management** provides comprehensive controls for AI workflows including architecture document refresh intervals, batch processing parameters, context management, and advanced file edit application modes with fine-grained control over edit behavior. **OpenRouter integration** extends embedding provider capabilities with sophisticated routing, fallback, and quantization controls for optimal performance and reliability. The architecture refresh system offers TTL-based document regeneration that balances freshness with computational efficiency. The new file edit application system provides three distinct modes (full, search_replace, hybrid) with configurable thresholds, enabling optimal edit application based on file characteristics and team preferences. **Enhanced context management** delivers improved user experience with clearer threshold descriptions and real-time visual feedback, making it easier for users to understand when and how context compression is triggered. **Simplified planning LLM configuration** removes the complexity of user-configurable rate limiting by handling it internally through environment variables, reducing configuration surface area while maintaining API compliance. By following the documented precedence, defaults, security practices, OpenRouter configuration guidelines, chat configuration controls, edit application controls, enhanced context management features, simplified planning LLM configuration, and troubleshooting steps, teams can maintain consistent and secure configurations across diverse development environments.
 
 ## Appendices
 
@@ -995,6 +1100,7 @@ Highest to lowest:
 - security: enableSecurityCheck defaults to true.
 - runner: verbose defaults to false; keepOutputFile defaults to true; copyMode defaults to file; useTargetAsOutput defaults to true; useBundleNameAsOutputName defaults to true; configPath defaults to empty string.
 - tokenCount: encoding is optional.
+- **Embedding**: provider defaults to gemini; ollama (url defaults to http://localhost:11434, model defaults to nomic-embed-text, dimension defaults to 768); lmstudio (baseUrl defaults to http://localhost:1234/v1, apiKey defaults to empty, model defaults to empty, dimension defaults to 768); **openrouter (baseUrl defaults to https://openrouter.ai/api/v1, model defaults to openai/text-embedding-3-small, dimension defaults to 1536, providerOrder defaults to ['nebius'], allowFallbacks defaults to true, quantizations defaults to ['fp8'])**
 - **Chat configuration**: contextThresholdPercent defaults to 80; maxRecentMessages defaults to 10; batchModel defaults to claude-opus-4-20250514; batchMaxTokens defaults to 16384; batchThinkingBudget defaults to 10000; batchPollIntervalSeconds defaults to 60; batchSendAllLimit defaults to 100; batchApiMaxRetries defaults to 3; batchApiRetryBaseMs defaults to 1000; batchApiRetryMaxMs defaults to 8000; architectureRefreshHours defaults to 24; **editMode defaults to hybrid; hybridThresholdLines defaults to 300; fuzzyMatchThreshold defaults to 0.85; planningModel defaults to gemini-2.5-flash**.
 - **Enhanced Context Management**: **contextThresholdPercent** provides real-time percentage display with improved threshold descriptions.
 - **Simplified Planning LLM**: **planningModel** defaults to gemini-2.5-flash with internal rate limiting via GEMINI_RPM environment variable.
@@ -1002,6 +1108,7 @@ Highest to lowest:
 **Section sources**
 - [configSchema.ts](file://src/config/configSchema.ts#L60-L101)
 - [configSchema.ts](file://src/config/configSchema.ts#L125-L136)
+- [package.json](file://package.json#L307-L348)
 - [package.json](file://package.json#L418-L476)
 
 ### Migration Guidance
@@ -1017,6 +1124,7 @@ Highest to lowest:
   - Migrate existing PostgreSQL connection strings from VS Code settings to secrets storage.
   - Use the Repomix Runner settings panel to re-enter credentials securely.
   - Remove plaintext connection strings from VS Code settings to prevent accidental exposure.
+  - **Migrate OpenRouter API keys from VS Code settings to secrets storage using the new OpenRouter configuration UI**.
 - **Chat Configuration Migration**:
   - Review existing chat settings and migrate to repomix.chat namespace.
   - Set architectureRefreshHours based on project complexity and team preferences.
@@ -1037,6 +1145,13 @@ Highest to lowest:
   - Set GEMINI_RPM environment variable if custom rate limiting is needed (default: 10).
   - Remove any existing planningRateLimitRpm configuration as it is no longer supported.
   - Test planning functionality with representative queries to validate configuration.
+- **OpenRouter Migration**:
+  - Review existing embedding configuration and migrate to repomix.embedding.provider setting.
+  - Set provider to 'openrouter' and configure baseUrl, model, and dimension.
+  - Configure providerOrder, allowFallbacks, and quantizations for optimal performance.
+  - Store OpenRouter API key securely in VS Code secrets storage.
+  - Test OpenRouter configuration with the new UI testing features.
+  - Validate dimension compatibility with existing vector database indexes.
 
 **Section sources**
 - [repomix.config.json](file://repomix.config.json#L1-L43)
@@ -1044,6 +1159,7 @@ Highest to lowest:
 - [goToConfigFile.ts](file://src/commands/goToConfigFile.ts#L10-L69)
 - [extension.ts](file://src/extension.ts#L75-L106)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+- [package.json](file://package.json#L307-L348)
 - [package.json](file://package.json#L418-L476)
 - [editModeSelector.ts](file://src/chat/apply/editModeSelector.ts#L8-L51)
 - [searchReplaceApplier.ts](file://src/chat/apply/searchReplaceApplier.ts#L9-L133)

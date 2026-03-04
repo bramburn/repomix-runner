@@ -159,22 +159,40 @@ async function main() {
       baseURL: 'http://192.168.0.136:8080/v1',
     });
 
-    const testSignature = 'public deleteUser(id: number): void { ... }';
-    const prompt = 'Provide a concise one-line summary of what this method does:\n```typescript\n' + testSignature + '\n```\nRespond with just the summary, no extra text.';
+    // Extract actual method implementation from the test file
+    const methodCode = `public deleteUser(id: number): void {
+    this.userService.deleteUser(id).subscribe(() => {
+      console.log('User deleted:', id);
+    });
+  }`;
+    
+    const prompt = `Summarize what this method does in 5-10 words:\n\`\`\`ts\n${methodCode}\n\`\`\``;
 
-    console.log('Sending request to local LLM...');
+    console.log('Sending request to local LLM (with full code snippet)...');
     
     const response = await client.chat.completions.create({
-      model: 'qwen3.5-9b',  // Use lowercase for consistency
+      model: 'qwen3.5-9b',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
-      max_tokens: 100,
+      max_tokens: 10000,  // Increased for reasoning models
     });
 
-    const result = response.choices[0]?.message?.content || '';
+    const message = response.choices[0]?.message;
+    // Qwen reasoning models output to reasoning_content
+    const rawOutput = message?.reasoning_content || message?.content || '';
+    
+    // Extract quoted answer from reasoning
+    const quoteMatches = rawOutput.match(/"([^"]+)"/g);
+    const result = quoteMatches && quoteMatches.length > 0 
+      ? quoteMatches[quoteMatches.length - 1]?.replace(/^"|"$/g, '') || rawOutput
+      : rawOutput;
 
     console.log('OK: Generated summary:');
     console.log('   "' + result.trim() + '"');
+    
+    if (response.choices[0].finish_reason === 'length') {
+      console.log('⚠️  WARNING: Response truncated, consider increasing max_tokens');
+    }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.log('FAIL: LLM summary generation - ' + errMsg);

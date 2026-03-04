@@ -34,14 +34,22 @@
 - [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts)
 - [AiChatRoot.tsx](file://src/webview/AiChatRoot.tsx)
 - [extension.ts](file://src/extension.ts)
+- [test-enrichment.ts](file://src/test-enrichment.ts)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts)
+- [ENRICHMENT_TESTS.md](file://ENRICHMENT_TESTS.md)
+- [enrichment-readme.md](file://enrichment-readme.md)
+- [003_code_enrichment.sql](file://src/chat/db/migrations/003_code_enrichment.sql)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added new AI Chat webview test suite (aiChat.test.ts) that validates webview registration and extension activation
-- Updated webview testing section to include AI chat functionality alongside existing message schema validation
-- Enhanced extension activation testing to cover new AI chat webview provider registration
-- Updated project structure diagram to reflect new AI chat webview test file
+- Added comprehensive enrichment feature testing framework with three dedicated test scripts
+- Integrated PostgreSQL database testing with migration verification and CRUD operations
+- Implemented Tree-sitter symbol extraction testing for multiple programming languages
+- Added LLM integration testing with local endpoint configuration
+- Enhanced testing documentation with Docker-based database setup and troubleshooting guides
+- Updated project structure to include enrichment testing infrastructure
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -56,7 +64,7 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Testing Framework for the project, covering unit tests, integration tests, and end-to-end workflows. It explains the test structure organized by feature areas, the test workspace setup, mock data generation, and environment configuration. It documents testing utilities, helper functions, and assertion patterns used across the suite. It also outlines integration testing approaches for external tool interactions, guidance for writing new tests, running test suites, interpreting results, continuous integration setup, coverage reporting, and quality assurance processes. Examples include bundle creation workflows, AI agent message validation, clipboard operations, compression module testing, and the newly enhanced AI chat webview functionality with comprehensive webview registration validation.
+This document describes the Testing Framework for the project, covering unit tests, integration tests, and end-to-end workflows. It explains the test structure organized by feature areas, the test workspace setup, mock data generation, and environment configuration. It documents testing utilities, helper functions, and assertion patterns used across the suite. It also outlines integration testing approaches for external tool interactions, guidance for writing new tests, running test suites, interpreting results, continuous integration setup, coverage reporting, and quality assurance processes. Examples include bundle creation workflows, AI agent message validation, clipboard operations, compression module testing, AI chat webview functionality, and the newly enhanced enrichment feature testing framework with comprehensive indexing, retrieval, and LLM integration capabilities.
 
 ## Project Structure
 The test suite is organized under src/test with dedicated folders per major module and feature area:
@@ -66,6 +74,7 @@ The test suite is organized under src/test with dedicated folders per major modu
 - Webview: WebView message schema validation and AI chat functionality
 - Utils: General-purpose utilities
 - Test workspace: Integration tests and fixture data
+- **New**: Enrichment Testing: Comprehensive code enrichment feature testing with database, symbol extraction, and LLM integration
 - **New**: AI Chat webview test suite: Validates webview registration and extension activation
 
 ```mermaid
@@ -77,6 +86,7 @@ TW["Test Workspace"]
 U["Utils"]
 WV["Webview Tests"]
 AC["AI Chat Tests"]
+ENR["Enrichment Tests"]
 end
 UT --> CMD["Commands"]
 UT --> CORE["Core"]
@@ -93,12 +103,18 @@ IT --> TW
 IT --> CORE
 IT --> CMD
 U --> HELP["Helper Utilities"]
+ENR --> DBTEST["Database Tests"]
+ENR --> SYMTEST["Symbol Extraction Tests"]
+ENR --> LLMTEST["LLM Integration Tests"]
 ```
 
 **Diagram sources**
 - [extension.test.ts](file://src/test/extension.test.ts#L1-L31)
 - [integration.test.ts](file://src/test/test-workspace/integration.test.ts#L1-L380)
 - [aiChat.test.ts](file://src/test/aiChat.test.ts#L1-L24)
+- [test-enrichment.ts](file://src/test-enrichment.ts#L1-L191)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L1-L268)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L1-L230)
 
 **Section sources**
 - [extension.test.ts](file://src/test/extension.test.ts#L1-L31)
@@ -112,6 +128,9 @@ U --> HELP["Helper Utilities"]
 - Search pipeline deduplication and filtering
 - WebView message schema validation
 - **New**: AI chat webview provider registration and activation
+- **New**: Enrichment feature testing framework with PostgreSQL integration
+- **New**: Tree-sitter symbol extraction testing for multiple programming languages
+- **New**: LLM integration testing with local endpoint configuration
 - Utility functions for merging configs and generating filenames
 - Test workspace fixtures and integration helpers
 - **New**: Compression module with AST-based file skeleton generation
@@ -123,6 +142,9 @@ Key testing utilities:
 - waitForFile: Polling-based file readiness with timeouts
 - deleteFiles: Robust file deletion supporting glob patterns and Windows compatibility
 - execPromisify: Promisified child process execution for CLI interactions
+- **New**: PostgreSQL Pool connection management for database testing
+- **New**: Tree-sitter LanguageParser integration for symbol extraction
+- **New**: OpenAI client configuration for LLM testing
 - **New**: Compression diagnostic scripts for system health verification
 - **New**: Standalone compression test scripts for programmatic testing
 - **New**: VS Code debugger integration for interactive compression testing
@@ -138,7 +160,7 @@ Key testing utilities:
 - [generateOutputFilename.test.ts](file://src/test/utils/generateOutputFilename.test.ts#L1-L61)
 
 ## Architecture Overview
-The test architecture combines unit isolation with integration checks against the real extension and external tools. Unit tests stub or mock filesystem and external dependencies. Integration tests activate the extension, manipulate VS Code commands, and compare outputs against native CLI behavior. **New**: The AI chat webview test suite validates webview registration and extension activation, ensuring the new AI chat functionality integrates properly with the extension lifecycle.
+The test architecture combines unit isolation with integration checks against the real extension and external tools. Unit tests stub or mock filesystem and external dependencies. Integration tests activate the extension, manipulate VS Code commands, and compare outputs against native CLI behavior. **New**: The AI chat webview test suite validates webview registration and extension activation, ensuring the new AI chat functionality integrates properly with the extension lifecycle. **New**: The enrichment testing framework provides comprehensive coverage of the code enrichment feature through database schema verification, symbol extraction testing, and LLM integration validation.
 
 ```mermaid
 sequenceDiagram
@@ -554,6 +576,141 @@ SORT --> RESULT["Return sorted paths"]
 - [databaseService.test.ts](file://src/test/core/storage/databaseService.test.ts#L1-L59)
 - [databaseService.ts](file://src/core/storage/databaseService.ts#L1-L1818)
 
+### Enrichment Feature Testing Framework
+**New** The enrichment feature testing framework provides comprehensive coverage of the code enrichment system through three specialized test scripts:
+
+#### Main Enrichment Test Harness
+- **Purpose**: Database schema verification, symbol extraction, and LLM summary generation
+- **Database Testing**: Verifies `code_enrichments` table existence and structure
+- **Symbol Extraction**: Tests Tree-sitter parser integration for multiple programming languages
+- **LLM Integration**: Validates local endpoint communication with configurable models
+
+#### Indexing Workflow Test
+- **Purpose**: Database CRUD operations and symbol extraction integration
+- **Database Migration**: Creates and verifies table structure with proper constraints
+- **Enrichment Storage**: Tests INSERT/UPDATE operations with conflict resolution
+- **Symbol Extraction Integration**: Validates Tree-sitter integration with compression engine
+
+#### Retrieval & Injection Test
+- **Purpose**: Loading enrichments and preparing for compression injection
+- **Database Query**: Tests SELECT operations with proper ordering and filtering
+- **Compression Baseline**: Validates compression without enrichment functionality
+- **Future Integration**: Prepares foundation for enrichment injection during compression
+
+```mermaid
+flowchart TD
+ENR["Enrichment Testing Framework"] --> MAIN["Main Test Harness"]
+ENR --> INDEX["Indexing Workflow Test"]
+ENR --> RETRIEVAL["Retrieval & Injection Test"]
+MAIN --> DBSCHEMA["Database Schema Check"]
+MAIN --> SYMBOL["Symbol Extraction"]
+MAIN --> LLM["LLM Summary Generation"]
+INDEX --> DBMIG["Database Migration"]
+INDEX --> CRUD["CRUD Operations"]
+INDEX --> SYMINT["Symbol Integration"]
+RETRIEVAL --> QUERY["Database Query"]
+RETRIEVAL --> COMPBASE["Compression Baseline"]
+RETRIEVAL --> INJECTPREP["Injection Preparation"]
+```
+
+**Diagram sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L1-L191)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L1-L268)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L1-L230)
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L1-L191)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L1-L268)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L1-L230)
+
+### Database Schema Verification
+**New** The enrichment database testing framework validates the `code_enrichments` table structure and constraints:
+
+- **Table Existence**: Verifies `code_enrichments` table creation and migration
+- **Column Structure**: Tests UUID primary key, file path, repository ID, symbol name/type
+- **Constraints**: Validates symbol type enumeration and unique constraints
+- **Indexes**: Ensures proper indexing for file_path and symbol_name lookups
+- **Comments**: Verifies column documentation for clarity and maintenance
+
+```mermaid
+flowchart TD
+DBTEST["Database Schema Test"] --> CONNECT["Connect to PostgreSQL"]
+CONNECT --> CHECKTABLE["Check table existence"]
+CHECKTABLE --> TABLEEXISTS{"Table exists?"}
+TABLEEXISTS --> |Yes| CHECKCOLUMNS["Verify column structure"]
+TABLEEXISTS --> |No| CREATETABLE["Create table with migration"]
+CHECKCOLUMNS --> CHECKCONSTRAINTS["Validate constraints"]
+CHECKCONSTRAINTS --> CHECKINDEXES["Verify indexes"]
+CHECKINDEXES --> SUCCESS["Schema verification complete"]
+CREATETABLE --> CHECKCOLUMNS
+```
+
+**Diagram sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L74-L101)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L24-L61)
+- [003_code_enrichment.sql](file://src/chat/db/migrations/003_code_enrichment.sql#L4-L18)
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L66-L108)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L16-L71)
+- [003_code_enrichment.sql](file://src/chat/db/migrations/003_code_enrichment.sql#L1-L32)
+
+### Symbol Extraction Testing
+**New** The symbol extraction testing framework validates Tree-sitter integration across multiple programming languages:
+
+- **Language Parser**: Tests TypeScript parser loading and WASM file validation
+- **Query Execution**: Validates symbol capture queries for different node types
+- **AST Parsing**: Tests Tree-sitter AST generation and node traversal
+- **Capture Processing**: Processes symbol captures with name, type, and text extraction
+- **Multi-language Support**: Validates support for TypeScript, JavaScript, Python, Rust, C#, Dart
+
+```mermaid
+flowchart TD
+SYMTEST["Symbol Extraction Test"] --> LOADPARSER["Load LanguageParser"]
+LOADPARSER --> SETWASM["Set WASM Directory"]
+SETWASM --> GETPARSER["Get TypeScript Parser"]
+GETPARSER --> GETQUERY["Get Symbol Query"]
+GETQUERY --> PARSECODE["Parse Test Code"]
+PARSECODE --> CAPTURES["Extract Captures"]
+CAPTURES --> PROCESS["Process Symbol Data"]
+PROCESS --> VALIDATE["Validate Symbols"]
+```
+
+**Diagram sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L114-L147)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L155-L201)
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L110-L147)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L151-L201)
+
+### LLM Integration Testing
+**New** The LLM integration testing framework validates communication with local and external endpoints:
+
+- **Local Endpoint Testing**: Tests connection to configured local LLM endpoint
+- **Model Configuration**: Validates model selection and parameter settings
+- **Prompt Engineering**: Tests structured prompts for symbol summary generation
+- **Response Processing**: Validates completion responses and error handling
+- **External API Testing**: Supports OpenRouter and Anthropic API integration
+
+```mermaid
+flowchart TD
+LLMTEST["LLM Integration Test"] --> SETUPCLIENT["Setup OpenAI Client"]
+SETUPCLIENT --> CONFIGURE["Configure Endpoint & Model"]
+CONFIGURE --> SENDPROMPT["Send Structured Prompt"]
+SENDPROMPT --> PROCESSRESPONSE["Process Completion Response"]
+PROCESSRESPONSE --> VALIDATERESPONSE["Validate Response Quality"]
+VALIDATERESPONSE --> HANDLEERROR["Handle Errors Gracefully"]
+```
+
+**Diagram sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L153-L181)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L207-L258)
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L149-L181)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L203-L258)
+
 ### Integration Testing: End-to-End Workflows and External Tool Interactions
 - Activates extension and validates workspace
 - Compares extension output with native CLI output for equivalence
@@ -562,6 +719,7 @@ SORT --> RESULT["Return sorted paths"]
 - **New**: Compression command integration testing with keepNames functionality
 - **New**: VS Code debugger integration for interactive compression testing
 - **New**: AI chat webview registration validation through extension activation
+- **New**: Enrichment feature integration testing with database and LLM components
 
 ```mermaid
 sequenceDiagram
@@ -569,6 +727,7 @@ participant IT as "Integration Test"
 participant VS as "VS Code"
 participant EXT as "Extension"
 participant AC as "AI Chat Provider"
+participant ENR as "Enrichment Tests"
 participant CLI as "Native CLI"
 IT->>VS : Execute repomixRunner.run / runOnSelectedFiles
 VS->>EXT : Command handler
@@ -581,11 +740,14 @@ IT-->>IT : Assert equal
 IT->>EXT : Activate extension
 EXT->>AC : Register AI Chat webview provider
 IT->>VS : Verify webview registration
+IT->>ENR : Run enrichment tests
+ENR->>ENR : Test database, symbols, LLM
 ```
 
 **Diagram sources**
 - [integration.test.ts](file://src/test/test-workspace/integration.test.ts#L304-L378)
 - [aiChat.test.ts](file://src/test/aiChat.test.ts#L5-L23)
+- [test-enrichment.ts](file://src/test-enrichment.ts#L62-L185)
 
 **Section sources**
 - [integration.test.ts](file://src/test/test-workspace/integration.test.ts#L1-L380)
@@ -601,6 +763,10 @@ IT->>VS : Verify webview registration
 - **New**: Diagnostic scripts depend on Node.js file system operations and package.json metadata
 - **New**: VS Code debugger integration requires proper extension activation and command registration
 - **New**: Standalone compression tests require compiled extension distribution
+- **New**: Enrichment testing framework depends on PostgreSQL, Tree-sitter, and OpenAI SDK
+- **New**: Database testing requires pg Pool connection management and migration verification
+- **New**: Symbol extraction testing requires WASM file availability and parser initialization
+- **New**: LLM integration testing requires configurable endpoints and model parameters
 
 ```mermaid
 graph LR
@@ -620,6 +786,12 @@ DIAG["Diagnostic Scripts"] --> NODE["Node.js FS"]
 DIAG --> PKG2["package.json"]
 STANDALONE["Standalone Tests"] --> DIST["dist/extension.js"]
 VSDEBUG["VS Code Debugger"] --> EXT["Extension Commands"]
+ENR["Enrichment Tests"] --> PG["PostgreSQL"]
+ENR --> TS["Tree-sitter"]
+ENR --> OPENAI["OpenAI SDK"]
+PG --> POOL["pg Pool"]
+TS --> WASM["WASM Files"]
+OPENAI --> ENDPOINT["LLM Endpoints"]
 ```
 
 **Diagram sources**
@@ -630,6 +802,9 @@ VSDEBUG["VS Code Debugger"] --> EXT["Extension Commands"]
 - [AiChatRoot.tsx](file://src/webview/AiChatRoot.tsx#L1-L78)
 - [diagnose-compression.js](file://scripts/diagnose-compression.js#L8-L11)
 - [test-compression.ts](file://src/test-compression.ts#L8-L11)
+- [test-enrichment.ts](file://src/test-enrichment.ts#L8-L10)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L8-L11)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L8-L9)
 
 **Section sources**
 - [.vscode-test.mjs](file://.vscode-test.mjs#L1-L8)
@@ -646,6 +821,9 @@ VSDEBUG["VS Code Debugger"] --> EXT["Extension Commands"]
 - **New**: Compression testing scripts should cache parsed results to avoid repeated parsing overhead
 - **New**: Diagnostic scripts should implement efficient file existence checks and caching mechanisms
 - **New**: AI chat webview provider should cache webview options and HTML generation for improved response times
+- **New**: PostgreSQL connections should be pooled and reused across enrichment tests
+- **New**: Tree-sitter parsers should be cached and reused to avoid WASM loading overhead
+- **New**: LLM requests should implement retry logic and timeout handling for reliable testing
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -661,13 +839,17 @@ Common issues and resolutions:
 - **New**: Database query performance: Ensure proper indexing and query optimization for repository file lookups
 - **New**: AI chat webview registration failures: Verify webview provider instantiation and VS Code API compatibility
 - **New**: Extension activation issues with AI chat: Check webview provider registration in extension activation flow
+- **New**: Enrichment database connection failures: Verify PostgreSQL service availability and connection string format
+- **New**: Symbol extraction errors: Ensure WASM files are properly installed and accessible in dist/tree-sitter-wasm/
+- **New**: LLM integration failures: Check endpoint accessibility, model availability, and network connectivity
+- **New**: Migration verification failures: Run database migrations before running enrichment tests
 
 **Section sources**
 - [utilsTest.ts](file://src/test/utilsTest.ts#L1-L67)
 - [integration.test.ts](file://src/test/test-workspace/integration.test.ts#L45-L68)
 
 ## Conclusion
-The testing framework balances unit isolation with meaningful integration checks against the extension and external CLI. It leverages VS Code's test host, robust file utilities, and parameterized scenarios to validate complex workflows. The recent additions of comprehensive compression module testing, enhanced indexing monitor functionality, expanded database service capabilities, and the new AI chat webview functionality provide thorough coverage of the core system components. **New**: The AI chat webview test suite significantly enhances the testing capabilities by validating webview registration and extension activation for the new AI chat functionality. By following the patterns and guidelines outlined here, contributors can confidently add, maintain, and debug tests across the codebase.
+The testing framework balances unit isolation with meaningful integration checks against the extension and external CLI. It leverages VS Code's test host, robust file utilities, and parameterized scenarios to validate complex workflows. The recent additions of comprehensive compression module testing, enhanced indexing monitor functionality, expanded database service capabilities, the new AI chat webview functionality, and the comprehensive enrichment feature testing framework provide thorough coverage of the core system components. **New**: The AI chat webview test suite significantly enhances the testing capabilities by validating webview registration and extension activation for the new AI chat functionality. **New**: The enrichment testing framework provides complete coverage of the code enrichment feature through database schema verification, symbol extraction testing, and LLM integration validation. By following the patterns and guidelines outlined here, contributors can confidently add, maintain, and debug tests across the entire codebase.
 
 ## Appendices
 
@@ -682,7 +864,10 @@ The testing framework balances unit isolation with meaningful integration checks
 - **New**: For AI chat webview tests, validate webview provider registration and extension activation
 - **New**: For AI chat root component tests, verify React component rendering and tab navigation
 - **New**: For compression testing, utilize the existing diagnostic scripts and standalone test framework
+- **New**: For enrichment feature tests, use PostgreSQL connection pools and Tree-sitter parser instances
+- **New**: For LLM integration tests, configure OpenAI clients with appropriate endpoints and models
 - **New**: When adding webview tests, ensure proper VS Code command registration and extension activation
+- **New**: For database migration tests, verify table creation and constraint validation
 
 ### Running Test Suites
 - Pre-test compilation and linting are handled by scripts
@@ -693,6 +878,9 @@ The testing framework balances unit isolation with meaningful integration checks
 - **New**: Programmatic compression testing requires compiled extension distribution in dist/ directory
 - **New**: Diagnostic scripts can be run independently without VS Code environment
 - **New**: AI chat webview tests require extension activation and webview provider registration
+- **New**: Enrichment tests require PostgreSQL database service and Tree-sitter WASM files
+- **New**: LLM integration tests require configurable endpoints and model availability
+- **New**: Docker-based database setup for consistent testing environment
 
 **Section sources**
 - [package.json](file://package.json#L541-L559)
@@ -709,6 +897,9 @@ The testing framework balances unit isolation with meaningful integration checks
 - **New**: Database service tests: Confirm repository file path lookup precision and performance characteristics
 - **New**: AI chat webview tests: Validate webview registration and extension activation lifecycle
 - **New**: AI chat provider tests: Confirm proper webview options and HTML generation
+- **New**: Enrichment database tests: Verify table structure, constraints, and indexing
+- **New**: Symbol extraction tests: Confirm Tree-sitter parser loading and symbol capture accuracy
+- **New**: LLM integration tests: Validate endpoint connectivity and response quality
 
 ### Continuous Integration and Coverage
 - CI setup: Configure the VS Code test runner with the provided configuration
@@ -721,6 +912,10 @@ The testing framework balances unit isolation with meaningful integration checks
 - **New**: Database service coverage: Prioritize query performance and concurrent access scenarios
 - **New**: AI chat webview coverage: Focus on webview registration validation and extension lifecycle integration
 - **New**: AI chat provider coverage: Emphasize React component rendering and webview lifecycle management
+- **New**: Enrichment testing coverage: Prioritize database schema validation, symbol extraction accuracy, and LLM integration reliability
+- **New**: Database migration coverage: Ensure proper table creation and constraint validation
+- **New**: Symbol extraction coverage: Focus on multi-language parser support and capture accuracy
+- **New**: LLM integration coverage: Emphasize endpoint connectivity and response quality validation
 
 **Section sources**
 - [.vscode-test.mjs](file://.vscode-test.mjs#L1-L8)
@@ -834,6 +1029,19 @@ The testing framework balances unit isolation with meaningful integration checks
 - [test-compression.js](file://scripts/test-compression.js#L1-L190)
 - [test-compression.ts](file://src/test-compression.ts#L1-L515)
 
+#### Enrichment Feature Testing
+**New** - Comprehensive code enrichment testing validation
+- **Database Schema**: Verify table structure, constraints, and indexing
+- **Symbol Extraction**: Test Tree-sitter parser integration across multiple languages
+- **LLM Integration**: Validate local and external endpoint connectivity
+- **CRUD Operations**: Test database insert/update/query functionality
+- **Migration Testing**: Ensure proper table creation and constraint validation
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L62-L185)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L12-L268)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L11-L230)
+
 ### VS Code Debugger Configuration
 **New** - Enhanced debugging setup for compression testing
 
@@ -899,3 +1107,30 @@ Testing approach:
 - [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts#L1-L67)
 - [AiChatRoot.tsx](file://src/webview/AiChatRoot.tsx#L1-L78)
 - [extension.ts](file://src/extension.ts#L505-L518)
+
+### Enrichment Feature Integration
+**New** - Comprehensive code enrichment testing framework
+
+The enrichment feature integration testing encompasses multiple validation aspects:
+
+- **Database Schema Testing**: Validates `code_enrichments` table structure and constraints
+- **Symbol Extraction Testing**: Tests Tree-sitter parser integration across programming languages
+- **LLM Integration Testing**: Validates local and external endpoint connectivity
+- **CRUD Operation Testing**: Tests database insert/update/query functionality
+- **Migration Testing**: Ensures proper table creation and constraint validation
+- **Docker-based Testing**: Provides consistent PostgreSQL environment setup
+
+Testing approach:
+- Database connection and schema verification
+- Tree-sitter parser loading and symbol capture
+- LLM endpoint connectivity and response validation
+- Database migration and CRUD operation testing
+- Integration with compression engine for future enrichment injection
+- Docker-based environment setup for consistent testing
+
+**Section sources**
+- [test-enrichment.ts](file://src/test-enrichment.ts#L1-L191)
+- [test-enrichment-indexing.ts](file://src/test-enrichment-indexing.ts#L1-L268)
+- [test-enrichment-retrieval.ts](file://src/test-enrichment-retrieval.ts#L1-L230)
+- [enrichment-readme.md](file://enrichment-readme.md#L1-L199)
+- [ENRICHMENT_TESTS.md](file://ENRICHMENT_TESTS.md#L1-L163)

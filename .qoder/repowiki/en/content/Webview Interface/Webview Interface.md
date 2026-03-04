@@ -46,16 +46,20 @@
 - [package.json](file://package.json)
 - [architectureRepository.ts](file://src/chat/db/architectureRepository.ts)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced offline handling capabilities with graceful degradation when PostgreSQL is unavailable
-- Added new fallback message handler for chatDisabled command to notify users of database unavailability
-- Implemented improved user feedback mechanisms with database initialization error handling
-- Added database initialization timeout protection (10-second timeout) to prevent UI blocking
-- Enhanced Settings tab responsiveness by separating database-dependent commands from database-independent commands
-- Added comprehensive error reporting for database initialization failures with user guidance
+- Enhanced Settings tab with comprehensive OpenRouter configuration options
+- Added OpenRouter base URL configuration with default value support
+- Integrated OpenRouter API key management with secure storage
+- Implemented dynamic model selection with OpenRouter SDK integration
+- Added embedding dimension testing capabilities with auto-detection
+- Included advanced provider routing options (provider order, fallbacks, quantizations)
+- Enhanced OpenRouter configuration with comprehensive UI components
+- Added OpenRouter-specific message schemas and controller handlers
+- Integrated OpenRouter provider into the embedding service architecture
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -72,16 +76,17 @@
 12. [Dependency Injection Architecture](#dependency-injection-architecture)
 13. [PostgreSQL Database Integration](#postgresql-database-integration)
 14. [Patch Application System](#patch-application-system)
-15. [Dependency Analysis](#dependency-analysis)
-16. [Performance Considerations](#performance-considerations)
-17. [Troubleshooting Guide](#troubleshooting-guide)
-18. [Conclusion](#conclusion)
+15. [OpenRouter Configuration System](#openrouter-configuration-system)
+16. [Dependency Analysis](#dependency-analysis)
+17. [Performance Considerations](#performance-considerations)
+18. [Troubleshooting Guide](#troubleshooting-guide)
+19. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the Webview Interface system for the Repomix Runner Plus extension. It covers the React-based control panel architecture with a comprehensive tabbed interface including the new AI Developer Chat feature, the MVC pattern implementation using controllers and views, state management strategies, and the bidirectional message system between the webview and the extension context. The interface now features integrated agentic chat capabilities with thread management, enhanced search functionality with branch-aware vector search, comprehensive token budgeting and cost tracking, a dedicated AI Developer Chat workspace with five-tab interface (Chat, Packages, Memory, Settings, History), comprehensive chat settings management, chat history browsing, human-in-the-loop review capabilities, sophisticated message queue management system for handling concurrent chat operations, robust PostgreSQL database integration with connection pooling and migration verification, **enhanced offline handling capabilities with graceful degradation**, **improved user feedback mechanisms for database unavailability**, and **comprehensive error reporting and recovery systems**.
+This document describes the Webview Interface system for the Repomix Runner Plus extension. It covers the React-based control panel architecture with a comprehensive tabbed interface including the new AI Developer Chat feature, the MVC pattern implementation using controllers and views, state management strategies, and the bidirectional message system between the webview and the extension context. The interface now features integrated agentic chat capabilities with thread management, enhanced search functionality with branch-aware vector search, comprehensive token budgeting and cost tracking, a dedicated AI Developer Chat workspace with five-tab interface (Chat, Packages, Memory, Settings, History), comprehensive chat settings management, chat history browsing, human-in-the-loop review capabilities, sophisticated message queue management system for handling concurrent chat operations, robust PostgreSQL database integration with connection pooling and migration verification, **enhanced offline handling capabilities with graceful degradation**, **improved user feedback mechanisms for database unavailability**, **comprehensive error reporting and recovery systems**, and **comprehensive OpenRouter configuration system with advanced embedding capabilities**.
 
 ## Project Structure
-The webview layer is organized around dual React entry points that render comprehensive tabbed control panels. The system now includes both the traditional Repomix control panel and a dedicated AI Chat workspace. The AI chat system features a five-tab interface (Chat, Packages, Memory, Settings, History) with specialized components for conversation management, settings configuration, history browsing, and human-in-the-loop review processes. The new AI chat provider operates independently from the main control panel, providing focused AI assistance capabilities with comprehensive database connectivity and architecture management.
+The webview layer is organized around dual React entry points that render comprehensive tabbed control panels. The system now includes both the traditional Repomix control panel and a dedicated AI Chat workspace. The AI chat system features a five-tab interface (Chat, Packages, Memory, Settings, History) with specialized components for conversation management, settings configuration, history browsing, and human-in-the-loop review processes. The new AI chat provider operates independently from the main control panel, providing focused AI assistance capabilities with comprehensive database connectivity and architecture management. **Enhanced** with comprehensive OpenRouter configuration system supporting advanced embedding capabilities with provider routing, fallback mechanisms, and quantization options.
 
 ```mermaid
 graph TB
@@ -107,7 +112,7 @@ subgraph "Controllers"
 BASE["BaseController.ts"]
 BCTRL["BundleController.ts"]
 ACTRL["AgentController.ts"]
-CCTRL["ConfigController.ts"]
+CCTRL["ConfigController.ts<br/>Enhanced with OpenRouter Support"]
 IHCTRL["IndexHistoryController.ts"]
 DCTRL["DebugController.ts"]
 CHCTRL["ChatController.ts<br/>Enhanced with DI & DB Integration<br/>Offline Handling"]
@@ -121,7 +126,7 @@ subgraph "Extension Host"
 RPV["RepomixWebviewProvider.ts<br/>Enhanced DI Architecture"]
 EXT["extension.ts<br/>Dual webview provider registration"]
 PKG["package.json<br/>View contributions"]
-MS["messageSchemas.ts<br/>Enhanced DB Commands"]
+MS["messageSchemas.ts<br/>Enhanced DB & OpenRouter Commands"]
 TYPES["types.ts"]
 UTILS["utils.ts"]
 ENDOFSUBGRAPH
@@ -133,6 +138,9 @@ ENDOFSUBGRAPH
 subgraph "Database Layer"
 ARCHREP["ArchitectureRepository.ts<br/>getArchitectureByRepoId"]
 PGCLIENT["postgresClient.ts<br/>Connection Pool & Migrations"]
+ENDOFSUBGRAPH
+subgraph "OpenRouter Integration"
+OPROV["OpenRouterProvider.ts<br/>Advanced embedding provider"]
 ENDOFSUBGRAPH
 IDX --> APP
 APP --> TABS
@@ -175,6 +183,7 @@ CHCTRL --> PGCLIENT
 BCTRL --> EQM
 ACTRL --> RPV
 CCTRL --> RPV
+CCTRL --> OPROV
 DCTRL --> RPV
 IHCTRL --> RPV
 APCTRL --> RPV
@@ -199,6 +208,7 @@ APCTRL --> RPV
 - [ApplyController.ts](file://src/webview/controllers/ApplyController.ts#L15-L31)
 - [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L62-L94)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L317)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L98)
 
 **Section sources**
 - [index.tsx](file://src/webview/index.tsx#L1-L18)
@@ -216,7 +226,7 @@ APCTRL --> RPV
 - Controllers encapsulate domain logic and handle webview messages with dependency injection.
 - Components render UI and delegate actions to controllers via message passing.
 - ExecutionQueueManager coordinates bundle runs with cancellation and state transitions.
-- Message schemas define strict contracts for bidirectional communication including database commands.
+- Message schemas define strict contracts for bidirectional communication including database commands and **OpenRouter configuration commands**.
 - **Enhanced**: ChatController now uses dependency injection with PostgreSQL connection pooling, architecture document management, and comprehensive offline handling capabilities.
 - **Enhanced**: ApplyController integrates asynchronous patch location functionality with AI file resolution fallback.
 - **Enhanced**: RepomixWebviewProvider implements comprehensive dependency injection architecture for all controllers.
@@ -226,6 +236,7 @@ APCTRL --> RPV
 - **New**: Async patch location functionality with intelligent file resolution and indentation repair.
 - **New**: Sophisticated message queue system with over 200 lines of enhanced functionality including queue persistence, restoration, and advanced error recovery.
 - **New**: Offline handling system with graceful degradation when PostgreSQL is unavailable, including chatDisabled fallback mechanism and improved user feedback.
+- **New**: OpenRouter configuration system with comprehensive UI components, model management, and advanced provider routing capabilities.
 
 Key responsibilities:
 - index.tsx: React entry point for main control panel.
@@ -236,7 +247,7 @@ Key responsibilities:
 - BaseController.ts: Abstract contract for controllers with dependency injection support.
 - BundleController.ts: Bundle listing, default Repomix state, output copying, and execution queue integration.
 - AgentController.ts: Smart Agent orchestration, history retrieval, reruns, and output copying.
-- ConfigController.ts: Secrets management, vector DB provider switching, Qdrant connectivity testing, embedding configuration, and compatibility checks.
+- ConfigController.ts: Secrets management, vector DB provider switching, Qdrant connectivity testing, embedding configuration, and **OpenRouter configuration management**.
 - **Enhanced**: ChatController.ts: Manages chat sessions, thread persistence, conversation flow, queue management, PostgreSQL connectivity, architecture document management, dependency injection with connection pooling, integration with LangGraph chat engine, sophisticated message queue handling with persistence and restoration, **offline handling with graceful degradation**, and comprehensive error reporting.
 - DebugController.ts: Debug run management, environment information retrieval, and integration with index history functionality.
 - IndexHistoryController.ts: Manages indexing history retrieval and real-time event streaming with debounced updates.
@@ -246,6 +257,7 @@ Key responsibilities:
 - **Enhanced**: AI chat components: ChatInput for message composition with force send and queue panel integration, ChatMessage for conversation display, ToolCallCard for tool execution visualization, ChatSettingsTab for comprehensive configuration, ChatHistoryTab for history management, EditReviewPanel for human-in-the-loop review, and ConnectionStatus for database connectivity.
 - **Enhanced**: Queue management components: MessageQueueIndicator for visual queue status with loading indicators, QueuePanel for detailed queue visualization with cancel and clear queue functionality.
 - **Enhanced**: Offline handling components: chatDisabled fallback mechanism for graceful degradation, improved user feedback for database unavailability, and database initialization timeout protection.
+- **Enhanced**: OpenRouter components: Comprehensive configuration UI with base URL, API key, model selection, dimension testing, provider routing, and quantization options.
 
 **Section sources**
 - [App.tsx](file://src/webview/App.tsx#L47-L276)
@@ -270,6 +282,7 @@ The system follows an enhanced MVC pattern with comprehensive dependency injecti
 - **Enhanced**: Dual webview provider architecture with RepomixWebviewProvider for main control panel and AiChatWebviewProvider for AI chat workspace.
 - **Enhanced**: Comprehensive dependency injection with PostgreSQL connection pooling, architecture repository management, and service coordination.
 - **Enhanced**: Offline handling architecture with graceful degradation when database connectivity is unavailable.
+- **Enhanced**: OpenRouter configuration architecture with comprehensive embedding provider support and advanced configuration options.
 
 Communication flow:
 - Webview-to-Extension: Components send typed commands; provider validates via Zod and dispatches to controllers with dependency injection.
@@ -279,6 +292,7 @@ Communication flow:
 - **Enhanced**: Chat settings system provides comprehensive configuration management with database connectivity testing and architecture document controls.
 - **Enhanced**: PostgreSQL integration with connection pooling, migration verification, architecture document management, and **offline handling with graceful degradation**.
 - **Enhanced**: Offline handling system prevents UI blocking with database initialization timeout protection and provides user feedback through chatDisabled fallback mechanism.
+- **Enhanced**: OpenRouter configuration system provides comprehensive embedding configuration with model management, dimension testing, and advanced provider routing capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -290,11 +304,13 @@ participant CTRL as "Controller<br/>with DI & Offline Handling"
 participant SVC as "Service"
 participant QUEUE as "MessageQueue"
 participant DB as "PostgreSQL Database<br/>with Pool & Timeout"
-UI->>APP : Emit action (e.g., run bundle, chat submit)
+participant OPENROUTER as "OpenRouter Provider<br/>Advanced Embedding"
+UI->>APP : Emit action (e.g., run bundle, chat submit, OpenRouter config)
 APP->>RPV : postMessage({ command, payload })
 RPV->>RPV : Validate via WebviewMessageSchema
 RPV->>CTRL : handleMessage(message) with DI
 CTRL->>SVC : Invoke operation with injected dependencies
+CTRL->>OPENROUTER : Configure OpenRouter provider with routing & quantization
 SVC-->>CTRL : Result or progress
 CTRL->>RPV : postMessage(update)
 RPV-->>APP : onDidReceiveMessage(update)
@@ -309,6 +325,10 @@ UI->>CTRL : Chat settings action with DB
 CTRL->>DB : Test connection/migrations via pool with timeout
 DB-->>CTRL : Connection result or timeout error
 CTRL->>UI : postMessage(settingsUpdate) or chatDisabled fallback
+UI->>CTRL : OpenRouter configuration action
+CTRL->>OPENROUTER : Test connection with provider routing & quantization
+OPENROUTER-->>CTRL : Connection result with dimension testing
+CTRL->>UI : postMessage(openrouterConfigResult)
 ```
 
 **Diagram sources**
@@ -316,6 +336,7 @@ CTRL->>UI : postMessage(settingsUpdate) or chatDisabled fallback
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L134-L245)
 - [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts#L47-L56)
 - [messageSchemas.ts](file://src/webview/messageSchemas.ts#L1070-L1087)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L28-L51)
 
 ## Detailed Component Analysis
 
@@ -337,10 +358,13 @@ RenderTabs --> UserAction{"User action?"}
 UserAction --> |Run bundle| SendRun["postMessage(runBundle)"]
 UserAction --> |Cancel bundle| SendCancel["postMessage(cancelBundle)"]
 UserAction --> |Copy output| SendCopy["postMessage(copyBundleOutput)"]
+UserAction --> |OpenRouter config| SendOpenRouter["postMessage(setOpenRouterConfig)"]
 SendRun --> ReceiveUpdate["Receive updateBundles/updateDefaultRepomix"]
 SendCopy --> ReceiveState["Receive executionStateChange"]
+SendOpenRouter --> ReceiveOpenRouter["Receive openrouterConfigResult"]
 ReceiveUpdate --> UpdateState["Update bundles/default state"]
 ReceiveState --> UpdateState
+ReceiveOpenRouter --> UpdateState
 UpdateState --> RenderTabs
 ```
 
@@ -356,7 +380,7 @@ UpdateState --> RenderTabs
 - BaseController.ts defines the contract for controllers: handleMessage, optional onWebviewLoaded, and dispose.
 - BundleController.ts manages bundles, default Repomix state, output watching, and integrates with ExecutionQueueManager.
 - AgentController.ts orchestrates the Smart Agent workflow, handles history, reruns, and copying outputs.
-- ConfigController.ts manages secrets, vector DB provider switching, Qdrant connectivity, embedding configuration, and compatibility checks.
+- ConfigController.ts manages secrets, vector DB provider switching, Qdrant connectivity, embedding configuration, and **OpenRouter configuration management**.
 - **Enhanced**: ChatController.ts manages chat sessions, thread persistence, conversation flow, queue management, PostgreSQL connectivity, architecture document management, dependency injection with connection pooling, integration with LangGraph chat engine, sophisticated message queue handling with persistence and restoration, **offline handling with graceful degradation**, and comprehensive error reporting.
 - DebugController.ts manages debug runs, environment information, and integrates with index history functionality.
 - IndexHistoryController.ts manages indexing history retrieval and real-time event streaming with debounced updates.
@@ -385,6 +409,9 @@ class ConfigController {
 +handleMessage(message) Promise~boolean~
 +handleSetEmbeddingConfig(message) Promise~void~
 +handleTestQdrantConnection(url, collection, apiKey) Promise~void~
++handleFetchOpenRouterModels() Promise~void~
++handleTestOpenRouterDimension() Promise~void~
++handleTestOpenRouterConnection() Promise~void~
 }
 class ChatController {
 +constructor(context, extensionContext, pgPool)
@@ -461,8 +488,8 @@ BaseController <|-- IndexHistoryController
 ### Message Handling and Validation
 - RepomixWebviewProvider.ts validates incoming messages using WebviewMessageSchema and routes them to controllers with dependency injection.
 - App.tsx posts webviewLoaded and reports client OS to the extension host.
-- Message schemas enumerate all supported commands with strict typing including enhanced database commands.
-- **Enhanced**: Enhanced message schemas to support chat commands, comprehensive thread management, queue management operations, chat settings management with database connectivity, chat history browsing, and **offline handling commands**.
+- Message schemas enumerate all supported commands with strict typing including enhanced database commands and **OpenRouter configuration commands**.
+- **Enhanced**: Enhanced message schemas to support chat commands, comprehensive thread management, queue management operations, chat settings management with database connectivity, chat history browsing, **OpenRouter configuration commands**, and **offline handling commands**.
 - **Enhanced**: AiChatWebviewProvider.ts provides independent message handling for AI chat functionality with controller instantiation.
 
 ```mermaid
@@ -497,7 +524,7 @@ end
 - AiChatRoot.tsx provides five-tab AI chat interface with Chat, Packages, Memory, Settings, and History tabs.
 - BundleItem.tsx and DefaultRepomixItem.tsx are reusable UI components that accept actions via props.
 - AgentView.tsx composes AgentInput, AgentStatus, AgentConfiguration, and AgentHistory.
-- SettingsTab.tsx aggregates configuration sections and reacts to controller updates.
+- SettingsTab.tsx aggregates configuration sections and reacts to controller updates, including **OpenRouter configuration accordion**.
 - **Enhanced**: ChatTab.tsx provides comprehensive chat interface with thread management, message visualization, tool call handling, and queue integration.
 - **Enhanced**: ThreadList.tsx offers threaded conversation history with filtering, renaming, and export capabilities.
 - **Enhanced**: ChatHeader.tsx manages chat interface controls including thread switching and plan access.
@@ -513,6 +540,7 @@ end
 - **Enhanced**: ConnectionStatus.tsx provides visual database connectivity status with color-coded indicators.
 - **Enhanced**: ApplyController integrates asynchronous patch location functionality with intelligent file resolution and content analysis.
 - **Enhanced**: Offline handling components provide graceful degradation when PostgreSQL is unavailable, including chatDisabled fallback mechanism and improved user feedback.
+- **Enhanced**: OpenRouter configuration components provide comprehensive embedding configuration with base URL, API key, model selection, dimension testing, provider routing, and quantization options.
 
 ```mermaid
 graph TB
@@ -540,6 +568,7 @@ REVIEWCOMP["EditReviewPanel.tsx"]
 CONNCOMP["ConnectionStatus.tsx"]
 APPCONTROL["ApplyController.ts<br/>Async Patch Location"]
 OFFLINECOMP["Offline Handling<br/>chatDisabled fallback"]
+OPENROUTERCOMP["OpenRouter Configuration<br/>Base URL, API Key, Model, Dimension, Routing"]
 APP --> APPCONTROL
 APP --> BUNDLE
 APP --> DEFAULT
@@ -563,6 +592,7 @@ AICHROOT --> OFFLINECOMP
 AICHCHAT --> AICHINPUT
 AICHCHAT --> AICHMESSAGE
 AICHCHAT --> AICHTOOL
+SETTINGS --> OPENROUTERCOMP
 ```
 
 **Diagram sources**
@@ -630,6 +660,7 @@ AICHCHAT --> AICHTOOL
 - **Enhanced**: ApplyController provides asynchronous patch application with intelligent file resolution and content analysis.
 - **Enhanced**: Debug tab now manages both debug runs and index history state independently, with separate loading states and refresh mechanisms.
 - **Enhanced**: Offline handling system prevents UI blocking with database initialization timeout protection and provides user feedback through chatDisabled fallback mechanism.
+- **Enhanced**: OpenRouter configuration system manages comprehensive embedding configuration state with base URL, API key, model selection, dimension testing, provider routing, and quantization options.
 
 ```mermaid
 sequenceDiagram
@@ -644,6 +675,7 @@ participant EQM as "ExecutionQueueManager"
 participant CONV as "ConversationService"
 participant QUEUE as "MessageQueue"
 participant DB as "PostgreSQL Database<br/>with Pool & Timeout"
+participant OPENROUTER as "OpenRouter Provider<br/>Advanced Embedding"
 UI->>CTRL : postMessage(runBundle)
 CTRL->>EQM : addToQueue(bundleId, compress)
 EQM->>APP : postMessage(executionStateChange, queued)
@@ -669,6 +701,14 @@ CHCTRL->>UI : postMessage(chatSettingsResult)
 else Database unavailable
 CHCTRL->>UI : postMessage(chatDisabled, error message)
 end
+UI->>CTRL : postMessage(fetchOpenRouterModels)
+CTRL->>OPENROUTER : Fetch embedding models via SDK
+OPENROUTER-->>CTRL : Return model list with metadata
+CTRL->>UI : postMessage(openrouterModelsResult)
+UI->>CTRL : postMessage(testOpenRouterDimension)
+CTRL->>OPENROUTER : Test model dimension with provider routing
+OPENROUTER-->>CTRL : Return dimension or error
+CTRL->>UI : postMessage(openrouterDimensionResult)
 UI->>DCTRL : postMessage(getDebugRuns)
 DCTRL->>UI : postMessage(updateDebugRuns)
 UI->>IHCTRL : postMessage(getIndexHistory)
@@ -691,6 +731,7 @@ APCTRL->>UI : postMessage(applyResult)
 - [conversationService.ts](file://src/services/conversationService.ts#L80-L85)
 - [DebugController.ts](file://src/webview/controllers/DebugController.ts#L45-L47)
 - [IndexHistoryController.ts](file://src/webview/controllers/IndexHistoryController.ts#L65-L95)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L28-L51)
 
 **Section sources**
 - [ExecutionQueueManager.ts](file://src/webview/services/ExecutionQueueManager.ts#L1-L133)
@@ -721,8 +762,9 @@ APCTRL->>UI : postMessage(applyResult)
 - **Enhanced**: ConnectionStatus provides accessible database connectivity status with proper color coding and screen reader announcements.
 - **Enhanced**: ApplyController provides accessible patch application interface with error reporting and progress indication.
 - **Enhanced**: Debug tab includes visual indicators for different event types with appropriate color coding and status badges, providing better accessibility for index history monitoring.
-- **Enhanced**: Settings interface includes proper form validation, error states, and accessible controls for LM Studio configuration.
+- **Enhanced**: Settings interface includes proper form validation, error states, and accessible controls for LM Studio and **OpenRouter configuration**.
 - **Enhanced**: Offline handling components provide accessible error states and user guidance for database unavailability.
+- **Enhanced**: OpenRouter configuration components provide accessible form controls with proper labeling, error states, and guidance for advanced embedding configuration.
 
 ### Extending the Interface
 - Add a new controller by extending BaseController and implementing handleMessage with dependency injection support.
@@ -741,6 +783,7 @@ APCTRL->>UI : postMessage(applyResult)
 - **Enhanced**: For dependency injection, use RepomixWebviewProvider constructor to instantiate controllers with injected dependencies.
 - **Enhanced**: For enhanced asset bundling, use inline SVG components instead of external icon libraries to improve performance and reduce dependencies.
 - **Enhanced**: For offline handling, implement graceful degradation mechanisms with timeout protection and user feedback through fallback commands like chatDisabled.
+- **Enhanced**: For OpenRouter configuration, implement comprehensive embedding configuration with base URL, API key, model selection, dimension testing, provider routing, and quantization options.
 
 ## AI Developer Chat System
 
@@ -1422,6 +1465,7 @@ The RepomixWebviewProvider now implements comprehensive dependency injection arc
 - **ApplyController**: Injects ExtensionContext for patch application functionality
 - **IndexHistoryController**: Injects DatabaseService and ExtensionContext
 - **ChatController**: Injects ExtensionContext and PostgreSQL Pool for database connectivity and **offline handling**
+- **OpenRouterProvider**: Injects OpenRouter configuration for advanced embedding capabilities
 
 #### Dependency Injection Benefits
 - **Modularity**: Controllers are decoupled from concrete implementations
@@ -1429,6 +1473,7 @@ The RepomixWebviewProvider now implements comprehensive dependency injection arc
 - **Flexibility**: Different implementations can be swapped without changing controller logic
 - **Resource Management**: Shared resources like database pools are managed centrally
 - **Offline Handling**: Database pools support graceful degradation and timeout protection
+- **OpenRouter Integration**: OpenRouter provider supports advanced embedding configuration
 
 ```mermaid
 flowchart TD
@@ -1443,6 +1488,7 @@ Controllers --> DebugCtrl["DebugController<br/>with DatabaseService"]
 Controllers --> ApplyCtrl["ApplyController<br/>with ExtensionContext"]
 Controllers --> HistoryCtrl["IndexHistoryController<br/>with DatabaseService"]
 Controllers --> ChatCtrl["ChatController<br/>with ExtensionContext & Pool<br/>Offline Handling"]
+Controllers --> OpenRouterProv["OpenRouterProvider<br/>with Advanced Embedding Config"]
 Controllers --> Ready["Controllers Ready"]
 ```
 
@@ -1460,12 +1506,14 @@ The enhanced dependency injection architecture provides better lifecycle managem
 - Each controller receives only the dependencies it needs
 - Database connections and services are shared across controllers where appropriate
 - **Enhanced**: ChatController receives PostgreSQL pool for database connectivity and offline handling
+- **Enhanced**: OpenRouterProvider receives comprehensive configuration for advanced embedding
 
 #### Message Handling
 - Controllers receive messages through the unified message handling system
 - Dependency injection ensures controllers have access to all required services
 - Error handling is centralized in the RepomixWebviewProvider
 - **Enhanced**: Offline handling is integrated into the dependency injection architecture
+- **Enhanced**: OpenRouter configuration is integrated into the dependency injection architecture
 
 #### Disposal
 - Controllers implement proper disposal methods for cleanup
@@ -1647,6 +1695,113 @@ The patch application system integrates seamlessly with the AI chat interface:
 - [ApplyController.ts](file://src/webview/controllers/ApplyController.ts#L33-L131)
 - [messageSchemas.ts](file://src/webview/messageSchemas.ts#L1-L1334)
 
+## OpenRouter Configuration System
+
+### Comprehensive OpenRouter Integration
+The SettingsTab component now provides comprehensive OpenRouter configuration capabilities with advanced embedding options and provider routing.
+
+#### OpenRouter Configuration Architecture
+The system manages a comprehensive OpenRouter configuration with multiple advanced features:
+
+- **Base URL Configuration**: Customizable OpenRouter API base URL with default value support
+- **API Key Management**: Secure API key storage with password field and test connection functionality
+- **Model Selection**: Dynamic model fetching with OpenRouter SDK integration and model metadata
+- **Dimension Testing**: Auto-detection of embedding dimensions with provider routing options
+- **Provider Routing**: Advanced provider ordering with fallback mechanisms and quantization support
+- **Connection Testing**: Comprehensive connection testing with detailed error reporting
+
+#### OpenRouter State Management
+The system maintains comprehensive state for OpenRouter configuration:
+
+- **Base URL**: Default value 'https://openrouter.ai/api/v1' with user customization
+- **API Key**: Secure storage with password field and test connection capability
+- **Model**: Selected embedding model with dimension auto-detection
+- **Dimension**: Embedding dimension with validation and testing
+- **Provider Order**: Comma-separated provider order with fallback support
+- **Quantizations**: Comma-separated quantization levels with provider-specific support
+- **Models List**: Dynamic model fetching with metadata and error handling
+
+#### OpenRouter Components and Interactions
+The system consists of several interconnected components:
+
+- **OpenRouter Accordion**: Main configuration container with expand/collapse functionality
+- **Base URL Input**: Text input for OpenRouter API base URL with placeholder guidance
+- **API Key Input**: Password field with test connection button and validation
+- **Model Manager**: Dropdown with model selection and dynamic model fetching
+- **Provider Routing**: Input fields for provider order, fallbacks, and quantizations
+- **Dimension Input**: Number input with auto-detection and testing capability
+- **Save Button**: Primary action button for saving configuration
+
+#### OpenRouter Integration Patterns
+The system follows established patterns for reliable OpenRouter integration:
+
+- **SDK Integration**: OpenRouter SDK usage for model fetching and embedding generation
+- **Provider Preferences**: Advanced provider configuration with routing and quantization
+- **Connection Testing**: Comprehensive connection testing with detailed error reporting
+- **Error Handling**: Robust error handling with user-friendly error messages
+- **Security**: Secure API key storage and transmission
+
+```mermaid
+flowchart TD
+START["OpenRouter Configuration Mount"] --> INIT["Initialize State"]
+INIT --> RENDER["Render Configuration Interface"]
+RENDER --> USERACTION{"User Action?"}
+USERACTION --> |Change Base URL| UPDATEBASE["Update Base URL State"]
+UPDATEBASE --> RENDER
+USERACTION --> |Enter API Key| UPDATEKEY["Update API Key State"]
+UPDATEKEY --> RENDER
+USERACTION --> |Fetch Models| FETCHMODELS["Fetch Models via OpenRouter SDK"]
+FETCHMODELS --> SDK["Use OpenRouter SDK"]
+SDK --> MODELS["Receive Model List"]
+MODELS --> RENDER
+USERACTION --> |Select Model| SELECTMODEL["Update Selected Model"]
+SELECTMODEL --> DIMTEST["Auto-test Dimension"]
+DIMTEST --> RENDER
+USERACTION --> |Test Connection| TESTCONN["Test Connection with Provider Routing"]
+TESTCONN --> SDK
+SDK --> CONNRESULT["Connection Result"]
+CONNRESULT --> RENDER
+USERACTION --> |Save Configuration| SAVECONFIG["Save Configuration to VS Code"]
+SAVECONFIG --> RENDER
+```
+
+**Diagram sources**
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1182-L1339)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L28-L51)
+
+**Section sources**
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1182-L1339)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L98)
+
+### OpenRouter Configuration Integration
+The OpenRouter configuration system integrates seamlessly with the SettingsTab and ConfigController:
+
+#### Webview Communication
+- **Configuration Loading**: Initial OpenRouter configuration retrieval via getOpenRouterConfig
+- **Model Management**: Dynamic model fetching via fetchOpenRouterModels command
+- **Dimension Testing**: Auto-detection of embedding dimensions via testOpenRouterDimension
+- **Connection Testing**: Comprehensive connection testing via testOpenRouterConnection
+- **Configuration Saving**: Persistent configuration storage via setEmbeddingConfig
+
+#### Controller Responsibilities
+- **Configuration Management**: Manage OpenRouter configuration state and persistence
+- **Model Fetching**: Integrate with OpenRouter SDK for dynamic model management
+- **Dimension Testing**: Test embedding dimensions with provider routing options
+- **Connection Testing**: Comprehensive connection testing with detailed error reporting
+- **Provider Configuration**: Handle advanced provider routing and quantization options
+
+#### UI Integration
+- **Configuration Interface**: Comprehensive form controls with validation and error handling
+- **Model Selection**: Dynamic dropdown with model metadata and error reporting
+- **Connection Status**: Real-time connection status with visual indicators
+- **Dimension Testing**: Auto-detection with loading states and user feedback
+- **Provider Routing**: Advanced configuration with comma-separated input fields
+
+**Section sources**
+- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L672-L715)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1265-L1480)
+- [messageSchemas.ts](file://src/webview/messageSchemas.ts#L448-L498)
+
 ## Dependency Analysis
 The webview depends on:
 - VS Code Webview API for messaging and HTML generation.
@@ -1672,6 +1827,8 @@ The webview depends on:
 - **Enhanced**: ApplyController provides asynchronous patch application with intelligent file resolution.
 - **Enhanced**: Enhanced asset bundling through inline SVG components for improved performance.
 - **Enhanced**: Offline handling system prevents UI blocking with database initialization timeout protection and provides user feedback through chatDisabled fallback mechanism.
+- **Enhanced**: OpenRouter configuration system provides comprehensive embedding configuration with advanced provider routing and quantization options.
+- **Enhanced**: OpenRouterProvider implements advanced embedding capabilities with provider preferences and error handling.
 
 ```mermaid
 graph LR
@@ -1679,7 +1836,7 @@ TYPES["types.ts"] --> APP["App.tsx"]
 MS["messageSchemas.ts"] --> RPV["RepomixWebviewProvider.ts<br/>Enhanced DI"]
 RPV --> BCTRL["BundleController.ts"]
 RPV --> ACTRL["AgentController.ts"]
-RPV --> CCTRL["ConfigController.ts"]
+RPV --> CCTRL["ConfigController.ts<br/>Enhanced with OpenRouter"]
 RPV --> DCTRL["DebugController.ts"]
 RPV --> IHCTRL["IndexHistoryController.ts"]
 RPV --> CHCTRL["ChatController.ts<br/>Enhanced DI & DB<br/>Offline Handling"]
@@ -1689,6 +1846,7 @@ APP --> COMP["Components"]
 COMP --> TYPES
 COMP --> MS
 COMP --> CHCTRL
+COMP --> OPROV["OpenRouterProvider.ts<br/>Advanced Embedding"]
 AICHCOMP --> AICHQUEUE
 AICHCOMP --> AICHQUEUEPANEL
 AICHCOMP --> CHCTRL
@@ -1732,6 +1890,7 @@ PKG["package.json"] --> AICHPROV
 - [ApplyController.ts](file://src/webview/controllers/ApplyController.ts#L15-L31)
 - [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L26-L94)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L317)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L98)
 
 **Section sources**
 - [types.ts](file://src/webview/types.ts#L1-L131)
@@ -1765,6 +1924,8 @@ PKG["package.json"] --> AICHPROV
 - **Enhanced**: Debug tab uses separate loading states for debug runs and index history to prevent blocking UI updates.
 - **Enhanced**: Message queue system provides sophisticated error recovery with graceful degradation and continued queue processing.
 - **Enhanced**: Offline handling system prevents UI blocking with database initialization timeout protection and provides user feedback through chatDisabled fallback mechanism.
+- **Enhanced**: OpenRouter configuration system implements efficient model fetching with SDK integration and comprehensive error handling.
+- **Enhanced**: OpenRouterProvider implements efficient embedding generation with provider preferences and optimized error handling.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1807,6 +1968,10 @@ Common issues and resolutions:
 - **Enhanced**: Database initialization timeout: Check network connectivity and database server accessibility. Verify connection timeout settings and retry logic.
 - **Enhanced**: Offline handling not working: Verify chatDisabled fallback mechanism and user feedback system for database unavailability.
 - **Enhanced**: Settings tab not responding: Check that database-independent commands are properly separated from database-dependent commands in handleMessage method.
+- **Enhanced**: OpenRouter configuration not working: Verify API key is properly stored and accessible via extension secrets.
+- **Enhanced**: OpenRouter model fetching failing: Check network connectivity and ensure OpenRouter API is accessible at the configured base URL.
+- **Enhanced**: OpenRouter dimension testing failing: Verify the selected model supports the expected embedding dimensions and provider routing configuration.
+- **Enhanced**: OpenRouter connection testing failing: Check API key validity, model availability, and provider routing configuration for proper authentication and endpoint access.
 
 **Section sources**
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts#L152-L158)
@@ -1820,6 +1985,7 @@ Common issues and resolutions:
 - [conversationService.ts](file://src/services/conversationService.ts#L29-L37)
 - [DebugController.ts](file://src/webview/controllers/DebugController.ts#L160-L230)
 - [IndexHistoryController.ts](file://src/webview/controllers/IndexHistoryController.ts#L32-L50)
+- [OpenRouterProvider.ts](file://src/core/indexing/embeddings/OpenRouterProvider.ts#L1-L98)
 
 ## Conclusion
-The Webview Interface employs a clear separation of concerns with enhanced dependency injection architecture: React components render the UI, controllers encapsulate business logic with dependency injection, and a robust message system ensures type-safe, bidirectional communication with the extension host. State is centralized in App.tsx and synchronized via messages, while controllers manage service interactions and UI updates with comprehensive database connectivity. The architecture supports extensibility through new controllers, components, and message schemas, enabling incremental feature development while maintaining consistency and reliability. **Enhanced** with comprehensive chat capabilities including thread management, branch-aware search functionality, advanced token budgeting, a dedicated AI Developer Chat workspace featuring five-tab interface (Chat, Packages, Memory, Settings, History), sophisticated message queue management with visual indicators and panel-based queue visualization, comprehensive chat settings management with database connectivity and LLM configuration, chat history browsing with search and filtering, human-in-the-loop review capabilities with status tracking, integrated queue persistence and restoration capabilities, enhanced PostgreSQL database integration with connection pooling and migration verification, improved asset bundling through inline SVG implementations, asynchronous patch application with intelligent file resolution, comprehensive dependency injection architecture for better modularity and testability, **offline handling capabilities with graceful degradation when PostgreSQL is unavailable**, **database initialization timeout protection to prevent UI blocking**, **improved user feedback mechanisms for database unavailability**, and **separation of database-dependent and database-independent commands for enhanced resilience**. The system now provides a complete AI-powered development experience with integrated conversation persistence, sophisticated search capabilities, focused AI assistance tools, comprehensive queue management with advanced error recovery, enhanced database connectivity with offline handling, improved user control through comprehensive settings and review interfaces, robust dependency injection for better maintainability and scalability, and comprehensive offline handling that ensures graceful degradation and meaningful user feedback when database connectivity is unavailable. The addition of LM Studio configuration support expands local AI model integration options, while the enhanced ChatInput component with force send functionality and stop buttons demonstrates improved user control and performance through optimized asset management and comprehensive queue integration. The over 200 lines of enhanced message queue functionality including sophisticated persistence, restoration, and error recovery capabilities represent a significant improvement in system reliability and user experience, while the comprehensive offline handling system ensures that users can continue to use non-critical features even when database connectivity is unavailable, with clear guidance on how to resolve connectivity issues.
+The Webview Interface employs a clear separation of concerns with enhanced dependency injection architecture: React components render the UI, controllers encapsulate business logic with dependency injection, and a robust message system ensures type-safe, bidirectional communication with the extension host. State is centralized in App.tsx and synchronized via messages, while controllers manage service interactions and UI updates with comprehensive database connectivity. The architecture supports extensibility through new controllers, components, and message schemas, enabling incremental feature development while maintaining consistency and reliability. **Enhanced** with comprehensive chat capabilities including thread management, branch-aware search functionality, advanced token budgeting, a dedicated AI Developer Chat workspace featuring five-tab interface (Chat, Packages, Memory, Settings, History), sophisticated message queue management with visual indicators and panel-based queue visualization, comprehensive chat settings management with database connectivity and LLM configuration, chat history browsing with search and filtering, human-in-the-loop review capabilities with status tracking, integrated queue persistence and restoration capabilities, enhanced PostgreSQL database integration with connection pooling and migration verification, improved asset bundling through inline SVG implementations, asynchronous patch application with intelligent file resolution, comprehensive dependency injection architecture for better modularity and testability, **offline handling capabilities with graceful degradation when PostgreSQL is unavailable**, **database initialization timeout protection to prevent UI blocking**, **improved user feedback mechanisms for database unavailability**, and **separation of database-dependent and database-independent commands for enhanced resilience**. The system now provides a complete AI-powered development experience with integrated conversation persistence, sophisticated search capabilities, focused AI assistance tools, comprehensive queue management with advanced error recovery, enhanced database connectivity with offline handling, improved user control through comprehensive settings and review interfaces, robust dependency injection for better maintainability and scalability, comprehensive offline handling that ensures graceful degradation and meaningful user feedback when database connectivity is unavailable, and **comprehensive OpenRouter configuration system with advanced embedding capabilities including base URL configuration, API key management, model selection, dimension testing, provider routing, and quantization options**. The addition of LM Studio configuration support expands local AI model integration options, while the enhanced ChatInput component with force send functionality and stop buttons demonstrates improved user control and performance through optimized asset management and comprehensive queue integration. The over 200 lines of enhanced message queue functionality including sophisticated persistence, restoration, and error recovery capabilities represent a significant improvement in system reliability and user experience, while the comprehensive offline handling system ensures that users can continue to use non-critical features even when database connectivity is unavailable, with clear guidance on how to resolve connectivity issues. The new OpenRouter configuration system provides enterprise-grade embedding capabilities with advanced provider routing, fallback mechanisms, and quantization support, making it suitable for production environments with complex embedding requirements.

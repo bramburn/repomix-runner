@@ -16,6 +16,8 @@
 - [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts)
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts)
 - [fileEmbeddingPipeline.test.ts](file://src/test/core/indexing/fileEmbeddingPipeline.test.ts)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts)
+- [compressFile.ts](file://src/core/compression/compressFile.ts)
 - [repomix.config.json](file://repomix.config.json)
 - [README.md](file://README.md)
 - [nodes.ts](file://src/search/nodes.ts)
@@ -26,11 +28,10 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced EmbeddingService to support LM Studio provider alongside existing Gemini and Ollama providers
-- Added LMStudioProvider.ts implementation with comprehensive error handling and dimension validation
-- Updated provider configuration schema to include LM Studio settings
-- Added LM Studio web UI components for model management and configuration
-- Enhanced embedding service with three-provider support (Gemini, Ollama, LM Studio)
+- Enhanced JavaScript module format support with addition of .mjs and .cjs extensions in both markdownGenerator.ts and fileEmbeddingPipeline.ts
+- Expanded text processing capabilities to include modern JavaScript module formats
+- Improved compatibility with ES modules and CommonJS module systems
+- Updated file extension handling for comprehensive JavaScript ecosystem support
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -55,12 +56,12 @@ This document describes the File Embedding Pipeline, which transforms raw file c
 - Provider-agnostic embedding generation with priority queue management across three providers (Gemini, Ollama, and LM Studio)
 - Batched vector upsert into a vector database
 
-The pipeline now supports three embedding providers with comprehensive configuration options, robust error handling, and integrated web UI for LM Studio model management. The enhanced embedding service includes priority-based request queuing, comprehensive debugging statistics, and request serialization to prevent rate limiting.
+The pipeline now supports enhanced JavaScript module format processing with comprehensive support for modern JavaScript ecosystems, including ES modules (.mjs) and CommonJS modules (.cjs). The enhanced embedding service includes priority-based request queuing, comprehensive debugging statistics, and request serialization to prevent rate limiting.
 
 ## Project Structure
-The embedding pipeline spans several modules with expanded provider support:
+The embedding pipeline spans several modules with expanded provider support and enhanced JavaScript module format handling:
 - Orchestration and repository scanning
-- File processing and chunking
+- File processing and chunking with expanded JavaScript support
 - Enhanced embedding service with priority queue management across three providers
 - Vector database adapter interface
 - Utilities for retries, batching, and vector identity
@@ -76,6 +77,8 @@ subgraph "File Processing"
 FEP["fileEmbeddingPipeline.ts"]
 TC["textChunker.ts"]
 TS["treeSitterService.ts"]
+MG["markdownGenerator.ts"]
+CF["compressFile.ts"]
 end
 subgraph "Enhanced Embedding Layer"
 ES["embeddingService.ts"]
@@ -114,6 +117,8 @@ ES --> ET
 FEP --> VDT
 FEP --> VID
 FEP --> RS
+MG --> FEP
+CF --> TC
 SEARCH --> ES
 AGENT --> ES
 WSC --> LMS
@@ -138,6 +143,8 @@ WSS --> LP
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
 - [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 **Section sources**
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
@@ -155,6 +162,7 @@ WSS --> LP
 - Retry and Batching: Robust retries with exponential backoff and batching utilities for throughput.
 - Repository Orchestrator: Coordinates repository-wide indexing and incremental updates.
 - LM Studio Integration: Web UI components for model discovery, configuration testing, and dimension validation.
+- Enhanced JavaScript Module Support: Expanded processing capabilities for ES modules (.mjs) and CommonJS modules (.cjs).
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
@@ -164,9 +172,11 @@ WSS --> LP
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L10-L90)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 ## Architecture Overview
-The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds using the selected provider, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities across three providers and provides comprehensive debugging capabilities.
+The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds using the selected provider, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities across three providers and provides comprehensive debugging capabilities with expanded JavaScript module format support.
 
 ```mermaid
 sequenceDiagram
@@ -179,7 +189,7 @@ participant Provider as "Gemini/Ollama/LM Studio"
 participant Adapter as "VectorDbAdapter"
 Orchestrator->>Pipeline : "Process file"
 Pipeline->>Pipeline : "Skip binary / empty / .git"
-Pipeline->>Pipeline : "Read file content"
+Pipeline->>Pipeline : "Read file content (including .mjs/.cjs)"
 Pipeline->>Chunker : "Generate chunks (semantic or line-based)"
 Chunker-->>Pipeline : "TextChunk[]"
 Pipeline->>EmbedSvc : "embedTexts(batch, priority=false)"
@@ -218,6 +228,7 @@ Responsibilities:
 
 Key behaviors:
 - Binary file filtering uses extension and basename whitelists.
+- Enhanced JavaScript module format support includes .mjs and .cjs extensions.
 - Chunking is chosen based on AST support and language detection.
 - Embeddings are produced in batches with configurable concurrency.
 - Vectors are upserted in batches with separate concurrency control.
@@ -228,7 +239,7 @@ flowchart TD
 Start(["Start embedAndUpsertFile"]) --> CheckGit[".git filter"]
 CheckGit --> IsBinary{"Binary?"}
 IsBinary --> |Yes| SkipBinary["Skip file"]
-IsBinary --> |No| ReadFile["Read UTF-8 content"]
+IsBinary --> |No| ReadFile["Read UTF-8 content (including .mjs/.cjs)"]
 ReadFile --> EmptyCheck{"Empty?"}
 EmptyCheck --> |Yes| SkipEmpty["Skip file"]
 EmptyCheck --> |No| DetectLang["Detect language & AST support"]
@@ -386,6 +397,29 @@ LMStudioProvider ..|> IEmbeddingProvider
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L42-L44)
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L87-L89)
 
+### Enhanced JavaScript Module Format Support
+The system now provides comprehensive support for modern JavaScript module formats, expanding beyond traditional .js files to include ES modules (.mjs) and CommonJS modules (.cjs). This enhancement ensures compatibility with contemporary JavaScript development practices and build systems.
+
+**Updated** Enhanced with support for .mjs and .cjs JavaScript module formats
+
+Key Features:
+- ES modules (.mjs) support for modern JavaScript development
+- CommonJS modules (.cjs) compatibility for legacy and mixed environments
+- Seamless integration with existing JavaScript processing pipeline
+- AST-based chunking for both .mjs and .cjs files when Tree-sitter support is available
+- Consistent handling with other JavaScript file types (.js, .jsx, .ts, .tsx)
+
+JavaScript module format coverage includes:
+- Traditional JavaScript: .js, .jsx
+- Modern JavaScript: .mjs (ES modules), .cjs (CommonJS)
+- TypeScript variants: .ts, .tsx
+- Mixed environment support: .mts, .cts for TypeScript modules
+
+**Section sources**
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
+
 ### LM Studio Provider Implementation
 The LM Studio provider offers local AI inference capabilities with comprehensive error handling and dimension validation. It supports optional authentication and handles multiple response formats from the LM Studio API.
 
@@ -530,6 +564,7 @@ Usage Examples:
 | **Offline Capability** | No | Yes | Yes |
 | **Model Loading** | Predefined | Dynamic | Dynamic |
 | **Error Handling** | Structured | Standard | Comprehensive |
+| **JavaScript Module Support** | .js, .jsx, .ts, .tsx | .js, .jsx, .mjs, .cjs, .ts, .tsx | .js, .jsx, .mjs, .cjs, .ts, .tsx |
 
 ### Provider Configuration Examples
 
@@ -576,6 +611,7 @@ lmstudio: {
   - Retry service for robustness
   - Tree-sitter service for AST-based chunking
   - Vector identity for deterministic IDs
+  - Enhanced JavaScript module format support for .mjs and .cjs files
 
 ```mermaid
 graph LR
@@ -593,6 +629,8 @@ ES --> ESQ["Priority Queue System"]
 ES --> ESD["Debugging Stats"]
 WSC --> LMS["LM Studio Config Schema"]
 WSS --> LP
+MG["markdownGenerator.ts"] --> FEP
+CF["compressFile.ts"] --> TC
 ```
 
 **Diagram sources**
@@ -608,6 +646,8 @@ WSS --> LP
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
 - [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L4-L10)
@@ -642,6 +682,10 @@ WSS --> LP
   - LM Studio supports local inference with configurable model loading
   - Gemini provides fixed dimensionality for predictable performance
   - Ollama offers flexible model selection with dynamic dimension control
+- Enhanced JavaScript module processing:
+  - Efficient handling of .mjs and .cjs files with AST-based chunking
+  - Optimized memory usage for modern JavaScript module formats
+  - Consistent performance across different JavaScript module types
 
 [No sources needed since this section provides general guidance]
 
@@ -676,6 +720,11 @@ Common issues and resolutions:
   - Ensure embedding models are loaded in LM Studio
   - Check model compatibility with configured dimension
   - Test model availability using web UI components
+- JavaScript module format issues:
+  - .mjs and .cjs files are now properly recognized as text files
+  - Ensure Tree-sitter language support is available for AST-based chunking
+  - Verify file permissions for .mjs and .cjs module files
+  - Check for syntax errors in JavaScript module files affecting chunking
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L200-L213)
@@ -686,9 +735,11 @@ Common issues and resolutions:
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L41-L45)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L58)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
 
 ## Conclusion
-The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors across three embedding providers. Its enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports Gemini, Ollama, and LM Studio providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale with flexible deployment options.
+The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors across three embedding providers. Its enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports Gemini, Ollama, and LM Studio providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale with flexible deployment options. The enhanced JavaScript module format support expands compatibility with modern development practices, ensuring comprehensive coverage of contemporary JavaScript ecosystems including ES modules (.mjs) and CommonJS modules (.cjs).
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -751,6 +802,15 @@ Provider configuration examples for EmbeddingService:
   - Scans repository, applies ignore patterns, persists file list to database
   - Example reference: [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
 
+- Enhanced JavaScript Module Format Support
+  - .js, .jsx, .mjs, .cjs, .ts, .tsx files are now processed as text
+  - AST-based chunking available for .mjs and .cjs when Tree-sitter support is present
+  - Consistent handling with other JavaScript file types
+  - Example references:
+    - [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+    - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
+    - [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
+
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L5-L15)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L130-L143)
@@ -760,6 +820,9 @@ Provider configuration examples for EmbeddingService:
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
 - [repomix.config.json](file://repomix.config.json#L1-L43)
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 ### Validation and Metadata Expectations
 - Vector metadata fields verified by tests:
@@ -790,3 +853,18 @@ Provider configuration examples for EmbeddingService:
 **Section sources**
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+
+### Enhanced JavaScript Module Format Coverage
+- Comprehensive JavaScript ecosystem support:
+  - ES modules: .mjs (ECMAScript modules)
+  - CommonJS modules: .cjs (CommonJS modules)
+  - Traditional JavaScript: .js, .jsx
+  - TypeScript variants: .ts, .tsx
+  - Mixed environment support: .mts, .cts for TypeScript modules
+  - AST-based chunking for modern JavaScript formats when supported
+  - Consistent processing pipeline across all JavaScript module types
+
+**Section sources**
+- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
+- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)

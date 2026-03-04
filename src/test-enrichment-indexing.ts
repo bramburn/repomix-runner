@@ -200,61 +200,78 @@ export class UserService {
     console.log('❌ Symbol extraction failed:', error instanceof Error ? error.message : String(error));
   }
 
-  // Test 4: LLM Summary Generation
-  console.log('\n🤖 Test 4: LLM Summary Generation');
+  // Test 4: LLM Summary Generation (REST API - Non-streaming)
+  console.log('\n🤖 Test 4: LLM Summary Generation (REST Non-streaming)');
   console.log('-'.repeat(40));
 
   try {
-    const openaiModule = await import('openai');
-    const OpenAIClient = (openaiModule as any).default;
+    // Use actual method implementation instead of just signature
+    const methodCode = `async getUserById(id: string): Promise<User | null> {
+    return this.db.findOne('users', { id });
+  }`;
+    
+    const prompt = `Summarize what this method does in 5-10 words:\n\`\`\`typescript\n${methodCode}\n\`\`\``;
 
-    const client = new OpenAIClient({
-      apiKey: 'not-needed',
-      baseURL: 'http://192.168.0.136:8080/v1',
+    console.log('Sending non-streaming request (with full code snippet)...');
+    
+    const response = await fetch('http://192.168.0.136:8080/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer not-needed',
+      },
+      body: JSON.stringify({
+        model: 'qwen3.5-9b',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 500,
+      }),
     });
 
-    const testSignature = 'async getUserById(id: string): Promise<User | null>';
-    const prompt = `Summarize in 5-10 words what this method does:
-${testSignature}
-
-Summary:`;
-
-    console.log('Sending request to local LLM (qwen3.5-9b)...');
-    
-    const response = await client.chat.completions.create({
-      model: 'qwen3.5-9b',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,  // Higher temp for more direct responses
-      max_tokens: 200,  // Allow enough for reasoning + output
-    });
-
-    const message = response.choices[0]?.message;
-    // Try content first, fallback to reasoning_content if needed
-    let result = message?.content || '';
-    
-    // If content is empty but reasoning_content exists, the model might be reasoning
-    // without outputting final answer - this indicates wrong prompt/model mismatch
-    if (!result && message?.reasoning_content) {
-      console.log('⚠️  Model only produced reasoning, no output');
-      console.log('   Consider using a non-reasoning model or adjusting prompt');
-      result = message.reasoning_content;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    if (result && result.trim()) {
-      console.log('✅ Generated output:');
-      console.log('   "' + result.trim() + '"');
+    const data = await response.json();
+    const message = data.choices?.[0]?.message;
+    
+    // Qwen reasoning models put everything in reasoning_content
+    const rawOutput = message?.reasoning_content || message?.content || '';
+    
+    if (rawOutput && rawOutput.trim()) {
+      console.log('\n📝 Raw model output (reasoning_content):');
+      console.log('---');
+      console.log(rawOutput);
+      console.log('---\n');
       
-      // Check if finish_reason was length
-      if (response.choices[0].finish_reason === 'length') {
-        console.log('⚠️  WARNING: Response truncated! Increase max_tokens');
+      // Extract the final answer from reasoning
+      // Look for quoted text near the end (the model's conclusion)
+      const quoteMatches = rawOutput.match(/"([^"]+)"/g);
+      let extractedSummary = '';
+      
+      if (quoteMatches && quoteMatches.length > 0) {
+        // Take the last quoted string (usually the final answer)
+        const lastQuote = quoteMatches[quoteMatches.length - 1];
+        extractedSummary = lastQuote ? lastQuote.replace(/^"|"$/g, '') : '';
+        
+        console.log('✅ Extracted final answer:');
+        console.log('   "' + extractedSummary + '"');
+      } else {
+        console.log('⚠️  Could not extract summary from reasoning');
+        console.log('   Using full reasoning as fallback');
+        extractedSummary = rawOutput;
+      }
+      
+      // Check finish reason
+      if (data.choices[0].finish_reason === 'length') {
+        console.log('⚠️  WARNING: Response was truncated');
       }
     } else {
-      console.log('⚠️  Empty response received');
-      console.log('   Message:', JSON.stringify(message, null, 2));
+      console.log('⚠️  Empty response from model');
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.log('❌ LLM summary generation failed:', errMsg);
+    console.log('❌ LLM request failed:', errMsg);
   }
 
   console.log('\n' + '='.repeat(50));

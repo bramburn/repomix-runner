@@ -44,15 +44,18 @@
 - [pathValidation.ts](file://src/utils/pathValidation.ts)
 - [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts)
 - [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts)
+- [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts)
+- [package.json](file://package.json)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced database service with comprehensive branch-aware indexing capabilities for multi-branch repository support
-- Improved error handling during migration processes with non-fatal migration failures and transaction rollback support
-- Added new utility functions for input validation including path traversal prevention and file security validation
-- Expanded database service with enhanced transaction management and improved data integrity checks
-- Strengthened error handling patterns with graceful degradation and comprehensive logging
+- Enhanced PostgreSQL connection management with unified connection string retrieval logic from VS Code settings
+- Improved timeout mechanisms with configurable timeout protection during initialization
+- Streamlined initialization process with non-blocking background pool creation
+- Added new settings-based configuration approach with precedence over secrets
+- Enhanced error handling with graceful degradation and user-friendly notifications
+- Improved connection testing with separate temp pool for validation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -77,7 +80,7 @@
 ## Introduction
 This document describes the Storage System responsible for PostgreSQL-backed data persistence in the extension. The system has undergone significant architectural changes to become PostgreSQL-centric, eliminating XML-based diff processing infrastructure and transitioning to a unified PostgreSQL-first approach. The system now provides robust, scalable storage for agent runs, debug sessions, bundle metadata, branch-aware incremental indexing state, conversation threads, message history, memory entries, and batch processing jobs. It includes PostgreSQL connection pooling, migration management, transaction support, comprehensive data models for collaborative conversation management and batch processing workflows, and secure credential management for multiple database providers.
 
-**Updated** Enhanced with branch-aware indexing capabilities, improved error handling during migration processes, and comprehensive input validation utilities.
+**Updated** Enhanced with unified connection string retrieval logic from VS Code settings, improved timeout mechanisms, streamlined initialization process, and new settings-based configuration approach.
 
 ## Project Structure
 The storage system now centers around PostgreSQL-backed repositories with enhanced connection management and secure secret handling. The extension initializes PostgreSQL connection pools during activation and integrates PostgreSQL repositories with background indexing, agent runs, bundle management, conversation services, plan management, and branch maintenance operations. The system includes comprehensive secret management through VS Code Secrets API and enhanced database connectivity testing.
@@ -90,6 +93,9 @@ END
 subgraph "PostgreSQL Storage Layer"
 PG["PostgreSQL Pool<br/>Connection Management<br/>Transaction Support"]
 MIG["Migration System<br/>schema_migrations<br/>Idempotent Migrations"]
+END
+subgraph "Settings-Based Configuration"
+SC["VS Code Settings<br/>repomix.chat.postgresConnectionString<br/>Precedence over Secrets"]
 END
 subgraph "Secret Management"
 SM["VS Code Secrets API<br/>Multi-provider Support<br/>Secure Storage"]
@@ -125,6 +131,7 @@ RFV["Remote File Validation<br/>Security Checks"]
 GDV["Git Diff Validation<br/>Critical File Tracking"]
 END
 EXT --> PG
+EXT --> SC
 EXT --> SM
 EXT --> DB
 EXT --> RIO
@@ -138,6 +145,7 @@ PG --> MR
 PG --> MEM
 PG --> AR
 PG --> BR
+SC --> PG
 SM --> SI
 SM --> PINE
 SM --> QDR
@@ -149,7 +157,7 @@ DB --> GDV
 ```
 
 **Diagram sources**
-- [extension.ts](file://src/extension.ts#L78-L107)
+- [extension.ts](file://src/extension.ts#L84-L108)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
 - [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L58)
 - [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L92)
@@ -164,7 +172,7 @@ DB --> GDV
 - [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
 
 **Section sources**
-- [extension.ts](file://src/extension.ts#L78-L107)
+- [extension.ts](file://src/extension.ts#L84-L108)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
 - [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L14-L15)
@@ -203,7 +211,7 @@ DB --> GDV
 - [batchRepository.ts](file://src/chat/db/batchRepository.ts#L45-L237)
 - [databaseService.ts](file://src/core/storage/databaseService.ts#L112-L1865)
 - [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L14-L15)
+- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
 - [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
 - [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
 - [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
@@ -213,7 +221,7 @@ DB --> GDV
 ## Architecture Overview
 The extension initializes PostgreSQL connection pools during activation with comprehensive error handling and retry logic. PostgreSQL repositories provide robust, scalable persistence for conversation threads, messages, memory entries, and batch jobs with full transaction support. The system maintains backward compatibility while leveraging PostgreSQL's advanced features like JSONB, arrays, and proper data typing. Background indexing uses PostgreSQL transactions for consistency, and bundle management continues with file-based storage for backward compatibility. Enhanced secret management through VS Code Secrets API provides secure storage for multiple database providers.
 
-**Updated** Enhanced with branch-aware indexing capabilities and comprehensive input validation utilities.
+**Updated** Enhanced with unified connection string retrieval logic from VS Code settings, improved timeout mechanisms, and streamlined initialization process.
 
 ```mermaid
 sequenceDiagram
@@ -232,7 +240,7 @@ Note over Ext,PG : Extension activation complete
 ```
 
 **Diagram sources**
-- [extension.ts](file://src/extension.ts#L78-L107)
+- [extension.ts](file://src/extension.ts#L84-L108)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L220)
 
@@ -241,11 +249,21 @@ Note over Ext,PG : Extension activation complete
 ### PostgreSQL Connection Management
 The PostgreSQL client provides comprehensive connection management with robust error handling and retry logic:
 
+**Unified Connection String Retrieval**:
+- Settings-based configuration with `repomix.chat.postgresConnectionString` taking precedence over secrets
+- Backward compatibility maintained through VS Code Secrets API fallback
+- Streamlined initialization process with non-blocking background pool creation
+
 **Connection Pool Configuration**:
 - Max connections: 10 concurrent connections
 - Idle timeout: 30 seconds
 - Connection timeout: 10 seconds
 - Automatic pool recovery on connection failures
+
+**Timeout Mechanisms**:
+- Configurable timeout protection during initialization (10-second default)
+- Graceful degradation when operations exceed timeout limits
+- User-friendly error notifications with actionable guidance
 
 **Retry Logic**:
 - Automatic retry for retryable connection errors (timeouts, connection terminated, refused connections)
@@ -263,6 +281,11 @@ The PostgreSQL client provides comprehensive connection management with robust e
 - Graceful pool shutdown on extension deactivation
 - Error event handling for unexpected connection issues
 
+**Enhanced Connection Testing**:
+- Separate temporary pool for connection string validation
+- Non-invasive testing without affecting global pool state
+- Detailed error reporting for connection failures
+
 ```mermaid
 classDiagram
 class PostgresClient {
@@ -277,6 +300,7 @@ class PostgresClient {
 +runMigrations(p) Promise~void~
 +checkTablesExist(client) Promise~TableStatus~
 +recordMigration(client, version) Promise~void~
++testConnectionString(connectionString) Promise~ConnectionTestResult~
 }
 class MigrationSystem {
 -version : string
@@ -296,6 +320,7 @@ class MigrationSystem {
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L198-L280)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
+- [extension.ts](file://src/extension.ts#L84-L108)
 
 ### Enhanced Secret Management System
 The system now includes comprehensive secret management through VS Code Secrets API with support for multiple database providers:
@@ -517,6 +542,31 @@ The system now includes an enhanced queue management system with UUID-based entr
 - [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
 
 ## PostgreSQL Connection Management
+
+### Unified Connection String Retrieval
+The system now implements a unified connection string retrieval mechanism that prioritizes VS Code settings over secrets:
+
+**Settings-Based Precedence**:
+- Primary source: `repomix.chat.postgresConnectionString` in VS Code settings
+- Secondary source: VS Code Secrets API for backward compatibility
+- Streamlined configuration process with immediate effect
+
+**Enhanced Initialization Process**:
+- Non-blocking background pool creation during extension activation
+- Configurable timeout protection (10-second default) for initialization
+- Graceful degradation when initialization exceeds timeout limits
+- User-friendly error notifications with actionable guidance
+
+**Connection Testing Improvements**:
+- Separate temporary pool for connection string validation
+- Non-invasive testing without affecting global pool state
+- Detailed error reporting for connection failures
+- Immediate feedback on connection string validity
+
+**Section sources**
+- [extension.ts](file://src/extension.ts#L84-L108)
+- [extension.ts](file://src/extension.ts#L141-L171)
+- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L503-L562)
 
 ### Connection Pool Configuration
 The PostgreSQL client implements robust connection management with configurable pool parameters:
@@ -946,6 +996,10 @@ The system now features an improved queue management system with UUID-based entr
   - PostgreSQL pool with 10 concurrent connections for optimal throughput
   - Connection timeout of 10 seconds for responsive operation
   - Idle timeout of 30 seconds for efficient resource utilization
+- **Timeout Protection**:
+  - Configurable timeout limits (10 seconds default) for initialization operations
+  - Graceful degradation when operations exceed timeout thresholds
+  - User-friendly error notifications with actionable guidance
 - **Transaction Management**:
   - Message operations wrapped in transactions for consistency
   - Batch job updates use atomic operations
@@ -983,9 +1037,14 @@ The system now features an improved queue management system with UUID-based entr
   - Transactional migrations prevent data corruption
   - Non-fatal migration errors allow graceful degradation
   - Branch-aware schema optimization reduces query complexity
+- **Settings-Based Configuration Performance**:
+  - Unified connection string retrieval reduces configuration overhead
+  - Non-blocking initialization improves extension startup time
+  - Streamlined connection testing minimizes user wait time
 
 **Section sources**
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L299-L316)
+- [extension.ts](file://src/extension.ts#L60-L82)
 - [messageRepository.ts](file://src/chat/db/messageRepository.ts#L165-L212)
 - [compressContext.ts](file://src/chat/nodes/compressContext.ts#L36-L75)
 - [GitService.ts](file://src/git/GitService.ts#L110-L136)
@@ -998,11 +1057,12 @@ The system now features an improved queue management system with UUID-based entr
 
 ## Troubleshooting Guide
 - **PostgreSQL Connection Issues**:
-  - Verify connection string in Repomix Runner settings
+  - Verify connection string in Repomix Runner settings (`repomix.chat.postgresConnectionString`)
   - Check PostgreSQL server availability and network connectivity
   - Review connection pool errors and retry attempts
   - Use testConnection endpoint for diagnostic information
   - Check VS Code Secrets storage for corrupted connection strings
+  - Utilize separate connection testing for validation without affecting global pool
 - **Migration Failures**:
   - Check schema_migrations table for applied migrations
   - Verify table existence with verifyMigration endpoint
@@ -1019,6 +1079,11 @@ The system now features an improved queue management system with UUID-based entr
   - Check provider factory for credential validation errors
   - Review connection testing results for authentication failures
   - Validate network connectivity for hosted providers
+- **Timeout and Initialization Issues**:
+  - Check timeout configuration for initialization operations
+  - Verify graceful degradation behavior when operations exceed limits
+  - Review error notifications for actionable guidance
+  - Ensure non-blocking initialization doesn't affect extension functionality
 - **Transaction Errors**:
   - Message operations use automatic transaction rollback
   - Batch job updates support atomic operations
@@ -1053,6 +1118,7 @@ The system now features an improved queue management system with UUID-based entr
 **Section sources**
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L461-L486)
 - [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
+- [extension.ts](file://src/extension.ts#L60-L82)
 - [messageRepository.ts](file://src/chat/db/messageRepository.ts#L138-L144)
 - [compressContext.ts](file://src/chat/nodes/compressContext.ts#L43-L50)
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
@@ -1064,12 +1130,12 @@ The system now features an improved queue management system with UUID-based entr
 - [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
 
 ## Conclusion
-The Storage System has evolved into a comprehensive PostgreSQL-centric architecture with enhanced security and connectivity management. The system includes sophisticated connection management with pooling and retry logic, comprehensive migration support with schema tracking, advanced secret management through VS Code Secrets API, and comprehensive database connectivity testing. The integration of PostgreSQL repositories with transaction support ensures data consistency and reliability. The system maintains backward compatibility with legacy SQLite storage while leveraging PostgreSQL's advanced features for enhanced performance and scalability. The addition of secure credential management for multiple database providers, comprehensive connection testing, and enhanced secret handling demonstrates the system's capability to handle complex, real-world scenarios with enterprise-grade security and reliability. The enhanced queue management system with UUID-based entry ID generation provides improved uniqueness guarantees and collision resistance, while the PostgreSQL-first approach eliminates XML-based diff processing infrastructure and global state management patterns. The newly added input validation utilities provide comprehensive security measures against path traversal, file injection, and critical file modification attacks, making the system production-ready for enterprise deployment.
+The Storage System has evolved into a comprehensive PostgreSQL-centric architecture with enhanced security and connectivity management. The system includes sophisticated connection management with unified connection string retrieval from VS Code settings, improved timeout mechanisms with configurable protection, streamlined initialization process with non-blocking operations, comprehensive migration support with schema tracking, advanced secret management through VS Code Secrets API, and comprehensive database connectivity testing. The integration of PostgreSQL repositories with transaction support ensures data consistency and reliability. The system maintains backward compatibility with legacy SQLite storage while leveraging PostgreSQL's advanced features for enhanced performance and scalability. The addition of secure credential management for multiple database providers, comprehensive connection testing, and enhanced secret handling demonstrates the system's capability to handle complex, real-world scenarios with enterprise-grade security and reliability. The newly added input validation utilities provide comprehensive security measures against path traversal, file injection, and critical file modification attacks, making the system production-ready for enterprise deployment.
 
 ## Appendices
 
 ### API Surface Summary
-- **PostgreSQL Connection**: initPool, getPool, closePool, queryWithRetry, verifyMigration, testConnection
+- **PostgreSQL Connection**: initPool, getPool, closePool, queryWithRetry, verifyMigration, testConnection, testConnectionString
 - **Thread Management**: createThread, getThreads, getThread, updateThread, renameThread, archiveThread, deleteThread
 - **Message Management**: saveMessage, getMessages, getMessagesPage, deleteMessage, getUncompressedMessages, markMessagesAsCompressed, saveSummaryMessage, getSummaryMessages
 - **Memory Management**: createMemory, getMemoryById, listMemoryByScope, updateMemory, deleteMemory, searchByKeyword, deleteAllByScope, existsByKey
