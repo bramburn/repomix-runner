@@ -86,8 +86,8 @@ export class LanguageParser {
     }
 
     const TreeSitter = require('web-tree-sitter');
-    await TreeSitter.init();
-
+    // web-tree-sitter v0.26+ requires Parser.init() before Language.load()
+    await TreeSitter.Parser.init();
     this.parserClass = TreeSitter;
     this.initialized = true;
   }
@@ -120,7 +120,7 @@ export class LanguageParser {
       return null;
     }
 
-    const parser = new this.parserClass();
+    const parser = new this.parserClass.Parser();
     parser.setLanguage(parserLanguage);
 
     this.parserCache.set(normalized, parser);

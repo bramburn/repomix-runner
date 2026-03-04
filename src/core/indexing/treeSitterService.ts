@@ -171,7 +171,7 @@ export class TreeSitterService {
     }
 
     // Create and cache parser
-    const parser = new this.ParserClass();
+    const parser = new this.ParserClass.Parser();
     parser.setLanguage(lang);
     this.parserCache.set(language, parser);
     return parser;

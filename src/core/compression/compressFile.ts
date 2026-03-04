@@ -6,9 +6,9 @@ import type { CaptureLike, CompressionOptions, BodyReplacement } from './types.j
  * Result of compression with token information.
  */
 export interface CompressionWithTokens {
-  /** Compressed content, or null if compression not supported */
+  /** Compressed content, or null when compression is unsupported/failed */
   compressed: string | null;
-  /** Token count of the result (compressed content or original if compression failed) */
+  /** Token count of the result (compressed content or original if compression is unsupported/failed) */
   tokenCount: number;
 }
 
@@ -74,23 +74,37 @@ export async function compressFile(
     const rawCaptures = query.captures(tree.rootNode) as CaptureLike[];
 
     if (rawCaptures.length === 0) {
-      return null;
+      return fileContent;
     }
 
     // Process in reverse order to preserve indices when replacing
     rawCaptures.sort((a, b) => b.node.startIndex - a.node.startIndex);
 
     let result = fileContent;
-    let hasReplacements = false;
-
+    let lastAppliedStartIndex = Number.POSITIVE_INFINITY;
     for (const capture of rawCaptures) {
       const replacement = strategy.getBodyReplacement(capture, { sourceCode: fileContent }, options);
       if (!replacement) {
         continue;
       }
 
-      // Verify the indices are still valid
-      if (replacement.bodyStartIndex < 0 || replacement.bodyEndIndex > result.length) {
+      // Verify ranges against source coordinates and skip malformed ranges.
+      if (
+        replacement.bodyStartIndex < 0 ||
+        replacement.bodyEndIndex > fileContent.length ||
+        replacement.bodyStartIndex > replacement.bodyEndIndex
+      ) {
+        continue;
+      }
+
+      // Skip overlapping ranges. We apply from right to left, so a new range must end
+      // before (or at) the most recently applied start index.
+      if (replacement.bodyEndIndex > lastAppliedStartIndex) {
+        continue;
+      }
+
+      // Validate range against the current working string as a final guard.
+      if (replacement.bodyEndIndex > result.length) {
         continue;
       }
 
@@ -98,11 +112,11 @@ export async function compressFile(
         result.slice(0, replacement.bodyStartIndex) +
         replacement.replacementText +
         result.slice(replacement.bodyEndIndex);
-      hasReplacements = true;
+      lastAppliedStartIndex = replacement.bodyStartIndex;
     }
 
-    // If we found captures but none had bodies to replace (e.g., imports, exports only),
-    // return the original content rather than null to avoid triggering fallback to full code
+    // If we found captures but none had bodies to replace (e.g., imports/exports only),
+    // result remains unchanged and we intentionally return the original content.
     return result;
   } catch (error) {
     console.error('Compression failed:', error);

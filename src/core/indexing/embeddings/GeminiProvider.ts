@@ -58,7 +58,13 @@ export class GeminiProvider implements IEmbeddingProvider {
       },
     });
 
-    const embeddings = response.embeddings?.map(e => e.values);
+    const rawEmbeddings = response.embeddings ?? [];
+    const embeddings: number[][] = [];
+    for (const item of rawEmbeddings) {
+      if (Array.isArray(item?.values)) {
+        embeddings.push(item.values);
+      }
+    }
     if (!embeddings || embeddings.length !== texts.length) {
       throw new Error(`Expected ${texts.length} embeddings, got ${embeddings?.length || 0}`);
     }
@@ -67,8 +73,14 @@ export class GeminiProvider implements IEmbeddingProvider {
     console.log(`[GEMINI_PROVIDER] Completed batch embedding in ${duration}ms, ${embeddings.length} vectors generated`);
     
     for (let i = 0; i < embeddings.length; i++) {
-      if (embeddings[i].length !== this.dimensions) {
-        throw new Error(`Dimension mismatch at index ${i}: expected ${this.dimensions}, got ${embeddings[i].length}`);
+      const embedding = embeddings[i];
+      if (!embedding) {
+        throw new Error(`Missing embedding at index ${i}`);
+      }
+      if (embedding.length !== this.dimensions) {
+        throw new Error(
+          `Dimension mismatch at index ${i}: expected ${this.dimensions}, got ${embedding.length}`
+        );
       }
     }
 

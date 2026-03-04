@@ -1,5 +1,7 @@
--- PRD 001: PostgreSQL Chat Storage - Initial Schema
--- This file is for documentation/reference. The actual SQL is embedded in postgresClient.ts.
+-- Up Migration
+
+-- Required for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Chat threads (replaces threads.json)
 CREATE TABLE IF NOT EXISTS chat_threads (
@@ -39,7 +41,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON chat_messages(thread_id, timestamp);
 
--- Memory entries (for Memory Manager CRUD - PRD 004)
+-- Memory entries
 CREATE TABLE IF NOT EXISTS chat_memory (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scope TEXT NOT NULL CHECK (scope IN ('session', 'repo', 'global')),
@@ -55,7 +57,7 @@ CREATE TABLE IF NOT EXISTS chat_memory (
 
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON chat_memory(scope, scope_id);
 
--- Batch jobs (for Batch LLM Pipeline - PRD 005)
+-- Batch jobs
 CREATE TABLE IF NOT EXISTS batch_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   thread_id UUID REFERENCES chat_threads(id),
@@ -77,7 +79,7 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
 CREATE INDEX IF NOT EXISTS idx_batch_thread ON batch_jobs(thread_id);
 CREATE INDEX IF NOT EXISTS idx_batch_status ON batch_jobs(status);
 
--- Repo architecture snapshots (for PRD 008)
+-- Repo architecture snapshots
 CREATE TABLE IF NOT EXISTS repo_architecture (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   repo_id TEXT NOT NULL UNIQUE,

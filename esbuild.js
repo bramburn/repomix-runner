@@ -26,9 +26,10 @@ const esbuildProblemMatcherPlugin = {
 };
 
 /**
- * Plugin to copy WASM files to dist directory
+ * Plugin to copy runtime assets to dist directory
  * - sql.wasm: copied from node_modules (only if not already present)
  * - tree-sitter WASM: copied from assets/tree-sitter-wasm/ (on every build to ensure they're present)
+ * - chat DB migrations: copied from src/chat/db/migrations/ (on every build)
  */
 const copyWasmPlugin = {
   name: 'copy-wasm',
@@ -87,6 +88,33 @@ const copyWasmPlugin = {
       } else {
         console.warn('tree-sitter-wasm directory not found in assets/. Run "npm run setup:treesitter" first.');
       }
+
+      // Copy chat PostgreSQL migrations from src/ to dist/ (on every build)
+      const migrationSourceDir = path.join(__dirname, 'src', 'chat', 'db', 'migrations');
+      const migrationDestDir = path.join(__dirname, 'dist', 'chat', 'db', 'migrations');
+
+      if (fs.existsSync(migrationSourceDir)) {
+        if (!fs.existsSync(migrationDestDir)) {
+          fs.mkdirSync(migrationDestDir, { recursive: true });
+        }
+
+        const migrationFiles = fs.readdirSync(migrationSourceDir).filter((file) => file.endsWith('.sql'));
+        let copiedCount = 0;
+        for (const file of migrationFiles) {
+          const sourcePath = path.join(migrationSourceDir, file);
+          const destPath = path.join(migrationDestDir, file);
+
+          if (!fs.existsSync(destPath) ||
+            fs.statSync(sourcePath).mtimeMs > fs.statSync(destPath).mtimeMs) {
+            fs.copyFileSync(sourcePath, destPath);
+            copiedCount++;
+          }
+        }
+
+        console.log(`Copied ${copiedCount} migration files from src/chat/db/migrations to dist/`);
+      } else {
+        console.warn('Chat migration directory not found at src/chat/db/migrations');
+      }
     });
   }
 };
@@ -103,7 +131,7 @@ async function main() {
     outfile: 'dist/extension.js',
     // Keep `pg-native` external: it's an optional native dependency used by `pg`.
     // Leaving it external avoids bundling native artifacts, and `pg` falls back to pure JS when absent.
-    external: ['vscode', 'pg-native'],
+    external: ['vscode', 'pg-native', 'node-pg-migrate'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin, copyWasmPlugin],
   });

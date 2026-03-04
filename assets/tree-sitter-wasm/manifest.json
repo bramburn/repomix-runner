@@ -49,7 +49,7 @@
       "language": "csharp",
       "wasmFile": "csharp.wasm",
       "repository": "tree-sitter-c-sharp",
-      "version": "0.1.13",
+      "version": "latest",
       "downloadSource": "unpkg",
       "source": "https://github.com/tree-sitter/tree-sitter-c-sharp"
     },
@@ -57,7 +57,7 @@
       "language": "dart",
       "wasmFile": "dart.wasm",
       "repository": "tree-sitter-dart",
-      "version": "0.1.13",
+      "version": "latest",
       "downloadSource": "unpkg",
       "source": "https://github.com/tree-sitter/tree-sitter-dart"
     }

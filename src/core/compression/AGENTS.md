@@ -51,13 +51,14 @@ Lookup order in `LanguageParser.resolveWasmPath(...)`:
 2. `dist/tree-sitter-wasm/` (runtime)
 3. `assets/tree-sitter-wasm/` (fallback)
 
-Return `null` from compression APIs on parser/query/WASM failure so callers can fall back gracefully.
+Return `null` from compression APIs only on unsupported language or parser/query/WASM/runtime failure so callers can fall back gracefully.
 
 ## Behavior Rules
 
 - Process captures in reverse order to preserve replacement offsets.
 - For `keepNames` matches, preserve full node text.
 - Skip nested duplicate emission by relying on capture/replacement bounds.
+- If no captures are found for a supported language, return original content (not `null`).
 - If captures exist but no body replacement applies, return original content (not `null`).
 
 ## Workflow: Add a New Language

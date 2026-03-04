@@ -22,6 +22,9 @@
 - `npm run build:rust`: build the Rust helper binary when needed.
 - `npm run test:compression`: run compression diagnostic test harness.
 - `npm run diagnose:compression`: run parser/wasm compression diagnostics.
+- `npm run chat:migrate:create -- <name>`: create a new SQL chat migration file.
+- `DATABASE_URL=... npm run chat:migrate:up`: run chat PostgreSQL migrations manually.
+- `DATABASE_URL=... npm run chat:migrate:down`: rollback one chat migration manually.
 
 ## AST Compression Utility
 - Core module: `src/core/compression/` (separate from indexing tree-sitter logic).
@@ -37,6 +40,15 @@
 - Flow includes: context gathering, compression, goal review, package approval, batch submission/polling, edit review, apply, optional review loop, summary, memory extraction.
 - Queue and lifecycle: `src/chat/queue/*` and webview queue commands (`chatSubmit`, `chatForceSubmit`, `chatStop`, `chatClearQueue`, etc.).
 - Persistence: PostgreSQL-backed thread/memory/batch/architecture storage in `src/chat/db/*`.
+
+## PostgreSQL Chat Migrations
+- Migration engine: `node-pg-migrate` (runtime runner in `src/chat/db/postgresClient.ts`).
+- Source of truth: SQL files in `src/chat/db/migrations/*.sql` (not inline SQL in TypeScript).
+- Naming: use ordered numeric prefixes (for example `004_add_foo.sql`).
+- SQL format: include `-- Up Migration` section; down migrations are optional.
+- Build packaging: migration SQL is copied to `dist/chat/db/migrations/` by `esbuild.js`; do not bypass this flow.
+- Migration state table: `public.chat_schema_migrations` managed by `node-pg-migrate`.
+- When adding/changing schema: add a new migration file and update affected repositories/tests; never rewrite already-shipped migration files.
 
 ## Coding Style & Naming Conventions
 - Language: TypeScript with React for webview UI.

@@ -1,0 +1,19 @@
+// Integration lane entrypoint. Keep this list focused on tests that require the VS Code extension host.
+import '../aiChat.test.js';
+import '../chat/architecture/nodes.test.js';
+import '../commands/openOutput.test.js';
+import '../commands/openSettings.test.js';
+import '../commands/runRepomixOnSelectedFiles.test.js';
+import '../config/getCwd.test.js';
+import '../config/getOpenFiles.test.js';
+import '../core/bundles/bundleDataProviders.test.js';
+import '../core/bundles/bundleManager.test.js';
+import '../core/files/copyToClipboard.test.js';
+import '../core/files/filteredFileExpander.test.js';
+import '../core/files/outputPathResolver.test.js';
+import '../core/files/tempDirManager.test.js';
+import '../core/indexing/repoIndexer.test.js';
+import '../core/storage/databaseService.test.js';
+import '../extension.test.js';
+import '../git/gitUtils.test.js';
+import '../test-workspace/integration.test.js';

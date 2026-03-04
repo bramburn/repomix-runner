@@ -3,7 +3,7 @@
 /**
  * Tree-sitter WASM setup script
  * Downloads tree-sitter language parsers and copies them to the distribution directory
- * 
+ *
  * Supported languages: javascript, typescript, python, rust, csharp, dart
  */
 
@@ -31,15 +31,16 @@ const LANGUAGES = {
 // GitHub releases base URL for tree-sitter parsers
 const GITHUB_BASE = 'https://github.com/tree-sitter/tree-sitter-';
 
-// Parser versions and GitHub release URLs
-// These are fallback versions - the script will try to fetch the latest version from GitHub API
+// Parser versions and download sources
+// Note: C# and Dart are downloaded from tree-sitter-wasms package which provides
+// web-tree-sitter compatible WASM files (built with correct ABI)
 const PARSER_VERSIONS = {
   javascript: { version: 'v0.25.0', repo: 'tree-sitter-javascript', source: 'github' },
   typescript: { version: 'v0.25.0', repo: 'tree-sitter-typescript', source: 'github' },
   python: { version: 'v0.25.0', repo: 'tree-sitter-python', source: 'github' },
   rust: { version: 'v0.25.0', repo: 'tree-sitter-rust', source: 'github' },
-  csharp: { version: '0.1.13', repo: 'tree-sitter-c-sharp', source: 'unpkg', unpkgName: 'tree-sitter-c_sharp' },
-  dart: { version: '0.1.13', repo: 'tree-sitter-dart', source: 'unpkg', unpkgName: 'tree-sitter-dart' },
+  csharp: { version: 'latest', repo: 'tree-sitter-c-sharp', source: 'unpkg', unpkgName: 'tree-sitter-c_sharp' },
+  dart: { version: 'latest', repo: 'tree-sitter-dart', source: 'unpkg', unpkgName: 'tree-sitter-dart' },
 };
 
 /**
@@ -82,7 +83,7 @@ function downloadFile(url, dest, language) {
   return new Promise((resolve, reject) => {
     const request = https.get(url, (response) => {
       // Handle redirects
-      if ([301, 302, 307, 308].includes(response.statusCode)) {
+      if (response.statusCode && [301, 302, 307, 308].includes(response.statusCode)) {
         if (response.headers.location) {
           // Resolve relative URLs
           const newUrl = new URL(response.headers.location, url).toString();
@@ -135,10 +136,13 @@ async function downloadLanguageParser(language) {
     let source = parserConfig.source || 'github';
 
     if (source === 'unpkg') {
-      // Use unpkg CDN for C# and other languages that don't have GitHub WASM releases
-      const unpkgName = parserConfig.unpkgName || `tree-sitter-${language}`;
-      url = `https://unpkg.com/tree-sitter-wasms@${version}/out/${unpkgName}.wasm`;
-      console.log(`⬇️  Downloading ${language} parser from unpkg...`);
+      // Use unpkg CDN for C# and Dart from tree-sitter-wasms package
+      // These WASM files are built for web-tree-sitter compatibility
+      const unpkgName = parserConfig.unpkgName || language;
+      // Use 'latest' tag or specific version
+      const pkgVersion = version === 'latest' ? 'latest' : version;
+      url = `https://unpkg.com/tree-sitter-wasms@${pkgVersion}/out/${unpkgName}.wasm`;
+      console.log(`⬇️  Downloading ${language} parser from tree-sitter-wasms (unpkg)...`);
     } else {
       // Use GitHub releases for other languages
       const repoName = parserConfig.repo;
@@ -163,12 +167,12 @@ async function downloadLanguageParser(language) {
   } catch (error) {
     console.error(`❌ Failed to download ${language} parser:`, error.message);
 
-    // Special handling for C# - provide helpful guidance
-    if (language === 'csharp') {
-      console.log(`\n💡 C# Parser Workaround Options:`);
-      console.log(`   1. Install from NPM: npm install tree-sitter-c-sharp`);
-      console.log(`   2. Use token-based chunking without tree-sitter`);
-      console.log(`   3. Check unpkg: https://unpkg.com/tree-sitter-wasms@0.1.13/out/\n`);
+    // Special handling for C# and Dart
+    if (language === 'csharp' || language === 'dart') {
+      console.log(`\n💡 ${language} Parser Note:`);
+      console.log(`   These parsers are downloaded from tree-sitter-wasms package`);
+      console.log(`   which provides web-tree-sitter compatible WASM files.`);
+      console.log(`   Check: https://unpkg.com/tree-sitter-wasms@latest/out/\n`);
     }
   }
 }
@@ -203,14 +207,17 @@ async function setupTreeSitter() {
     description: 'Tree-sitter WASM parsers for code analysis',
     source: 'github.com/tree-sitter',
     sourceType: 'GitHub Releases + unpkg',
-    parsers: Object.keys(LANGUAGES).map(lang => ({
-      language: lang,
-      wasmFile: `${lang}.wasm`,
-      repository: LANGUAGES[lang],
-      version: PARSER_VERSIONS[lang]?.version || 'unknown',
-      downloadSource: PARSER_VERSIONS[lang]?.source || 'github',
-      source: `https://github.com/tree-sitter/${PARSER_VERSIONS[lang]?.repo || LANGUAGES[lang]}`
-    }))
+    parsers: Object.keys(LANGUAGES).map((lang) => {
+      const parserConfig = PARSER_VERSIONS[lang];
+      return {
+        language: lang,
+        wasmFile: `${lang}.wasm`,
+        repository: LANGUAGES[lang],
+        version: parserConfig?.version || 'unknown',
+        downloadSource: parserConfig?.source || 'github',
+        source: `https://github.com/tree-sitter/${parserConfig?.repo || LANGUAGES[lang]}`
+      };
+    })
   };
 
   fs.writeFileSync(
@@ -240,24 +247,22 @@ npm run setup:treesitter
 
 ## Download Sources
 
-Parsers are downloaded from official tree-sitter GitHub releases:
-- **Primary Source**: GitHub Releases (https://github.com/tree-sitter/)
-- **Fallback**: NPM packages (https://www.npmjs.com/search?q=tree-sitter-)
+Parsers are downloaded from:
+- **Primary Source**: GitHub Releases (https://github.com/tree-sitter/) - for JS, TS, Python, Rust
+- **Secondary Source**: tree-sitter-wasms package (https://unpkg.com/tree-sitter-wasms/) - for C#, Dart
 
-### C# Parser Special Notes
+### C# and Dart Parser Notes
 
-The C# parser (tree-sitter-c-sharp) is available from GitHub releases but may require manual setup:
-- GitHub: https://github.com/tree-sitter/tree-sitter-c-sharp/releases
-- NPM: https://www.npmjs.com/package/tree-sitter-c-sharp
-- If download fails, use token-based code chunking as fallback
+These parsers are sourced from the tree-sitter-wasms package which provides
+web-tree-sitter compatible WASM files built with the correct ABI version.
 
 ## Notes
 
-- WASM files are kept in distribution but not committed to git
-- Parsers are downloaded from official tree-sitter GitHub releases (primary) or unpkg (fallback)
-- Each parser is language-specific and optimized for that language
-- C# and Dart parsers are sourced from unpkg since they don't have GitHub WASM releases
+- WASM files are kept in assets/ to persist across builds
+- Parsers are language-specific and optimized for each language
+- web-tree-sitter version must be compatible with WASM file ABI version
 - The manifest.json file contains metadata about all available parsers
+- See: https://github.com/tree-sitter/tree-sitter/issues/5171 for ABI compatibility info
 `;
 
   fs.writeFileSync(path.resolve(wasmDir, 'README.md'), readme);

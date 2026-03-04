@@ -23,21 +23,19 @@ npm run setup:treesitter
 
 ## Download Sources
 
-Parsers are downloaded from official tree-sitter GitHub releases:
-- **Primary Source**: GitHub Releases (https://github.com/tree-sitter/)
-- **Fallback**: NPM packages (https://www.npmjs.com/search?q=tree-sitter-)
+Parsers are downloaded from:
+- **Primary Source**: GitHub Releases (https://github.com/tree-sitter/) - for JS, TS, Python, Rust
+- **Secondary Source**: tree-sitter-wasms package (https://unpkg.com/tree-sitter-wasms/) - for C#, Dart
 
-### C# Parser Special Notes
+### C# and Dart Parser Notes
 
-The C# parser (tree-sitter-c-sharp) is available from GitHub releases but may require manual setup:
-- GitHub: https://github.com/tree-sitter/tree-sitter-c-sharp/releases
-- NPM: https://www.npmjs.com/package/tree-sitter-c-sharp
-- If download fails, use token-based code chunking as fallback
+These parsers are sourced from the tree-sitter-wasms package which provides
+web-tree-sitter compatible WASM files built with the correct ABI version.
 
 ## Notes
 
-- WASM files are kept in distribution but not committed to git
-- Parsers are downloaded from official tree-sitter GitHub releases (primary) or unpkg (fallback)
-- Each parser is language-specific and optimized for that language
-- C# and Dart parsers are sourced from unpkg since they don't have GitHub WASM releases
+- WASM files are kept in assets/ to persist across builds
+- Parsers are language-specific and optimized for each language
+- web-tree-sitter version must be compatible with WASM file ABI version
 - The manifest.json file contains metadata about all available parsers
+- See: https://github.com/tree-sitter/tree-sitter/issues/5171 for ABI compatibility info

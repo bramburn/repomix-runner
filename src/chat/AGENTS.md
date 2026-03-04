@@ -74,6 +74,20 @@ If you add state or node outputs needed in UI:
 - Threads/messages/memory/packages/architecture persist in PostgreSQL via `src/chat/db/`.
 - Changes to SQL schema require corresponding migration and repository updates.
 
+## PostgreSQL Migration Rules
+
+- Migration package: `node-pg-migrate`.
+- Runtime runner: `src/chat/db/postgresClient.ts` (`initPool` runs migrations).
+- Source migration files: `src/chat/db/migrations/*.sql`.
+- File naming convention: numeric order prefix, descriptive suffix (for example `003_memory_source.sql`).
+- Migration SQL format: use `-- Up Migration`; keep statements idempotent where practical (`IF NOT EXISTS`).
+- Do not edit old migrations after release; always add a new migration file.
+- Keep repository code assumptions aligned with schema (for example required columns like `chat_memory.source`).
+- Manual CLI helpers:
+  - `npm run chat:migrate:create -- <name>`
+  - `DATABASE_URL=... npm run chat:migrate:up`
+  - `DATABASE_URL=... npm run chat:migrate:down`
+
 ## Testing Checklist
 
 Before merging chat changes, run:

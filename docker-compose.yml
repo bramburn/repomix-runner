@@ -21,5 +21,26 @@ services:
       retries: 5
       start_period: 10s
 
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: repomix-runner-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: repomix_test
+      POSTGRES_PASSWORD: repomix_test_password
+      POSTGRES_DB: repomix_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repomix_test -d repomix_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   postgres_data:
+  postgres_test_data:

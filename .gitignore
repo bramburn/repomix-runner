@@ -28,3 +28,6 @@ src/**/*.js
 # repomix
 repomix-*.md
 repomix-*.xml
+
+# out test
+out-test/

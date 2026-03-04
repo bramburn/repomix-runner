@@ -328,7 +328,9 @@
             "items": {
               "type": "string"
             },
-            "default": ["nebius"],
+            "default": [
+              "nebius"
+            ],
             "description": "🔀 \n Provider routing order (e.g., [\"nebius\"])"
           },
           "repomix.openrouter.allowFallbacks": {
@@ -343,7 +345,9 @@
             "items": {
               "type": "string"
             },
-            "default": ["fp8"],
+            "default": [
+              "fp8"
+            ],
             "description": "⚡ \n Quantization preferences (e.g., [\"fp8\", \"fp16\"])"
           }
         }
@@ -843,19 +847,28 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "rimraf dist && npm run lint && node esbuild.js --production",
     "package:vsix": "node scripts/ensure-bin.mjs && vsce package --out bin/",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test",
+    "test:unit": "rimraf out-test; npm run compile-tests && NODE_PATH=out-test/test/shims mocha --ui tdd \"out-test/test/lanes/unit.entry.test.js\"; code=$?; rimraf out-test; exit $code",
+    "test:integration": "rimraf out-test; npm run compile-tests && vscode-test; code=$?; rimraf out-test; exit $code",
+    "test": "npm-run-all test:unit test:integration",
     "clean": "rimraf dist out",
+    "chat:migrate:create": "node-pg-migrate create --migrations-dir src/chat/db/migrations --migration-file-language sql",
+    "chat:migrate:up": "node-pg-migrate up --migrations-dir src/chat/db/migrations --migrations-table chat_schema_migrations --schema public --migrations-schema public",
+    "chat:migrate:down": "node-pg-migrate down --migrations-dir src/chat/db/migrations --migrations-table chat_schema_migrations --schema public --migrations-schema public",
     "build:rust": "node scripts/build-rust.mjs",
     "setup:treesitter": "node scripts/setup-treesitter.mjs",
     "package:local": "node scripts/package-local.mjs",
     "test:compression": "ts-node src/test-compression.ts",
     "test:compression:js": "npm run compile && node dist/test-compression.js",
-    "diagnose:compression": "node scripts/diagnose-compression.js"
+    "diagnose:compression": "node scripts/diagnose-compression.js",
+    "test:enrichment": "tsx src/test-enrichment.ts",
+    "test:enrichment:index": "tsx src/test-enrichment-indexing.ts",
+    "test:enrichment:retrieve": "tsx src/test-enrichment-retrieval.ts",
+    "test:llm": "ts-node src/test-llm-connection.ts"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -880,6 +893,7 @@
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
@@ -900,6 +914,8 @@
     "gpt-tokenizer": "^3.4.0",
     "ignore": "^7.0.5",
     "js-tiktoken": "^1.0.17",
+    "node-pg-migrate": "^8.0.4",
+    "openai": "^4.104.0",
     "p-queue": "^9.1.0",
     "pg": "^8.18.0",
     "react": "^19.2.3",
