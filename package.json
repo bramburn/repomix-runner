@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "1.0.27",
+  "version": "1.0.28",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -328,7 +328,9 @@
             "items": {
               "type": "string"
             },
-            "default": ["nebius"],
+            "default": [
+              "nebius"
+            ],
             "description": "🔀 \n Provider routing order (e.g., [\"nebius\"])"
           },
           "repomix.openrouter.allowFallbacks": {
@@ -343,7 +345,9 @@
             "items": {
               "type": "string"
             },
-            "default": ["fp8"],
+            "default": [
+              "fp8"
+            ],
             "description": "⚡ \n Quantization preferences (e.g., [\"fp8\", \"fp16\"])"
           }
         }
