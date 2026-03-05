@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "1.0.29",
+  "version": "1.0.30",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -95,7 +95,12 @@
           "repomix.enrichment.llmProvider": {
             "order": 2,
             "type": "string",
-            "enum": ["gemini", "ollama", "lmstudio", "openrouter"],
+            "enum": [
+              "gemini",
+              "ollama",
+              "lmstudio",
+              "openrouter"
+            ],
             "default": "gemini",
             "description": "🤖 \n LLM provider for generating enrichments"
           }
