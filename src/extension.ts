@@ -48,6 +48,8 @@ import { ExtensionServices } from './core/services/ExtensionServices.js';
 import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
 import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
 import type { Pool } from 'pg';
+import { initializeFromConfig } from './core/llm/compatibilityShim.js';
+import { switchLLMProvider } from './commands/switchLLMProvider.js';
 import { BatchManager } from './chat/batch/batchManager.js';
 import { BatchPoller } from './chat/batch/batchPoller.js';
 import type { BatchCompletionResult } from './chat/batch/types.js';
@@ -110,6 +112,16 @@ async function getPostgresConnectionString(context: vscode.ExtensionContext): Pr
 export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] ===== EXTENSION ACTIVATION START =====');
   console.log('[quick-repomix] Extension context obtained');
+
+  // Initialize unified LLM Provider Management System
+  console.log('[quick-repomix] Initializing LLM Provider Manager...');
+  try {
+    await initializeFromConfig();
+    console.log('[quick-repomix] ✓ LLM Provider Manager initialized successfully');
+  } catch (error) {
+    console.error('[quick-repomix] ✗ Failed to initialize LLM Provider Manager:', error);
+    // Non-fatal - extension can still function with old embedding service
+  }
 
   // Initialize WASM path for compression engine
   console.log('[Repomix] Initializing WASM path for compression engine...');
@@ -840,6 +852,11 @@ export async function activate(context: vscode.ExtensionContext) {
     'repomixRunner.testCompression',
     testCompression
   );
+  
+  const switchLLMProviderCommand = vscode.commands.registerCommand(
+    'repomixRunner.switchLLMProvider',
+    switchLLMProvider
+  );
 
   const runRepomixOnSelectedFilesCommand = vscode.commands.registerCommand(
     'repomixRunner.runOnSelectedFiles',
@@ -1206,6 +1223,7 @@ export async function activate(context: vscode.ExtensionContext) {
     openSettingsCommand,
     openOutputCommand,
     testCompressionCommand,
+    switchLLMProviderCommand,
     runRepomixOnOpenFilesCommand,
     runRepomixOnSelectedFilesCommand,
     runBundleCommand,
@@ -1266,6 +1284,15 @@ async function cleanupOldRepomixOutputs(databaseService: DatabaseService) {
 }
 
 export async function deactivate() {
+  // Cleanup LLM Provider Manager
+  try {
+    const { llmProviderManager } = await import('./core/llm/LLMProviderManager.js');
+    llmProviderManager.dispose();
+    console.log('[quick-repomix] LLM Provider Manager disposed');
+  } catch (error) {
+    console.error('[quick-repomix] Failed to dispose LLM Provider Manager:', error);
+  }
+  
   tempDirManager.cleanup();
   await closePool().catch((err) =>
     console.error('[quick-repomix] Failed to close PG pool:', err)

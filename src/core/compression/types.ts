@@ -39,6 +39,8 @@ export interface BodyReplacement {
 
 export interface CompressionOptions {
   keepNames?: string[];
+  enableEnrichment?: boolean;
+  repoId?: string;
 }
 
 export interface ParseContext {

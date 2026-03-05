@@ -198,6 +198,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [isTestingOpenRouterDimension, setIsTestingOpenRouterDimension] = useState(false);
   const [isTestingOpenRouterConnection, setIsTestingOpenRouterConnection] = useState(false);
 
+  // Enrichment State
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState(false);
+  const [enrichmentLLMProvider, setEnrichmentLLMProvider] = useState<'gemini' | 'ollama' | 'lmstudio' | 'openrouter'>('gemini');
+
   const [isFetchingIndexes, setIsFetchingIndexes] = useState(false);
   const [copyMode, setCopyMode] = useState<string>('file');
 
@@ -375,6 +379,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           setOpenrouterQuantizations(message.openrouterQuantizations || ['fp8']);
           break;
 
+        case 'enrichmentConfig':
+          setEnrichmentEnabled(message.enabled ?? false);
+          setEnrichmentLLMProvider(message.llmProvider || 'gemini');
+          break;
+
         case 'ollamaModelsResult':
           setOllamaModels(message.models || []);
           setOllamaModelsError(message.error || null);
@@ -534,6 +543,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'checkCompatibility' });
     vscode.postMessage({ command: 'getAnalysisStatus' });
     vscode.postMessage({ command: 'getRunnerConfig' });
+    vscode.postMessage({ command: 'getEnrichmentConfig' });
 
     return () => window.removeEventListener('message', handler);
   }, []);
@@ -780,6 +790,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     vscode.postMessage({ command: 'resetVectorIndex' });
   };
 
+  const handleSaveEnrichmentConfig = () => {
+    vscode.postMessage({
+      command: 'setEnrichmentConfig',
+      enabled: enrichmentEnabled,
+      llmProvider: enrichmentLLMProvider,
+    });
+  };
+
   const handleAnalyzeRepository = () => {
     setIsAnalyzing(true);
     setAnalysisProgress(null);
@@ -865,6 +883,46 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
             Select whether to copy the raw text content or the file object itself when using the copy button.
           </Text>
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* Enrichment Section */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Label weight="semibold">Code Enrichment</Label>
+        <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <Switch
+            label="Enable code enrichment during compression"
+            checked={enrichmentEnabled}
+            onChange={(_e: any, data: { checked: boolean }) => setEnrichmentEnabled(data.checked)}
+          />
+          {enrichmentEnabled && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <Label size="small">LLM Provider</Label>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <Dropdown
+                  value={enrichmentLLMProvider}
+                  onOptionSelect={(_e: any, data: any) => setEnrichmentLLMProvider(data.optionValue)}
+                  style={{ flex: 1 }}
+                >
+                  <Option value="gemini">Gemini</Option>
+                  <Option value="ollama">Ollama</Option>
+                  <Option value="lmstudio">LM Studio</Option>
+                  <Option value="openrouter">OpenRouter</Option>
+                </Dropdown>
+                <Button
+                  appearance="primary"
+                  onClick={handleSaveEnrichmentConfig}
+                >
+                  Save
+                </Button>
+              </div>
+              <Text size={100} style={{ opacity: 0.7 }}>
+                When enabled, code symbols will be enriched with AI-generated summaries during compression.
+              </Text>
+            </div>
+          )}
         </div>
       </div>
 

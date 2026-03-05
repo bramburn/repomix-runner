@@ -41,6 +41,14 @@
 - Queue and lifecycle: `src/chat/queue/*` and webview queue commands (`chatSubmit`, `chatForceSubmit`, `chatStop`, `chatClearQueue`, etc.).
 - Persistence: PostgreSQL-backed thread/memory/batch/architecture storage in `src/chat/db/*`.
 
+## Code Enrichment System
+- Toggle enrichment in Settings UI to inject AI-generated summaries during compression.
+- Stores enrichments in PostgreSQL (`code_enrichments` table).
+- Supports multiple LLM providers: Gemini, Ollama, LM Studio, OpenRouter.
+- Works with all compression-supported languages (TypeScript, JavaScript, Python, Dart, C#, Rust).
+- CLI script: `npm run enrich:repo -- <repo-id> [pattern]` to generate enrichments.
+- Configuration: `repomix.enrichment.enabled` and `repomix.enrichment.llmProvider`.
+
 ## PostgreSQL Chat Migrations
 - Migration engine: `node-pg-migrate` (runtime runner in `src/chat/db/postgresClient.ts`).
 - Source of truth: SQL files in `src/chat/db/migrations/*.sql` (not inline SQL in TypeScript).

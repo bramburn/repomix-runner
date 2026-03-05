@@ -27,6 +27,10 @@ suite('runRepomix', () => {
       configPath: '',
       respectGitignoreInMarkdown: false,
     },
+    enrichment: {
+      enabled: false,
+      llmProvider: 'gemini',
+    },
     output: {
       filePath: '/fake/output.txt',
       style: 'plain' as const,

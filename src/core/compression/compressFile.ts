@@ -1,6 +1,7 @@
 import { encode } from 'gpt-tokenizer';
 import { LanguageParser } from './LanguageParser.js';
 import type { CaptureLike, CompressionOptions, BodyReplacement } from './types.js';
+import { enrichmentRepository, type CodeEnrichment } from '../indexing/enrichmentRepository.js';
 
 /**
  * Result of compression with token information.
@@ -117,11 +118,62 @@ export async function compressFile(
 
     // If we found captures but none had bodies to replace (e.g., imports/exports only),
     // result remains unchanged and we intentionally return the original content.
+
+    // Optionally inject enrichments
+    if (options?.enableEnrichment && options?.repoId) {
+      try {
+        const enrichments = await enrichmentRepository.getByFile(filePath, options.repoId);
+        if (enrichments.length > 0) {
+          result = injectEnrichments(result, enrichments);
+        }
+      } catch (error) {
+        console.error('Failed to inject enrichments:', error);
+        // Continue without enrichment on error
+      }
+    }
+
     return result;
   } catch (error) {
     console.error('Compression failed:', error);
     return null;
   }
+}
+
+/**
+ * Inject enrichment summaries as comments into compressed code
+ */
+function injectEnrichments(compressed: string, enrichments: CodeEnrichment[]): string {
+  const lines = compressed.split('\n');
+  const resultLines: string[] = [];
+
+  for (const line of lines) {
+    resultLines.push(line);
+
+    // Check if this line contains a symbol that has enrichment
+    for (const enrichment of enrichments) {
+      const symbolStart = enrichment.line_start;
+      const symbolEnd = enrichment.line_end;
+
+      // If the current line number falls within a symbol's range
+      if (line.trim().startsWith('function') ||
+          line.trim().startsWith('async') ||
+          line.trim().startsWith('class') ||
+          line.trim().startsWith('def ') ||
+          line.trim().startsWith('fn ') ||
+          line.trim().startsWith('public') ||
+          line.trim().startsWith('private') ||
+          line.trim().startsWith('protected')) {
+        // Add summary comment after the signature line
+        const currentLineNum = resultLines.length;
+        if (currentLineNum >= symbolStart && currentLineNum <= symbolEnd) {
+          resultLines.push(`  // Summary: ${enrichment.summary}`);
+          break;
+        }
+      }
+    }
+  }
+
+  return resultLines.join('\n');
 }
 
 /**

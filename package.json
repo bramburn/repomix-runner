@@ -82,6 +82,26 @@
         }
       },
       {
+        "title": "Enrichment",
+        "order": 4,
+        "type": "object",
+        "properties": {
+          "repomix.enrichment.enabled": {
+            "order": 1,
+            "type": "boolean",
+            "default": false,
+            "description": "🔋 \n Toggle code enrichment during compression"
+          },
+          "repomix.enrichment.llmProvider": {
+            "order": 2,
+            "type": "string",
+            "enum": ["gemini", "ollama", "lmstudio", "openrouter"],
+            "default": "gemini",
+            "description": "🤖 \n LLM provider for generating enrichments"
+          }
+        }
+      },
+      {
         "title": "Output",
         "order": 2,
         "type": "object",
@@ -246,8 +266,71 @@
         }
       },
       {
-        "title": "Embedding",
+        "title": "LLM Providers",
         "order": 7,
+        "type": "object",
+        "properties": {
+          "repomix.llm.defaultProvider": {
+            "order": 1,
+            "type": "string",
+            "enum": [
+              "gemini",
+              "openrouter",
+              "ollama",
+              "lmstudio"
+            ],
+            "default": "gemini",
+            "description": "⚙️ \n Default LLM provider for text generation"
+          },
+          "repomix.llm.embeddingProvider": {
+            "order": 2,
+            "type": "string",
+            "enum": [
+              "gemini",
+              "openrouter",
+              "ollama",
+              "lmstudio"
+            ],
+            "default": "gemini",
+            "description": "📊 \n Default provider for embeddings"
+          },
+          "repomix.llm.rateLimit.enabled": {
+            "order": 3,
+            "type": "boolean",
+            "default": true,
+            "description": "🛡️ \n Enable automatic rate limiting across all providers"
+          },
+          "repomix.llm.usageTracking.enabled": {
+            "order": 4,
+            "type": "boolean",
+            "default": true,
+            "description": "📈 \n Track API usage, tokens, and estimated costs"
+          },
+          "repomix.llm.gemini.apiKey": {
+            "order": 10,
+            "type": "string",
+            "default": "",
+            "description": "🔑 \n Google Gemini API key"
+          },
+          "repomix.llm.gemini.model": {
+            "order": 11,
+            "type": "string",
+            "default": "gemini-2.5-flash-lite",
+            "description": "📦 \n Default Gemini model"
+          },
+          "repomix.llm.gemini.rpm": {
+            "order": 12,
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 60,
+            "description": "⏱️ \n Requests per minute limit (free tier: 10)"
+          }
+        }
+      },
+      {
+        "title": "Embedding",
+        "order": 8,
         "type": "object",
         "properties": {
           "repomix.embedding.provider": {
@@ -866,6 +949,7 @@
     "test:compression:js": "npm run compile && node dist/test-compression.js",
     "diagnose:compression": "node scripts/diagnose-compression.js",
     "test:enrichment": "tsx src/test-enrichment.ts",
+    "enrich:repo": "ts-node scripts/enrich-repo.ts",
     "test:enrichment:index": "tsx src/test-enrichment-indexing.ts",
     "test:enrichment:retrieve": "tsx src/test-enrichment-retrieval.ts",
     "test:llm": "ts-node src/test-llm-connection.ts"

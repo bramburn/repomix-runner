@@ -74,6 +74,18 @@ export const PostgresConnectionStatusSchema = z.object({
   source: z.enum(['settings', 'secrets', 'none']).optional(),
 });
 
+export const SetEnrichmentConfigSchema = z.object({
+  command: z.literal('setEnrichmentConfig'),
+  enabled: z.boolean(),
+  llmProvider: z.enum(['gemini', 'ollama', 'lmstudio', 'openrouter']),
+});
+
+export const EnrichmentConfigResultSchema = z.object({
+  command: z.literal('enrichmentConfig'),
+  enabled: z.boolean(),
+  llmProvider: z.enum(['gemini', 'ollama', 'lmstudio', 'openrouter']),
+});
+
 export const GetAgentHistorySchema = z.object({
   command: z.literal('getAgentHistory'),
 });
@@ -1274,6 +1286,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CheckPostgresConnectionSchema,
   DeletePostgresConnectionSchema,
   PostgresConnectionStatusSchema,
+  SetEnrichmentConfigSchema,
+  EnrichmentConfigResultSchema,
   RunSmartAgentSchema,
   RerunAgentSchema,
   CopyAgentOutputSchema,

@@ -179,7 +179,7 @@ async function main() {
 
     const message = response.choices[0]?.message;
     // Qwen reasoning models output to reasoning_content
-    const rawOutput = message?.reasoning_content || message?.content || '';
+    const rawOutput = (message as any)?.reasoning_content || message?.content || '';
     
     // Extract quoted answer from reasoning
     const quoteMatches = rawOutput.match(/"([^"]+)"/g);

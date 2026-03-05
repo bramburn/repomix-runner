@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+// Enrichment LLM provider enum
+export const enrichmentLLMProviderSchema = z.enum(['gemini', 'ollama', 'lmstudio', 'openrouter']);
+export type EnrichmentLLMProvider = z.infer<typeof enrichmentLLMProviderSchema>;
+
 // Output style enum
 export const repomixOutputStyleSchema = z.enum(['plain', 'xml', 'markdown', 'json']);
 export type RepomixOutputStyle = z.infer<typeof repomixOutputStyleSchema>;
@@ -120,6 +124,10 @@ export const repomixRunnerConfigBaseSchema = z
       configPath: z.string().optional(),
       respectGitignoreInMarkdown: z.boolean().optional(),
     }),
+    enrichment: z.object({
+      enabled: z.boolean(),
+      llmProvider: enrichmentLLMProviderSchema,
+    }).optional(),
   })
   .and(repomixConfigBaseSchema);
 
@@ -134,6 +142,10 @@ export const repomixRunnerConfigDefaultSchema = z
       configPath: z.string().default(''),
       respectGitignoreInMarkdown: z.boolean().default(false),
     }),
+    enrichment: z.object({
+      enabled: z.boolean().default(false),
+      llmProvider: enrichmentLLMProviderSchema.default('gemini'),
+    }).default({ enabled: false, llmProvider: 'gemini' }),
   })
   .and(repomixConfigDefaultSchema);
 

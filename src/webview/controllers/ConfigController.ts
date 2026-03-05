@@ -7,6 +7,7 @@ import { DatabaseService } from '../../core/storage/databaseService.js';
 import { IndexingController } from './IndexingController.js';
 import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
 import { BlueprintService, initBlueprintService, getBlueprintService } from '../../fingerprint/blueprintService.js';
+import { embeddingService } from '../../core/indexing/embeddingService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
@@ -144,6 +145,14 @@ export class ConfigController extends BaseController {
         return true;
       case 'testOpenRouterConnection':
         await this.handleTestOpenRouterConnection(message.baseUrl, message.apiKey, message.model, message.providerOrder, message.allowFallbacks, message.quantizations);
+        return true;
+
+      // --- Enrichment Configuration ---
+      case 'getEnrichmentConfig':
+        await this.handleGetEnrichmentConfig();
+        return true;
+      case 'setEnrichmentConfig':
+        await this.handleSetEnrichmentConfig(message);
         return true;
 
       // --- Dimension Compatibility ---
@@ -1492,19 +1501,26 @@ export class ConfigController extends BaseController {
       const cwd = workspaceFolders[0].uri.fsPath;
       const repoId = await getRepoId(cwd);
 
-      // Get desired embedding dimension
-      const config = vscode.workspace.getConfiguration();
-      const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
-      let embeddingDimension = 768;
-
-      if (provider === 'gemini') {
-        embeddingDimension = 768;
-      } else if (provider === 'ollama') {
-        embeddingDimension = config.get<number>('repomix.ollama.dimension') || 768;
-      } else if (provider === 'lmstudio') {
-        embeddingDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
-      } else if (provider === 'openrouter') {
-        embeddingDimension = config.get<number>('repomix.openrouter.dimension') || 4096;
+      // Get actual embedding dimension from the active provider
+      let embeddingDimension: number;
+      try {
+        embeddingDimension = embeddingService.getDimensions();
+      } catch (e) {
+        console.warn('[ConfigController] Could not get embedding dimensions, falling back to config:', e);
+        // Fallback to config-based calculation if service not initialized
+        const config = vscode.workspace.getConfiguration();
+        const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+        if (provider === 'gemini') {
+          embeddingDimension = 768;
+        } else if (provider === 'ollama') {
+          embeddingDimension = config.get<number>('repomix.ollama.dimension') || 768;
+        } else if (provider === 'lmstudio') {
+          embeddingDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
+        } else if (provider === 'openrouter') {
+          embeddingDimension = config.get<number>('repomix.openrouter.dimension') || 4096;
+        } else {
+          embeddingDimension = 768;
+        }
       }
 
       // Get actual index dimension from vector DB
@@ -1785,6 +1801,47 @@ export class ConfigController extends BaseController {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('[ConfigController] Failed to set runner config:', error);
       vscode.window.showErrorMessage(`Failed to update settings: ${errorMsg}`);
+    }
+  }
+
+  // --- Enrichment Configuration Methods ---
+
+  private async handleGetEnrichmentConfig() {
+    try {
+      const config = vscode.workspace.getConfiguration();
+      const enabled = config.get<boolean>('repomix.enrichment.enabled') ?? false;
+      const llmProvider = config.get<string>('repomix.enrichment.llmProvider') || 'gemini';
+
+      this.context.postMessage({
+        command: 'enrichmentConfig',
+        enabled,
+        llmProvider,
+      });
+    } catch (error) {
+      console.error('[ConfigController] Failed to get enrichment config:', error);
+    }
+  }
+
+  private async handleSetEnrichmentConfig(message: any) {
+    try {
+      const { enabled, llmProvider } = message;
+
+      console.log('[ConfigController] Setting enrichment config:', { enabled, llmProvider });
+
+      const config = vscode.workspace.getConfiguration();
+      await config.update('repomix.enrichment.enabled', enabled, true);
+      await config.update('repomix.enrichment.llmProvider', llmProvider, true);
+
+      // Send updated config back to webview
+      await this.handleGetEnrichmentConfig();
+
+      vscode.window.showInformationMessage(
+        `Enrichment settings updated successfully.`
+      );
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[ConfigController] Failed to set enrichment config:', error);
+      vscode.window.showErrorMessage(`Failed to update enrichment settings: ${errorMsg}`);
     }
   }
 }
