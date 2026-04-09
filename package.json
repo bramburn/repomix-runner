@@ -27,8 +27,7 @@
     "onCommand:repomixRunner.copySelectedFilesAsCompressed",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
-    "onView:repomixRunner.aiChatMain",
-    "onCommand:repomixRunner.copyAllGitChanges",
+"onCommand:repomixRunner.copyAllGitChanges",
     "onCommand:repomixRunner.testPostgresConnection",
     "onStartupFinished"
   ],
@@ -466,163 +465,6 @@
         "order": 9,
         "type": "object",
         "properties": {}
-      },
-      {
-        "title": "Chat",
-        "order": 10,
-        "type": "object",
-        "properties": {
-          "repomix.chat.postgresConnectionString": {
-            "order": 0,
-            "type": "string",
-            "default": "",
-            "description": "🐘 PostgreSQL connection string for chat storage (e.g., postgresql://user:pass@host:5432/dbname). If set, this takes precedence over the secret storage.",
-            "scope": "machine-overridable"
-          },
-          "repomix.chat.contextThresholdPercent": {
-            "order": 1,
-            "type": "number",
-            "default": 80,
-            "minimum": 50,
-            "maximum": 95,
-            "description": "Percentage of context window that triggers automatic compression"
-          },
-          "repomix.chat.maxRecentMessages": {
-            "order": 2,
-            "type": "number",
-            "default": 10,
-            "minimum": 3,
-            "maximum": 50,
-            "description": "Number of recent messages to keep in full before summarizing older ones"
-          },
-          "repomix.chat.batchModel": {
-            "order": 3,
-            "type": "string",
-            "default": "claude-opus-4-20250514",
-            "description": "Anthropic model ID used for batch jobs"
-          },
-          "repomix.chat.batchMaxTokens": {
-            "order": 4,
-            "type": "number",
-            "default": 16384,
-            "minimum": 1024,
-            "maximum": 64000,
-            "description": "Maximum output tokens per Anthropic batch request"
-          },
-          "repomix.chat.batchThinkingBudget": {
-            "order": 5,
-            "type": "number",
-            "default": 10000,
-            "minimum": 0,
-            "maximum": 32000,
-            "description": "Extended thinking token budget for Anthropic batch requests"
-          },
-          "repomix.chat.batchPollIntervalSeconds": {
-            "order": 6,
-            "type": "number",
-            "default": 60,
-            "minimum": 10,
-            "maximum": 600,
-            "description": "Polling interval (seconds) while awaiting Anthropic batch completion"
-          },
-          "repomix.chat.batchSendAllLimit": {
-            "order": 7,
-            "type": "number",
-            "default": 100,
-            "minimum": 1,
-            "maximum": 500,
-            "description": "Maximum number of approved packages submitted by one Send All action"
-          },
-          "repomix.chat.batchApiMaxRetries": {
-            "order": 8,
-            "type": "number",
-            "default": 3,
-            "minimum": 0,
-            "maximum": 10,
-            "description": "Retry attempts for transient Anthropic batch API failures"
-          },
-          "repomix.chat.batchApiRetryBaseMs": {
-            "order": 9,
-            "type": "number",
-            "default": 1000,
-            "minimum": 100,
-            "maximum": 10000,
-            "description": "Base delay in milliseconds for Anthropic batch API retry backoff"
-          },
-          "repomix.chat.batchApiRetryMaxMs": {
-            "order": 10,
-            "type": "number",
-            "default": 8000,
-            "minimum": 500,
-            "maximum": 60000,
-            "description": "Maximum delay in milliseconds for Anthropic batch API retry backoff"
-          },
-          "repomix.chat.architectureRefreshHours": {
-            "order": 11,
-            "type": "number",
-            "default": 24,
-            "minimum": 1,
-            "maximum": 168,
-            "description": "🏛️ How often (in hours) to regenerate the architecture document"
-          },
-          "repomix.chat.editMode": {
-            "order": 12,
-            "type": "string",
-            "enum": [
-              "full",
-              "search_replace",
-              "hybrid"
-            ],
-            "default": "hybrid",
-            "description": "How to apply file edits: full file write, SEARCH/REPLACE patch, or auto-select based on file size"
-          },
-          "repomix.chat.hybridThresholdLines": {
-            "order": 13,
-            "type": "number",
-            "default": 300,
-            "minimum": 50,
-            "maximum": 1000,
-            "description": "Line count threshold for hybrid mode (files >= this use SEARCH/REPLACE)"
-          },
-          "repomix.chat.fuzzyMatchThreshold": {
-            "order": 14,
-            "type": "number",
-            "minimum": 0.5,
-            "maximum": 1,
-            "default": 0.8,
-            "description": "Similarity score threshold for fuzzy matching (0-1)"
-          },
-          "repomix.chat.planningModel": {
-            "order": 15,
-            "type": "string",
-            "enum": [
-              "gemini-2.5-flash",
-              "gemini-2.5-flash-lite"
-            ],
-            "default": "gemini-2.5-flash",
-            "description": "🧠 LLM model for planning and orchestration (Gemini Flash)"
-          },
-          "repomix.chat.planningRpm": {
-            "order": 16,
-            "type": "number",
-            "default": 60,
-            "minimum": 1,
-            "maximum": 1000,
-            "description": "🔄 Rate limit (requests per minute) for planning LLM"
-          },
-          "repomix.chat.fileCompressionLevel": {
-            "order": 17,
-            "type": "string",
-            "enum": [
-              "auto",
-              "full",
-              "skeleton",
-              "summary"
-            ],
-            "default": "auto",
-            "description": "🗜️ How to compress files in chat context (auto/full/skeleton/summary)"
-          }
-        }
       }
     ],
     "viewsContainers": {
@@ -646,12 +488,6 @@
           "type": "webview",
           "id": "repomixRunner.controlPanel",
           "name": "Repomix Runner Control Panel"
-        },
-        {
-          "type": "webview",
-          "id": "repomixRunner.aiChatMain",
-          "name": "AI Developer Chat",
-          "icon": "assets/comment.svg"
         }
       ]
     },
@@ -944,10 +780,7 @@
     "test:integration": "rimraf out-test; npm run compile-tests && vscode-test; code=$?; rimraf out-test; exit $code",
     "test": "npm-run-all test:unit test:integration",
     "clean": "rimraf dist out",
-    "chat:migrate:create": "node-pg-migrate create --migrations-dir src/chat/db/migrations --migration-file-language sql",
-    "chat:migrate:up": "node-pg-migrate up --migrations-dir src/chat/db/migrations --migrations-table chat_schema_migrations --schema public --migrations-schema public",
-    "chat:migrate:down": "node-pg-migrate down --migrations-dir src/chat/db/migrations --migrations-table chat_schema_migrations --schema public --migrations-schema public",
-    "build:rust": "node scripts/build-rust.mjs",
+        "build:rust": "node scripts/build-rust.mjs",
     "setup:treesitter": "node scripts/setup-treesitter.mjs",
     "package:local": "node scripts/package-local.mjs",
     "test:compression": "ts-node src/test-compression.ts",

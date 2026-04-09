@@ -24,7 +24,6 @@ import {
 import { editBundle } from './commands/editBundle.js';
 import { goToConfigFile } from './commands/goToConfigFile.js';
 import { RepomixWebviewProvider } from './webview/RepomixWebviewProvider.js';
-import { AiChatWebviewProvider } from './webview/AiChatWebviewProvider.js';
 import { createSmartRepomixGraph } from './agent/graph.js';
 import { logger } from './shared/logger.js';
 import { DatabaseService } from './core/storage/databaseService.js';
@@ -46,14 +45,8 @@ import { GitService } from './git/GitService.js';
 import ignore from 'ignore';
 import { ExtensionServices } from './core/services/ExtensionServices.js';
 import { BranchMaintenanceService } from './core/indexing/BranchMaintenanceService.js';
-import { initPool, closePool, testConnection } from './chat/db/postgresClient.js';
-import type { Pool } from 'pg';
 import { initializeFromConfig } from './core/llm/compatibilityShim.js';
 import { switchLLMProvider } from './commands/switchLLMProvider.js';
-import { BatchManager } from './chat/batch/batchManager.js';
-import { BatchPoller } from './chat/batch/batchPoller.js';
-import type { BatchCompletionResult } from './chat/batch/types.js';
-import { executeArchitectureGeneration } from './chat/architecture/architectureGraph.js';
 
 /**
  * Wraps an async operation with a timeout and logs timing information.
@@ -81,32 +74,6 @@ async function withTimeout<T>(
     console.error(`[quick-repomix] ${operationName} failed after ${duration}ms:`, error);
     return null;
   }
-}
-
-/**
- * Gets the PostgreSQL connection string from VS Code settings or secrets.
- * Settings take precedence over secrets for easier configuration.
- */
-async function getPostgresConnectionString(context: vscode.ExtensionContext): Promise<string | undefined> {
-  // First check VS Code settings (takes precedence)
-  const config = vscode.workspace.getConfiguration('repomix.chat');
-  const settingValue = config.get<string>('postgresConnectionString');
-
-  if (settingValue && settingValue.trim()) {
-    console.log('[quick-repomix] Using PostgreSQL connection string from settings');
-    return settingValue.trim();
-  }
-
-  // Fall back to secrets storage (backward compatibility)
-  const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
-  const secretValue = await context.secrets.get(SECRET_POSTGRES_CONNECTION);
-
-  if (secretValue) {
-    console.log('[quick-repomix] Using PostgreSQL connection string from secrets (backward compatibility)');
-    return secretValue;
-  }
-
-  return undefined;
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -149,63 +116,6 @@ export async function activate(context: vscode.ExtensionContext) {
   } else {
     console.log('[quick-repomix] Database service initialized successfully');
   }
-
-  // Initialize PostgreSQL pool for chat storage (non-blocking)
-  console.log('[quick-repomix] Starting PostgreSQL initialization (non-blocking)...');
-  let chatPgPool: Pool | null = null;
-
-  // Run PostgreSQL init in background to not block activation
-  (async () => {
-    const pgStartTime = Date.now();
-    try {
-      const pgConnectionString = await getPostgresConnectionString(context);
-
-      if (pgConnectionString) {
-        console.log('[quick-repomix] Found PostgreSQL connection string, attempting connection...');
-        chatPgPool = await initPool(pgConnectionString);
-        console.log(`[quick-repomix] PostgreSQL chat storage initialized in ${Date.now() - pgStartTime}ms`);
-      } else {
-        console.log('[quick-repomix] PostgreSQL connection string not configured - chat feature disabled');
-      }
-    } catch (error) {
-      console.error(`[quick-repomix] Failed to initialize PostgreSQL chat storage after ${Date.now() - pgStartTime}ms:`, error);
-      // Show error notification without blocking
-      vscode.window.showWarningMessage(
-        `Chat feature unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        'Open Settings'
-      ).then(selection => {
-        if (selection === 'Open Settings') {
-          vscode.commands.executeCommand('repomixRunner.openSettings');
-        }
-      });
-    }
-  })();
-
-  console.log('[quick-repomix] Continuing activation (database operations in background)...');
-
-  console.log('[quick-repomix] Registering pool disposal hook...');
-  // Register pool disposal hook for reliable cleanup on extension deactivation
-  context.subscriptions.push({
-    dispose: () => {
-      closePool().catch((err) =>
-        console.error('[quick-repomix] Failed to close PG pool during disposal:', err)
-      );
-    }
-  });
-  console.log('[quick-repomix] Pool disposal hook registered');
-
-  // ==============================================================================
-  // BATCH POLLER LIFECYCLE MANAGEMENT
-  // ==============================================================================
-  // The Anthropic Batch API can take up to 24 hours. We need to ensure that
-  // pending batch jobs are resumed on extension activation and properly cleaned
-  // up on deactivation to prevent memory leaks and lost jobs.
-  // ==============================================================================
-  // Batch poller lifecycle is now managed via shared instances passed to AiChatWebviewProvider.
-  // We still need to resume pending jobs at extension activation (before webview loads).
-  // The shared instances are created below, near AiChatWebviewProvider construction.
-  // Here we just set up early-activation resume using the shared poller after it's created.
-  // (See "Creating AiChatWebviewProvider" section below for shared instance creation.)
 
   console.log('[quick-repomix] About to initialize embedding service...');
   // Initialize embedding service with saved configuration
@@ -252,8 +162,6 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log('[quick-repomix] Exposing global context...');
   // Expose context for agent graph
   (global as any).extensionContext = context;
-  // Expose PG pool for chat architecture loading (PRD 008)
-  (global as any).chatPgPool = chatPgPool;
   console.log('[quick-repomix] Global context exposed');
 
   console.log('[quick-repomix] Getting CWD...');
@@ -649,107 +557,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   console.log('[quick-repomix] About to create RepomixWebviewProvider...');
   console.log('[quick-repomix] Creating RepomixWebviewProvider...');
-  const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices, chatPgPool);
+  const provider = new RepomixWebviewProvider(context.extensionUri, context, extensionServices);
   console.log('[quick-repomix] RepomixWebviewProvider created');
-
-  console.log('[quick-repomix] About to create AiChatWebviewProvider...');
-  console.log('[quick-repomix] Creating AiChatWebviewProvider...');
-  // Pass shared batch manager and poller to avoid duplicate instances (PRD 005 / H1 fix)
-  const sharedBatchManager = chatPgPool ? new BatchManager(chatPgPool, context) : undefined;
-  const sharedBatchPoller = sharedBatchManager
-    ? new BatchPoller(sharedBatchManager, {
-        pollIntervalSeconds: vscode.workspace
-          .getConfiguration('repomix.chat')
-          .get<number>('batchPollIntervalSeconds', 60),
-      })
-    : undefined;
-
-  const aiChatProvider = new AiChatWebviewProvider(
-    context.extensionUri,
-    context,
-    chatPgPool,
-    sharedBatchManager,
-    sharedBatchPoller
-  );
-  console.log('[quick-repomix] AiChatWebviewProvider created');
-
-  // Resume pending batch jobs using the shared poller (must happen after poller creation)
-  if (sharedBatchPoller) {
-    console.log('[quick-repomix] Resuming pending batch jobs via shared poller...');
-    await sharedBatchPoller.resumeAllPending(async (result: BatchCompletionResult) => {
-      if (result.status === 'completed') {
-        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} completed during startup`);
-        vscode.window.showInformationMessage(
-          `✅ Batch job ${result.batchJobId.slice(0, 8)}… completed.`
-        );
-      } else if (result.status === 'cancelled') {
-        logger.both.info(`[BatchPoller] Batch ${result.batchJobId} was cancelled`);
-      } else if (result.status === 'failed') {
-        logger.both.error(`[BatchPoller] Batch ${result.batchJobId} failed: ${result.errorMessage}`);
-        vscode.window.showErrorMessage(
-          `Batch job ${result.batchJobId.slice(0, 8)}… failed: ${result.errorMessage ?? 'Unknown error'}`
-        );
-      }
-    });
-
-    context.subscriptions.push({
-      dispose: () => {
-        sharedBatchPoller.dispose();
-      },
-    });
-    console.log('[quick-repomix] Batch poller initialized and pending jobs resumed');
-  }
-
-  // ==============================================================================
-  // AUTO-TRIGGER ARCHITECTURE GENERATION ON WORKSPACE OPEN
-  // ==============================================================================
-  // Check if architecture document needs regeneration when workspace opens.
-  // This ensures the document is available for chat context gathering.
-  // ==============================================================================
-  if (chatPgPool) {
-    const pgPool = chatPgPool;
-    const workspaceFolder = getCwd();
-    if (workspaceFolder) {
-      // Defer to avoid blocking activation
-      setTimeout(async () => {
-        try {
-          const repoId = await getRepoId(workspaceFolder);
-          
-          // Check freshness by attempting to load existing document
-          const { ArchitectureRepository } = await import('./chat/db/architectureRepository.js');
-          const archRepo = new ArchitectureRepository(pgPool);
-          const existingArch = await archRepo.getArchitectureByRepoId(repoId);
-          
-          const needsRefresh = !existingArch || (existingArch.expiresAt && Date.now() > existingArch.expiresAt);
-          
-          if (needsRefresh) {
-            console.log('[Architecture] Auto-trigger: Document missing or expired, generating...');
-            
-            // Generate in background without blocking UI
-            executeArchitectureGeneration(
-              workspaceFolder,
-              repoId,
-              {
-                pgPool,
-                secrets: context.secrets,
-              },
-              (message: string) => {
-                console.log(`[Architecture] Auto-trigger: ${message}`);
-              }
-            ).then(() => {
-              console.log('[Architecture] Auto-trigger: Generation complete');
-            }).catch((error) => {
-              console.error('[Architecture] Auto-trigger: Generation failed:', error);
-            });
-          } else {
-            console.log('[Architecture] Auto-trigger: Document is fresh, skipping generation');
-          }
-        } catch (error) {
-          console.error('[Architecture] Auto-trigger: Failed to check freshness:', error);
-        }
-      }, 3000); // Wait 3 seconds after activation
-    }
-  }
 
   console.log('[quick-repomix] Registering webview view providers...');
   const webviewViewSubscription = vscode.window.registerWebviewViewProvider(
@@ -757,11 +566,6 @@ export async function activate(context: vscode.ExtensionContext) {
     provider
   );
   console.log('[quick-repomix] RepomixWebviewProvider registered');
-  const aiChatViewSubscription = vscode.window.registerWebviewViewProvider(
-    AiChatWebviewProvider.viewType,
-    aiChatProvider
-  );
-  console.log('[quick-repomix] AiChatWebviewProvider registered');
   console.log('[quick-repomix] Webview view providers registered successfully');
 
   const addSelectedFilesToNewBundleCommand = vscode.commands.registerCommand(
@@ -1150,71 +954,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const testPostgresConnectionCommand = vscode.commands.registerCommand(
-    'repomixRunner.testPostgresConnection',
-    async () => {
-      try {
-        const result = await testConnection();
-        if (result.success) {
-          vscode.window.showInformationMessage(`PostgreSQL connected: ${result.message}`);
-        } else {
-          vscode.window.showErrorMessage(`PostgreSQL connection failed: ${result.message}`);
-        }
-      } catch (error) {
-        vscode.window.showErrorMessage(
-          `Connection test error: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-  );
-
-  // Architecture refresh command
-  const refreshArchitectureCommand = vscode.commands.registerCommand(
-    'repomixRunner.refreshArchitecture',
-    async () => {
-      if (!chatPgPool) {
-        vscode.window.showErrorMessage('PostgreSQL not configured - architecture generation disabled');
-        return;
-      }
-      const pgPool = chatPgPool;
-
-      const workspaceFolder = getCwd();
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('No workspace folder found');
-        return;
-      }
-
-      try {
-        const repoId = await getRepoId(workspaceFolder);
-        
-        await vscode.window.withProgress({
-          location: vscode.ProgressLocation.Notification,
-          title: 'Generating Architecture Document',
-          cancellable: false,
-        }, async (progress) => {
-          progress.report({ message: 'Scanning repository...' });
-          
-          await executeArchitectureGeneration(
-            workspaceFolder,
-            repoId,
-            {
-              pgPool,
-              secrets: context.secrets,
-            },
-            (message: string) => {
-              progress.report({ message });
-            }
-          );
-        });
-
-        vscode.window.showInformationMessage(`Architecture document generated for ${path.basename(workspaceFolder)}`);
-      } catch (error) {
-        logger.both.error('Failed to generate architecture document', error);
-        vscode.window.showErrorMessage(`Architecture generation failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  );
-
 
   // Ajouter toutes les souscriptions au contexte
   context.subscriptions.push(
@@ -1233,7 +972,6 @@ export async function activate(context: vscode.ExtensionContext) {
     createBundleCommand,
     decorationProviderSubscription,
     webviewViewSubscription,
-    aiChatViewSubscription,
     bundleTreeView,
     addSelectedFilesToActiveBundleCommand,
     addSelectedFilesToNewBundleCommand,
@@ -1247,8 +985,6 @@ export async function activate(context: vscode.ExtensionContext) {
     copySingleFileRespectingModeCommand,
     copyFromScmCommand,
     copyAllGitChangesCommand,
-    testPostgresConnectionCommand,
-    refreshArchitectureCommand,
     { dispose: () => clearInterval(cleanupInterval) }
   );
   console.log('[quick-repomix] ===== EXTENSION ACTIVATION COMPLETE =====');
@@ -1294,7 +1030,4 @@ export async function deactivate() {
   }
   
   tempDirManager.cleanup();
-  await closePool().catch((err) =>
-    console.error('[quick-repomix] Failed to close PG pool:', err)
-  );
 }
