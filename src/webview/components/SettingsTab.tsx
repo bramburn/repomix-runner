@@ -169,7 +169,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState('nomic-embed-text');
   const [ollamaDimension, setOllamaDimension] = useState(768);
-  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string }>>([]);
+  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string; dimension?: number }>>([]);
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null);
   const [isFetchingOllamaModels, setIsFetchingOllamaModels] = useState(false);
   const [isTestingDimension, setIsTestingDimension] = useState(false);
@@ -937,8 +937,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   onOptionSelect={handleOllamaModelSelect}
                   disabled={ollamaModels.length === 0}
                 >
-                  {ollamaModels.map((model) => (
-                    <Option key={model.name} value={model.name}>{model.name}</Option>
+                  {ollamaModels.map((m) => (
+                    <Option key={m.name} value={m.name}>
+                      {m.dimension ? `${m.name} (${m.dimension}d)` : m.name}
+                    </Option>
                   ))}
                 </Dropdown>
                 {ollamaModelsError && (

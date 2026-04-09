@@ -27,8 +27,7 @@
     "onCommand:repomixRunner.copySelectedFilesAsCompressed",
     "onView:repomixBundles",
     "onView:repomixRunner.controlPanel",
-"onCommand:repomixRunner.copyAllGitChanges",
-    "onCommand:repomixRunner.testPostgresConnection",
+    "onCommand:repomixRunner.copyAllGitChanges",
     "onStartupFinished"
   ],
   "contributes": {
@@ -544,12 +543,6 @@
         "icon": "$(copy)"
       },
       {
-        "command": "repomixRunner.testPostgresConnection",
-        "title": "Repomix: Test PostgreSQL Connection",
-        "description": "Test the PostgreSQL connection and run migrations",
-        "icon": "$(database)"
-      },
-      {
         "command": "repomixRunner.refreshArchitecture",
         "title": "Repomix: Refresh Repository Architecture",
         "description": "Manually trigger repository architecture generation",
@@ -710,9 +703,8 @@
     "test:integration": "rimraf out-test; npm run compile-tests && vscode-test; code=$?; rimraf out-test; exit $code",
     "test": "npm-run-all test:unit test:integration",
     "clean": "rimraf dist out",
-        "build:rust": "node scripts/build-rust.mjs",
+    "build:rust": "node scripts/build-rust.mjs",
     "setup:treesitter": "node scripts/setup-treesitter.mjs",
-    "package:local": "node scripts/package-local.mjs",
     "test:compression": "ts-node src/test-compression.ts",
     "test:compression:js": "npm run compile && node dist/test-compression.js",
     "diagnose:compression": "node scripts/diagnose-compression.js",

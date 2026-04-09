@@ -752,7 +752,8 @@ export class ConfigController extends BaseController {
   }
 
   /**
-   * Fetch available models from Ollama server
+   * Fetch available embedding models from Ollama server
+   * Tests each model with /api/embed to filter only embedding models
    */
   private async handleFetchOllamaModels(explicitUrl?: string) {
     try {
@@ -764,6 +765,25 @@ export class ConfigController extends BaseController {
 
       console.log(`[ConfigController] Fetching Ollama models from ${ollamaUrl}`);
 
+      // Check cache first
+      const cacheKey = `ollamaEmbeddingModels_${ollamaUrl}`;
+      const cached = this.extensionContext.globalState.get<{
+        models: Array<{ name: string; dimension?: number }>;
+        timestamp: number;
+      }>(cacheKey);
+
+      const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        console.log(`[ConfigController] Returning cached Ollama embedding models (${cached.models.length} models)`);
+        this.context.postMessage({
+          command: 'ollamaModelsResult',
+          models: cached.models
+        });
+        return;
+      }
+
+      // Fetch all models from Ollama
       const response = await fetch(`${ollamaUrl}/api/tags`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -774,13 +794,49 @@ export class ConfigController extends BaseController {
       }
 
       const data = await response.json();
-      const models = data.models || [];
+      const allModels = data.models || [];
 
-      console.log(`[ConfigController] Found ${models.length} Ollama models`);
+      console.log(`[ConfigController] Found ${allModels.length} total Ollama models, testing for embedding support`);
+
+      // Test each model with /api/embed to find embedding models and get dimensions
+      const embeddingModels: Array<{ name: string; dimension?: number }> = [];
+
+      for (const model of allModels) {
+        try {
+          const embedResponse = await fetch(`${ollamaUrl}/api/embed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: model.name,
+              input: 'test',
+            }),
+          });
+
+          if (embedResponse.ok) {
+            const embedData = await embedResponse.json();
+            if (embedData.embeddings && embedData.embeddings.length > 0) {
+              const dimension = embedData.embeddings[0].length;
+              embeddingModels.push({ name: model.name, dimension });
+              console.log(`[ConfigController] Model ${model.name} is an embedding model with dimension ${dimension}`);
+            }
+          }
+        } catch (modelError) {
+          // Model doesn't support embeddings, skip it
+          console.log(`[ConfigController] Model ${model.name} is not an embedding model`);
+        }
+      }
+
+      // Cache the filtered embedding models
+      await this.extensionContext.globalState.update(cacheKey, {
+        models: embeddingModels,
+        timestamp: Date.now()
+      });
+
+      console.log(`[ConfigController] Found ${embeddingModels.length} embedding models`);
 
       this.context.postMessage({
         command: 'ollamaModelsResult',
-        models: models
+        models: embeddingModels
       });
     } catch (error: unknown) {
       console.error('[ConfigController] Failed to fetch Ollama models:', error);

@@ -424,6 +424,7 @@ export const OllamaModelsResultSchema = z.object({
   command: z.literal('ollamaModelsResult'),
   models: z.array(z.object({
     name: z.string(),
+    dimension: z.number().optional(),
     model: z.string().optional(),
     size: z.number().optional(),
     digest: z.string().optional(),

@@ -1,0 +1,55 @@
+wing: repomix_runner
+rooms:
+- name: bin
+  description: Files from bin/
+  keywords:
+  - bin
+  - bin
+- name: rust
+  description: Files from rust/
+  keywords:
+  - rust
+  - rust
+- name: prds
+  description: Files from PRDs/
+  keywords:
+  - prds
+  - prds
+- name: verification
+  description: Files from verification/
+  keywords:
+  - verification
+  - verification
+- name: scripts
+  description: Files from scripts/
+  keywords:
+  - scripts
+  - scripts
+- name: design
+  description: Files from assets/
+  keywords:
+  - design
+  - assets
+- name: src
+  description: Files from src/
+  keywords:
+  - src
+  - src
+- name: testing
+  description: Files from test/
+  keywords:
+  - testing
+  - test
+- name: configuration
+  description: Files from config/
+  keywords:
+  - configuration
+  - config
+- name: backend
+  description: Files from services/
+  keywords:
+  - backend
+  - services
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []

@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(npm run check-types:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Skill(mempalace:init)",
+      "Skill(mempalace)",
+      "Bash(mempalace init:*)",
+      "Bash(claude mcp:*)",
+      "Bash(mempalace status:*)",
+      "Bash(mempalace mine:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "WebFetch(domain:minimax-algeng-chat-tts-us.oss-us-east-1.aliyuncs.com)",
+      "mcp__mempalace__mempalace_add_drawer",
+      "Bash(xxd)"
     ]
   }
 }
