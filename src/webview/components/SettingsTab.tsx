@@ -165,7 +165,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
 
   // Embedding Provider State
-  const [embeddingProvider, setEmbeddingProvider] = useState<'gemini' | 'ollama' | 'lmstudio' | 'openrouter'>('gemini');
+  const [embeddingProvider, setEmbeddingProvider] = useState<'ollama' | 'lmstudio'>('lmstudio');
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState('nomic-embed-text');
   const [ollamaDimension, setOllamaDimension] = useState(768);
@@ -175,28 +175,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [isTestingDimension, setIsTestingDimension] = useState(false);
   
   // LM Studio State
-  const [lmstudioBaseUrl, setLmstudioBaseUrl] = useState('http://localhost:1234/v1');
-  const [lmstudioApiKey, setLmstudioApiKey] = useState('');
+  const [lmstudioBaseUrl, setLmstudioBaseUrl] = useState('http://192.168.0.49:1234/v1');
+  const [lmstudioApiKey, setLmstudioApiKey] = useState('dummy');
   const [lmstudioModel, setLmstudioModel] = useState('');
   const [lmstudioDimension, setLmstudioDimension] = useState(768);
   const [lmstudioModels, setLmstudioModels] = useState<Array<{ id: string }>>([]);
   const [lmstudioModelsError, setLmstudioModelsError] = useState<string | null>(null);
   const [isFetchingLMStudioModels, setIsFetchingLMStudioModels] = useState(false);
   const [isTestingLMStudioDimension, setIsTestingLMStudioDimension] = useState(false);
-
-  // OpenRouter State
-  const [openrouterBaseUrl, setOpenrouterBaseUrl] = useState('https://openrouter.ai/api/v1');
-  const [openrouterApiKey, setOpenrouterApiKey] = useState('');
-  const [openrouterModel, setOpenrouterModel] = useState('openai/text-embedding-3-small');
-  const [openrouterDimension, setOpenrouterDimension] = useState(1536);
-  const [openrouterProviderOrder, setOpenrouterProviderOrder] = useState(['nebius']);
-  const [openrouterAllowFallbacks, setOpenrouterAllowFallbacks] = useState(true);
-  const [openrouterQuantizations, setOpenrouterQuantizations] = useState(['fp8']);
-  const [openrouterModels, setOpenrouterModels] = useState<Array<{ id: string; name?: string; description?: string; context_length?: number }>>([]);
-  const [openrouterModelsError, setOpenrouterModelsError] = useState<string | null>(null);
-  const [isFetchingOpenRouterModels, setIsFetchingOpenRouterModels] = useState(false);
-  const [isTestingOpenRouterDimension, setIsTestingOpenRouterDimension] = useState(false);
-  const [isTestingOpenRouterConnection, setIsTestingOpenRouterConnection] = useState(false);
 
   // Enrichment State
   const [enrichmentEnabled, setEnrichmentEnabled] = useState(false);
@@ -366,17 +352,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           setOllamaUrl(message.ollamaUrl || 'http://localhost:11434');
           setOllamaModel(message.ollamaModel || 'nomic-embed-text');
           setOllamaDimension(message.ollamaDimension || 768);
-          setLmstudioBaseUrl(message.lmstudioBaseUrl || 'http://localhost:1234/v1');
+          setLmstudioBaseUrl(message.lmstudioBaseUrl || 'http://192.168.0.49:1234/v1');
           setLmstudioApiKey(message.lmstudioApiKey || '');
           setLmstudioModel(message.lmstudioModel || '');
           setLmstudioDimension(message.lmstudioDimension || 768);
-          setOpenrouterBaseUrl(message.openrouterBaseUrl || 'https://openrouter.ai/api/v1');
-          setOpenrouterApiKey(message.openrouterApiKey || '');
-          setOpenrouterModel(message.openrouterModel || 'qwen/qwen3-embedding-8b');
-          setOpenrouterDimension(message.openrouterDimension || 4096);
-          setOpenrouterProviderOrder(message.openrouterProviderOrder || ['nebius']);
-          setOpenrouterAllowFallbacks(message.openrouterAllowFallbacks ?? false);
-          setOpenrouterQuantizations(message.openrouterQuantizations || ['fp8']);
           break;
 
         case 'enrichmentConfig':
@@ -405,7 +384,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           break;
 
         case 'lmstudioConfig':
-          setLmstudioBaseUrl(message.baseUrl || 'http://localhost:1234/v1');
+          setLmstudioBaseUrl(message.baseUrl || 'http://192.168.0.49:1234/v1');
           setLmstudioApiKey(message.apiKey || '');
           setLmstudioModel(message.model || '');
           setLmstudioDimension(message.dimension || 768);
@@ -431,52 +410,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           }
           break;
 
-        case 'openrouterConfig':
-          setOpenrouterBaseUrl(message.baseUrl || 'https://openrouter.ai/api/v1');
-          setOpenrouterApiKey(message.apiKey || '');
-          setOpenrouterModel(message.model || 'qwen/qwen3-embedding-8b');
-          setOpenrouterDimension(message.dimension || 4096);
-          setOpenrouterProviderOrder(message.providerOrder || ['nebius']);
-          setOpenrouterAllowFallbacks(message.allowFallbacks ?? false);
-          setOpenrouterQuantizations(message.quantizations || ['fp8']);
-          break;
-
-        case 'openrouterModelsResult':
-          setOpenrouterModels(message.models || []);
-          setOpenrouterModelsError(message.error || null);
-          setIsFetchingOpenRouterModels(false);
-          break;
-
-        case 'openrouterDimensionResult':
-          setIsTestingOpenRouterDimension(false);
-          if (message.dimension) {
-            setOpenrouterDimension(message.dimension);
-          }
-          if (message.error) {
-            vscode.postMessage({
-              command: 'showNotification',
-              type: 'error',
-              message: `Dimension test failed: ${message.error}`,
-            });
-          }
-          break;
-
-        case 'openrouterConnectionResult':
-          setIsTestingOpenRouterConnection(false);
-          if (message.success) {
-            vscode.postMessage({
-              command: 'showNotification',
-              type: 'info',
-              message: message.message || 'OpenRouter connection test successful!',
-            });
-          } else {
-            vscode.postMessage({
-              command: 'showNotification',
-              type: 'error',
-              message: `Connection test failed: ${message.error}`,
-            });
-          }
-          break;
 
         case 'compatibilityStatus':
           setCompatibilityStatus({
@@ -636,7 +569,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   const handleEmbeddingProviderChange = (_e: any, data: any) => {
-    const provider = data.optionValue as 'gemini' | 'ollama' | 'lmstudio' | 'openrouter';
+    const provider = data.optionValue as 'ollama' | 'lmstudio';
     setEmbeddingProvider(provider);
   };
 
@@ -679,50 +612,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     });
   };
 
-  const handleFetchOpenRouterModels = () => {
-    setIsFetchingOpenRouterModels(true);
-    setOpenrouterModelsError(null);
-    vscode.postMessage({ command: 'fetchOpenRouterModels' });
-  };
-
-  const handleOpenRouterModelSelect = (_e: any, data: any) => {
-    const modelName = data.optionValue as string;
-    setOpenrouterModel(modelName);
-    
-    // Auto-test dimension when model is selected
-    setIsTestingOpenRouterDimension(true);
-    vscode.postMessage({ 
-      command: 'testOpenRouterDimension', 
-      baseUrl: openrouterBaseUrl,
-      apiKey: openrouterApiKey,
-      model: modelName,
-      providerOrder: openrouterProviderOrder,
-      allowFallbacks: openrouterAllowFallbacks,
-      quantizations: openrouterQuantizations
-    });
-  };
-
-  const handleTestOpenRouterConnection = () => {
-    if (!openrouterApiKey.trim()) {
-      vscode.postMessage({
-        command: 'showNotification',
-        type: 'error',
-        message: 'Please enter your OpenRouter API key first',
-      });
-      return;
-    }
-
-    setIsTestingOpenRouterConnection(true);
-    vscode.postMessage({ 
-      command: 'testOpenRouterConnection', 
-      baseUrl: openrouterBaseUrl,
-      apiKey: openrouterApiKey,
-      model: openrouterModel,
-      providerOrder: openrouterProviderOrder,
-      allowFallbacks: openrouterAllowFallbacks,
-      quantizations: openrouterQuantizations
-    });
-  };
 
   const handleSaveEmbeddingConfig = () => {
     if (embeddingProvider === 'ollama') {
@@ -747,17 +636,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       }
     }
 
-    if (embeddingProvider === 'openrouter') {
-      if (!openrouterBaseUrl.trim() || !openrouterModel.trim() || openrouterDimension <= 0) {
-        vscode.postMessage({
-          command: 'showNotification',
-          type: 'error',
-          message: 'Please fill in all OpenRouter configuration fields',
-        });
-        return;
-      }
-    }
-
     const message: any = {
       command: 'setEmbeddingConfig',
       provider: embeddingProvider,
@@ -772,14 +650,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       message.lmstudioApiKey = lmstudioApiKey;
       message.lmstudioModel = lmstudioModel;
       message.lmstudioDimension = lmstudioDimension;
-    } else if (embeddingProvider === 'openrouter') {
-      message.openrouterBaseUrl = openrouterBaseUrl;
-      message.openrouterApiKey = openrouterApiKey;
-      message.openrouterModel = openrouterModel;
-      message.openrouterDimension = openrouterDimension;
-      message.openrouterProviderOrder = openrouterProviderOrder;
-      message.openrouterAllowFallbacks = openrouterAllowFallbacks;
-      message.openrouterQuantizations = openrouterQuantizations;
     }
 
     vscode.postMessage(message);
@@ -1007,15 +877,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>
             <Label size="small">Active Provider</Label>
-            <Dropdown 
-              value={embeddingProvider} 
-              onOptionSelect={handleEmbeddingProviderChange} 
+            <Dropdown
+              value={embeddingProvider}
+              onOptionSelect={handleEmbeddingProviderChange}
               style={{ width: '240px', marginTop: '4px' }}
             >
-              <Option value="gemini">Google Gemini (768d)</Option>
               <Option value="ollama">Ollama (Local)</Option>
               <Option value="lmstudio">LM Studio (Local)</Option>
-              <Option value="openrouter">OpenRouter (Cloud)</Option>
             </Dropdown>
             <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
               Choose which embedding model to use for vector search indexing.
@@ -1231,187 +1099,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 appearance="primary"
                 onClick={handleSaveEmbeddingConfig}
                 disabled={!lmstudioBaseUrl.trim() || !lmstudioModel.trim() || lmstudioDimension <= 0}
-              >
-                Save Embedding Configuration
-              </Button>
-            </div>
-          )}
-
-          {/* OpenRouter Configuration Accordion */}
-          {embeddingProvider === 'openrouter' && (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              gap: '12px',
-              padding: '12px',
-              border: '1px solid var(--vscode-panel-border)',
-              borderRadius: '4px',
-              backgroundColor: 'var(--vscode-editor-background)'
-            }}>
-              <Label weight="semibold" size="small">OpenRouter Connection Settings</Label>
-
-              {/* Base URL Input */}
-              <div>
-                <Label size="small">Base URL</Label>
-                <Input
-                  placeholder="https://openrouter.ai/api/v1"
-                  value={openrouterBaseUrl}
-                  onChange={(_e, data) => setOpenrouterBaseUrl(data.value)}
-                  style={{ marginTop: '4px' }}
-                />
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  OpenRouter API base URL
-                </Text>
-              </div>
-
-              {/* API Key Input */}
-              <div>
-                <Label size="small">API Key (Required)</Label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Input
-                    type="password"
-                    placeholder="Enter your OpenRouter API key"
-                    value={openrouterApiKey}
-                    onChange={(_e, data) => setOpenrouterApiKey(data.value)}
-                    style={{ flexGrow: 1, marginTop: '4px' }}
-                  />
-                  <Button
-                    appearance="secondary"
-                    onClick={handleTestOpenRouterConnection}
-                    disabled={!openrouterApiKey.trim() || isTestingOpenRouterConnection}
-                    style={{ marginTop: '4px' }}
-                  >
-                    {isTestingOpenRouterConnection ? 'Testing...' : 'Test Connection'}
-                  </Button>
-                </div>
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  OpenRouter API key (required for authentication). Test to verify connection.
-                </Text>
-              </div>
-
-              {/* Model Manager */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <Label size="small">Model</Label>
-                  <Button
-                    size="small"
-                    appearance="secondary"
-                    icon={isFetchingOpenRouterModels ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
-                    onClick={handleFetchOpenRouterModels}
-                    disabled={isFetchingOpenRouterModels}
-                  >
-                    Fetch Models
-                  </Button>
-                </div>
-                <Dropdown
-                  placeholder="Select a model"
-                  value={openrouterModel}
-                  onOptionSelect={handleOpenRouterModelSelect}
-                  disabled={openrouterModels.length === 0}
-                >
-                  {openrouterModels.map((model) => (
-                    <Option key={model.id} value={model.id}>{model.name || model.id}</Option>
-                  ))}
-                </Dropdown>
-                {openrouterModelsError && (
-                  <Text size={100} style={{ color: 'var(--vscode-errorForeground)', marginTop: '4px' }}>
-                    {openrouterModelsError}
-                  </Text>
-                )}
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  Recommended: qwen/qwen3-embedding-8b (4096d, 32k context)
-                </Text>
-              </div>
-
-              {/* Provider Routing */}
-              <div>
-                <Label size="small">Provider Order (Optional)</Label>
-                <Input
-                  placeholder="nebius"
-                  value={openrouterProviderOrder.join(', ')}
-                  onChange={(_e, data) => {
-                    const providers = data.value.split(',').map(p => p.trim()).filter(p => p);
-                    setOpenrouterProviderOrder(providers);
-                  }}
-                  style={{ marginTop: '4px' }}
-                />
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  Comma-separated list of providers to route through (e.g., "nebius")
-                </Text>
-              </div>
-
-              {/* Quantization */}
-              <div>
-                <Label size="small">Quantizations (Optional)</Label>
-                <Input
-                  placeholder="fp8"
-                  value={openrouterQuantizations.join(', ')}
-                  onChange={(_e, data) => {
-                    const quants = data.value.split(',').map(q => q.trim()).filter(q => q);
-                    setOpenrouterQuantizations(quants);
-                  }}
-                  style={{ marginTop: '4px' }}
-                />
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  Comma-separated quantization levels (e.g., "fp8", "fp16")
-                </Text>
-              </div>
-
-              {/* Dimension Input */}
-              <div>
-                <Label size="small">Embedding Dimension</Label>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
-                  <Input
-                    type="number"
-                    value={openrouterDimension.toString()}
-                    onChange={(_e, data) => {
-                      const val = parseInt(data.value);
-                      if (!isNaN(val) && val > 0) {
-                        setOpenrouterDimension(val);
-                      }
-                    }}
-                    style={{ width: '120px' }}
-                    disabled={isTestingOpenRouterDimension}
-                  />
-                  {isTestingOpenRouterDimension && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Spinner size="tiny" />
-                      <Text size={100}>Testing...</Text>
-                    </div>
-                  )}
-                </div>
-                <Text size={100} style={{ display: 'block', marginTop: '4px', opacity: 0.7 }}>
-                  Auto-detected when you select a model. Default: 4096 for qwen3
-                </Text>
-              </div>
-
-              {/* Save Button */}
-              <Button
-                appearance="primary"
-                onClick={handleSaveEmbeddingConfig}
-                disabled={!openrouterBaseUrl.trim() || !openrouterModel.trim() || openrouterDimension <= 0}
-              >
-                Save Embedding Configuration
-              </Button>
-            </div>
-          )}
-
-          {/* Gemini Info */}
-          {embeddingProvider === 'gemini' && (
-            <div style={{ 
-              padding: '12px',
-              border: '1px solid var(--vscode-panel-border)',
-              borderRadius: '4px',
-              backgroundColor: 'var(--vscode-editor-background)'
-            }}>
-              <Text size={200}>Using Google Gemini embedding model (768 dimensions)</Text>
-              <Text size={100} style={{ display: 'block', marginTop: '8px', opacity: 0.7 }}>
-                Ensure your Google Gemini API Key is configured above.
-              </Text>
-              <Button
-                appearance="primary"
-                onClick={handleSaveEmbeddingConfig}
-                style={{ marginTop: '12px' }}
               >
                 Save Embedding Configuration
               </Button>

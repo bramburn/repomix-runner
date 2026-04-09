@@ -1,14 +1,9 @@
 import { IEmbeddingProvider } from './embeddings/types';
-import { GeminiProvider } from './embeddings/GeminiProvider';
 import { OllamaProvider } from './embeddings/OllamaProvider';
 import { LMStudioProvider } from './embeddings/LMStudioProvider';
-import { OpenRouterProvider } from './embeddings/OpenRouterProvider';
 
 export interface EmbeddingProviderConfig {
-    provider: 'gemini' | 'ollama' | 'lmstudio' | 'openrouter';
-    gemini?: {
-        apiKey: string;
-    };
+    provider: 'ollama' | 'lmstudio';
     ollama?: {
         url: string;
         model: string;
@@ -19,17 +14,6 @@ export interface EmbeddingProviderConfig {
         apiKey: string;
         model: string;
         dimension: number;
-    };
-    openrouter?: {
-        baseUrl: string;
-        apiKey: string;
-        model: string;
-        dimension: number;
-        provider?: {
-            order?: string[];
-            allow_fallbacks?: boolean;
-            quantizations?: string[];
-        };
     };
 }
 
@@ -62,12 +46,6 @@ export class EmbeddingService {
     this.currentConfig = config;
 
     switch (config.provider) {
-      case 'gemini':
-        if (!config.gemini?.apiKey) {
-            throw new Error('Gemini API key is missing for embedding provider.');
-        }
-        this.provider = new GeminiProvider(config.gemini);
-        break;
       case 'ollama':
         if (!config.ollama) {
             throw new Error('Ollama config is missing for embedding provider.');
@@ -79,12 +57,6 @@ export class EmbeddingService {
             throw new Error('LM Studio config is missing for embedding provider.');
         }
         this.provider = new LMStudioProvider(config.lmstudio);
-        break;
-      case 'openrouter':
-        if (!config.openrouter) {
-            throw new Error('OpenRouter config is missing for embedding provider.');
-        }
-        this.provider = new OpenRouterProvider(config.openrouter);
         break;
       default:
         const exhaustiveCheck: never = config.provider;

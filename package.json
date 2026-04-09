@@ -290,12 +290,10 @@
             "order": 2,
             "type": "string",
             "enum": [
-              "gemini",
-              "openrouter",
               "ollama",
               "lmstudio"
             ],
-            "default": "gemini",
+            "default": "lmstudio",
             "description": "📊 \n Default provider for embeddings"
           },
           "repomix.llm.rateLimit.enabled": {
@@ -309,26 +307,6 @@
             "type": "boolean",
             "default": true,
             "description": "📈 \n Track API usage, tokens, and estimated costs"
-          },
-          "repomix.llm.gemini.apiKey": {
-            "order": 10,
-            "type": "string",
-            "default": "",
-            "description": "🔑 \n Google Gemini API key"
-          },
-          "repomix.llm.gemini.model": {
-            "order": 11,
-            "type": "string",
-            "default": "gemini-2.5-flash-lite",
-            "description": "📦 \n Default Gemini model"
-          },
-          "repomix.llm.gemini.rpm": {
-            "order": 12,
-            "type": "number",
-            "default": 10,
-            "minimum": 1,
-            "maximum": 60,
-            "description": "⏱️ \n Requests per minute limit (free tier: 10)"
           }
         }
       },
@@ -341,12 +319,10 @@
             "order": 1,
             "type": "string",
             "enum": [
-              "gemini",
               "ollama",
-              "lmstudio",
-              "openrouter"
+              "lmstudio"
             ],
-            "default": "gemini",
+            "default": "lmstudio",
             "description": "🤖 \n Embedding provider to use"
           },
           "repomix.ollama.url": {
@@ -390,52 +366,6 @@
             "type": "number",
             "default": 768,
             "description": "📏 \n LM Studio embedding dimension size"
-          },
-          "repomix.openrouter.baseUrl": {
-            "order": 9,
-            "type": "string",
-            "default": "https://openrouter.ai/api/v1",
-            "description": "🌐 \n OpenRouter API base URL"
-          },
-          "repomix.openrouter.model": {
-            "order": 10,
-            "type": "string",
-            "default": "openai/text-embedding-3-small",
-            "description": "📦 \n OpenRouter embedding model name (use 'Fetch Models' button to see available embedding models)"
-          },
-          "repomix.openrouter.dimension": {
-            "order": 11,
-            "type": "number",
-            "default": 1536,
-            "description": "📏 \n OpenRouter embedding dimension size (text-embedding-3-small: 1536, text-embedding-3-large: 3072)"
-          },
-          "repomix.openrouter.providerOrder": {
-            "order": 12,
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              "nebius"
-            ],
-            "description": "🔀 \n Provider routing order (e.g., [\"nebius\"])"
-          },
-          "repomix.openrouter.allowFallbacks": {
-            "order": 13,
-            "type": "boolean",
-            "default": true,
-            "description": "🔄 \n Allow fallback to other providers if primary fails (recommended: true)"
-          },
-          "repomix.openrouter.quantizations": {
-            "order": 14,
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              "fp8"
-            ],
-            "description": "⚡ \n Quantization preferences (e.g., [\"fp8\", \"fp16\"])"
           }
         }
       },

@@ -13,9 +13,8 @@ const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
 const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
 const SECRET_ANTHROPIC = 'repomix.chat.anthropicApiKey';
-const SECRET_OPENROUTER = 'repomix.embedding.openrouterApiKey';
 export const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
-type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey' | 'openrouterApiKey';
+type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
 
 export class ConfigController extends BaseController {
   private migrationService: MigrationService;
@@ -133,20 +132,6 @@ export class ConfigController extends BaseController {
         await this.handleGetLMStudioConfig();
         return true;
 
-      // --- OpenRouter Configuration ---
-      case 'fetchOpenRouterModels':
-        await this.handleFetchOpenRouterModels();
-        return true;
-      case 'testOpenRouterDimension':
-        await this.handleTestOpenRouterDimension(message.baseUrl, message.apiKey, message.model, message.providerOrder, message.allowFallbacks, message.quantizations);
-        return true;
-      case 'getOpenRouterConfig':
-        await this.handleGetOpenRouterConfig();
-        return true;
-      case 'testOpenRouterConnection':
-        await this.handleTestOpenRouterConnection(message.baseUrl, message.apiKey, message.model, message.providerOrder, message.allowFallbacks, message.quantizations);
-        return true;
-
       // --- Enrichment Configuration ---
       case 'getEnrichmentConfig':
         await this.handleGetEnrichmentConfig();
@@ -193,9 +178,7 @@ export class ConfigController extends BaseController {
             ? SECRET_PINECONE
             : key === 'qdrantApiKey'
               ? SECRET_QDRANT
-              : key === 'openrouterApiKey'
-                ? SECRET_OPENROUTER
-                : SECRET_ANTHROPIC;
+              : SECRET_ANTHROPIC;
       const secret = await this.extensionContext.secrets.get(storageKey);
       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
     } catch (err) {
@@ -212,9 +195,7 @@ export class ConfigController extends BaseController {
             ? SECRET_PINECONE
             : key === 'qdrantApiKey'
               ? SECRET_QDRANT
-              : key === 'openrouterApiKey'
-                ? SECRET_OPENROUTER
-                : SECRET_ANTHROPIC;
+              : SECRET_ANTHROPIC;
       await this.extensionContext.secrets.store(storageKey, value);
       this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
@@ -225,9 +206,7 @@ export class ConfigController extends BaseController {
             ? 'Pinecone'
             : key === 'qdrantApiKey'
               ? 'Qdrant'
-              : key === 'openrouterApiKey'
-                ? 'OpenRouter'
-                : 'Anthropic';
+              : 'Anthropic';
       vscode.window.showInformationMessage(`${label} API Key saved successfully!`);
     } catch (err) {
       console.error('Failed to save secret:', err);
@@ -530,17 +509,15 @@ export class ConfigController extends BaseController {
 
       // Get current embedding provider dimension
       const config = vscode.workspace.getConfiguration();
-      const embeddingProvider = config.get<string>('repomix.embedding.provider') || 'gemini';
-      let expectedDim = 768; // Default for Gemini
-      
+      const embeddingProvider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
+      let expectedDim = 768; // Default for LM Studio
+
       if (embeddingProvider === 'ollama') {
         expectedDim = config.get<number>('repomix.ollama.dimension') || 768;
       } else if (embeddingProvider === 'lmstudio') {
         expectedDim = config.get<number>('repomix.lmstudio.dimension') || 768;
-      } else if (embeddingProvider === 'openrouter') {
-        expectedDim = config.get<number>('repomix.openrouter.dimension') || 1536;
       }
-      
+
       console.log(`[ConfigController] Current embedding provider: ${embeddingProvider}, expected dimension: ${expectedDim}`);
 
       // Step 6: Create collection if it doesn't exist
@@ -747,7 +724,7 @@ export class ConfigController extends BaseController {
   private async handleGetEmbeddingConfig() {
     try {
       const config = vscode.workspace.getConfiguration();
-      const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+      const provider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
       const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
       const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
       const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
@@ -757,15 +734,6 @@ export class ConfigController extends BaseController {
       const lmstudioApiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
       const lmstudioModel = config.get<string>('repomix.lmstudio.model') || '';
       const lmstudioDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
-
-      // OpenRouter config
-      const openrouterBaseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
-      const openrouterApiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER) || '';
-      const openrouterModel = config.get<string>('repomix.openrouter.model') || 'openai/text-embedding-3-small';
-      const openrouterDimension = config.get<number>('repomix.openrouter.dimension') || 1536;
-      const openrouterProviderOrder = config.get<string[]>('repomix.openrouter.providerOrder') || ['nebius'];
-      const openrouterAllowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? true;
-      const openrouterQuantizations = config.get<string[]>('repomix.openrouter.quantizations') || ['fp8'];
 
       this.context.postMessage({
         command: 'embeddingConfig',
@@ -777,13 +745,6 @@ export class ConfigController extends BaseController {
         lmstudioApiKey,
         lmstudioModel,
         lmstudioDimension,
-        openrouterBaseUrl,
-        openrouterApiKey,
-        openrouterModel,
-        openrouterDimension,
-        openrouterProviderOrder,
-        openrouterAllowFallbacks,
-        openrouterQuantizations
       });
     } catch (error) {
       console.error('Failed to get embedding config:', error);
@@ -894,13 +855,6 @@ export class ConfigController extends BaseController {
         lmstudioApiKey,
         lmstudioModel,
         lmstudioDimension,
-        openrouterBaseUrl,
-        openrouterApiKey,
-        openrouterModel,
-        openrouterDimension,
-        openrouterProviderOrder,
-        openrouterAllowFallbacks,
-        openrouterQuantizations,
       } = message;
 
       console.log(`[ConfigController] Setting embedding config:`, {
@@ -911,36 +865,25 @@ export class ConfigController extends BaseController {
         lmstudioBaseUrl,
         lmstudioModel,
         lmstudioDimension,
-        openrouterBaseUrl,
-        openrouterModel,
-        openrouterDimension,
       });
 
       // Get current dimension to detect changes
       const config = vscode.workspace.getConfiguration();
-      const currentProvider = config.get<string>('repomix.embedding.provider') || 'gemini';
+      const currentProvider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
       let currentDimension = 768;
-      
-      if (currentProvider === 'gemini') {
-        currentDimension = 768;
-      } else if (currentProvider === 'ollama') {
+
+      if (currentProvider === 'ollama') {
         currentDimension = config.get<number>('repomix.ollama.dimension') || 768;
       } else if (currentProvider === 'lmstudio') {
         currentDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
-      } else if (currentProvider === 'openrouter') {
-        currentDimension = config.get<number>('repomix.openrouter.dimension') || 4096;
       }
 
       // Determine new dimension
       let newDimension = 768;
-      if (provider === 'gemini') {
-        newDimension = 768;
-      } else if (provider === 'ollama') {
+      if (provider === 'ollama') {
         newDimension = ollamaDimension;
       } else if (provider === 'lmstudio') {
         newDimension = lmstudioDimension;
-      } else if (provider === 'openrouter') {
-        newDimension = openrouterDimension;
       }
 
       // Check if dimension is changing
@@ -988,16 +931,6 @@ export class ConfigController extends BaseController {
         await config.update('repomix.lmstudio.apiKey', lmstudioApiKey, vscode.ConfigurationTarget.Global);
         await config.update('repomix.lmstudio.model', lmstudioModel, vscode.ConfigurationTarget.Global);
         await config.update('repomix.lmstudio.dimension', lmstudioDimension, vscode.ConfigurationTarget.Global);
-      } else if (provider === 'openrouter') {
-        await config.update('repomix.openrouter.baseUrl', openrouterBaseUrl, vscode.ConfigurationTarget.Global);
-        await config.update('repomix.openrouter.model', openrouterModel, vscode.ConfigurationTarget.Global);
-        await config.update('repomix.openrouter.dimension', openrouterDimension, vscode.ConfigurationTarget.Global);
-        await config.update('repomix.openrouter.providerOrder', openrouterProviderOrder, vscode.ConfigurationTarget.Global);
-        await config.update('repomix.openrouter.allowFallbacks', openrouterAllowFallbacks, vscode.ConfigurationTarget.Global);
-        await config.update('repomix.openrouter.quantizations', openrouterQuantizations, vscode.ConfigurationTarget.Global);
-        if (typeof openrouterApiKey === 'string' && openrouterApiKey.trim()) {
-          await this.extensionContext.secrets.store(SECRET_OPENROUTER, openrouterApiKey.trim());
-        }
       }
 
       console.log('[ConfigController] Embedding configuration saved');
@@ -1005,16 +938,7 @@ export class ConfigController extends BaseController {
       // Import and switch the embedding service provider
       const { embeddingService } = await import('../../core/indexing/embeddingService.js');
 
-      if (provider === 'gemini') {
-        const apiKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-        if (!apiKey) {
-          throw new Error('Gemini API key is missing. Please configure it in Settings.');
-        }
-        embeddingService.switchProvider({
-          provider: 'gemini',
-          gemini: { apiKey }
-        });
-      } else if (provider === 'ollama') {
+      if (provider === 'ollama') {
         embeddingService.switchProvider({
           provider: 'ollama',
           ollama: {
@@ -1031,25 +955,6 @@ export class ConfigController extends BaseController {
             apiKey: lmstudioApiKey,
             model: lmstudioModel,
             dimension: lmstudioDimension
-          }
-        });
-      } else if (provider === 'openrouter') {
-        const storedApiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER);
-        if (!openrouterApiKey && !storedApiKey) {
-          throw new Error('OpenRouter API key is missing. Please configure it in Settings.');
-        }
-        embeddingService.switchProvider({
-          provider: 'openrouter',
-          openrouter: {
-            baseUrl: openrouterBaseUrl,
-            apiKey: openrouterApiKey || storedApiKey || '',
-            model: openrouterModel,
-            dimension: openrouterDimension,
-            provider: {
-              order: openrouterProviderOrder,
-              allow_fallbacks: openrouterAllowFallbacks,
-              quantizations: openrouterQuantizations
-            }
           }
         });
       }
@@ -1243,251 +1148,6 @@ export class ConfigController extends BaseController {
     }
   }
 
-  // --- OpenRouter Methods ---
-
-  private async handleGetOpenRouterConfig() {
-    try {
-      const config = vscode.workspace.getConfiguration();
-      const baseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
-      const apiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER) || '';
-      const model = config.get<string>('repomix.openrouter.model') || 'openai/text-embedding-3-small';
-      const dimension = config.get<number>('repomix.openrouter.dimension') || 1536;
-      const providerOrder = config.get<string[]>('repomix.openrouter.providerOrder') || ['nebius'];
-      const allowFallbacks = config.get<boolean>('repomix.openrouter.allowFallbacks') ?? true;
-      const quantizations = config.get<string[]>('repomix.openrouter.quantizations') || ['fp8'];
-
-      this.context.postMessage({
-        command: 'openrouterConfig',
-        baseUrl,
-        apiKey,
-        model,
-        dimension,
-        providerOrder,
-        allowFallbacks,
-        quantizations,
-      });
-    } catch (error) {
-      console.error('Failed to get OpenRouter config:', error);
-    }
-  }
-
-  private async handleFetchOpenRouterModels() {
-    try {
-      const config = vscode.workspace.getConfiguration();
-      const baseUrl = config.get<string>('repomix.openrouter.baseUrl') || 'https://openrouter.ai/api/v1';
-      const apiKey = await this.extensionContext.secrets.get(SECRET_OPENROUTER);
-
-      if (!apiKey) {
-        throw new Error('OpenRouter API key is required. Please set it in the settings.');
-      }
-
-      console.log('[ConfigController] Fetching OpenRouter embedding models using SDK...');
-
-      // Use the OpenRouter SDK to list embedding models
-      const { OpenRouter } = await import('@openrouter/sdk');
-      const client = new OpenRouter({
-        apiKey,
-        serverURL: baseUrl,
-      });
-
-      // Use the SDK's embeddings.listModels() method
-      const response = await client.embeddings.listModels();
-
-      if (typeof response === 'string') {
-        throw new Error('Invalid response from OpenRouter API');
-      }
-
-      const models = Array.isArray(response.data)
-        ? response.data
-            .filter((model: any) => typeof model?.id === 'string')
-            .map((model: any) => ({
-              id: model.id,
-              name: model.name || model.id,
-              description: model.description,
-              context_length: model.context_length,
-            }))
-        : [];
-
-      console.log(`[ConfigController] Fetched ${models.length} embedding models`);
-
-      this.context.postMessage({
-        command: 'openrouterModelsResult',
-        models,
-      });
-    } catch (error: unknown) {
-      console.error('[ConfigController] Failed to fetch OpenRouter models:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.context.postMessage({
-        command: 'openrouterModelsResult',
-        models: [],
-        error: errorMessage,
-      });
-      vscode.window.showErrorMessage(`Failed to fetch OpenRouter embedding models: ${errorMessage}`);
-    }
-  }
-
-  private async handleTestOpenRouterDimension(
-    baseUrl: string,
-    apiKey: string,
-    model: string,
-    providerOrder?: string[],
-    allowFallbacks?: boolean,
-    quantizations?: string[]
-  ) {
-    try {
-      console.log(`[ConfigController] Testing OpenRouter dimension for model: ${model}`);
-
-      // Use the OpenRouter SDK properly
-      const { OpenRouter } = await import('@openrouter/sdk');
-      const client = new OpenRouter({
-        apiKey,
-        serverURL: baseUrl,
-      });
-
-      const providerConfig: any = {};
-      if (providerOrder && providerOrder.length > 0) {
-        providerConfig.order = providerOrder;
-      }
-      if (typeof allowFallbacks === 'boolean') {
-        providerConfig.allowFallbacks = allowFallbacks;
-      }
-      if (quantizations && quantizations.length > 0) {
-        providerConfig.quantizations = quantizations;
-      }
-
-      const response = await client.embeddings.generate({
-        requestBody: {
-          model,
-          input: 'test text for dimension detection',
-          encodingFormat: 'float',
-          provider: Object.keys(providerConfig).length > 0 ? providerConfig : undefined,
-        },
-      });
-
-      if (typeof response === 'string') {
-        throw new Error('Invalid response from OpenRouter API');
-      }
-
-      const embedding = response.data?.[0]?.embedding;
-      if (!Array.isArray(embedding)) {
-        throw new Error('Invalid response from OpenRouter API: missing or invalid embedding');
-      }
-
-      const dimension = embedding.length;
-      this.context.postMessage({
-        command: 'openrouterDimensionResult',
-        dimension,
-      });
-      vscode.window.showInformationMessage(`Detected dimension: ${dimension}`);
-    } catch (error: unknown) {
-      console.error('[ConfigController] Failed to test OpenRouter dimension:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.context.postMessage({
-        command: 'openrouterDimensionResult',
-        error: errorMessage,
-      });
-      vscode.window.showErrorMessage(`Failed to test dimension: ${errorMessage}`);
-    }
-  }
-
-  /**
-   * Test OpenRouter connection by making a simple embedding request
-   */
-  private async handleTestOpenRouterConnection(
-    baseUrl: string,
-    apiKey: string,
-    model: string,
-    providerOrder?: string[],
-    allowFallbacks?: boolean,
-    quantizations?: string[]
-  ) {
-    try {
-      console.log(`[ConfigController] Testing OpenRouter connection with model ${model}`);
-      console.log(`[ConfigController] Provider config:`, { providerOrder, allowFallbacks, quantizations });
-
-      // Use the OpenRouter SDK properly
-      const { OpenRouter } = await import('@openrouter/sdk');
-      const client = new OpenRouter({
-        apiKey,
-        serverURL: baseUrl,
-      });
-
-      // Build provider config only if at least one option is provided
-      const providerConfig: any = {};
-      if (providerOrder && providerOrder.length > 0) {
-        providerConfig.order = providerOrder;
-      }
-      if (typeof allowFallbacks === 'boolean') {
-        providerConfig.allowFallbacks = allowFallbacks;
-      }
-      if (quantizations && quantizations.length > 0) {
-        providerConfig.quantizations = quantizations;
-      }
-
-      // Only include provider config if it has any properties
-      const hasProviderConfig = Object.keys(providerConfig).length > 0;
-
-      console.log(`[ConfigController] Sending embedding request with config:`, {
-        model,
-        hasProviderConfig,
-        providerConfig: hasProviderConfig ? providerConfig : 'none',
-      });
-
-      const response = await client.embeddings.generate({
-        requestBody: {
-          model,
-          input: 'Hello, this is a connection test.',
-          encodingFormat: 'float',
-          provider: hasProviderConfig ? providerConfig : undefined,
-        },
-      });
-
-      if (typeof response === 'string') {
-        throw new Error('Invalid response from OpenRouter API');
-      }
-
-      const embedding = response.data?.[0]?.embedding;
-      if (!Array.isArray(embedding)) {
-        throw new Error('Invalid response from OpenRouter API: missing or invalid embedding');
-      }
-
-      const dimension = embedding.length;
-      console.log(`[ConfigController] OpenRouter connection test successful. Dimension: ${dimension}`);
-
-      this.context.postMessage({
-        command: 'openrouterConnectionResult',
-        success: true,
-        message: `Successfully connected to OpenRouter! Model: ${model}, Dimension: ${dimension}`
-      });
-
-      vscode.window.showInformationMessage('OpenRouter connection test successful!');
-    } catch (error: unknown) {
-      console.error('[ConfigController] Failed to test OpenRouter connection:', error);
-      
-      // Provide better error messages for common issues
-      let errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Check for common error patterns
-      if (errorMessage.includes('No endpoints found')) {
-        errorMessage = `Model "${model}" may not support embeddings or the provider routing is incorrect. ` +
-          `Try: 1) Use a different model from the embeddings list, 2) Remove provider order settings, or 3) Try provider order ["nebius"] with allowFallbacks=true. ` +
-          `Original error: ${errorMessage}`;
-      } else if (errorMessage.includes('Invalid API key')) {
-        errorMessage = 'Invalid OpenRouter API key. Please check your API key in the settings.';
-      } else if (errorMessage.includes('401')) {
-        errorMessage = 'Authentication failed. Please verify your OpenRouter API key.';
-      }
-      
-      this.context.postMessage({
-        command: 'openrouterConnectionResult',
-        success: false,
-        error: errorMessage
-      });
-      
-      vscode.window.showErrorMessage(`OpenRouter connection test failed: ${errorMessage}`);
-    }
-  }
-
   // --- Dimension Compatibility Methods ---
 
   private async handleCheckCompatibility() {
@@ -1509,15 +1169,11 @@ export class ConfigController extends BaseController {
         console.warn('[ConfigController] Could not get embedding dimensions, falling back to config:', e);
         // Fallback to config-based calculation if service not initialized
         const config = vscode.workspace.getConfiguration();
-        const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
-        if (provider === 'gemini') {
-          embeddingDimension = 768;
-        } else if (provider === 'ollama') {
+        const provider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
+        if (provider === 'ollama') {
           embeddingDimension = config.get<number>('repomix.ollama.dimension') || 768;
         } else if (provider === 'lmstudio') {
           embeddingDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
-        } else if (provider === 'openrouter') {
-          embeddingDimension = config.get<number>('repomix.openrouter.dimension') || 4096;
         } else {
           embeddingDimension = 768;
         }

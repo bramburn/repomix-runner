@@ -123,25 +123,17 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     const { embeddingService } = await import('./core/indexing/embeddingService.js');
     const config = vscode.workspace.getConfiguration();
-    const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
+    const provider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
     const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
     const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
     const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;
 
-    const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
-    const googleApiKey = await context.secrets.get(SECRET_GOOGLE_GEMINI);
+    const lmstudioBaseUrl = config.get<string>('repomix.lmstudio.baseUrl') || 'http://localhost:1234/v1';
+    const lmstudioApiKey = config.get<string>('repomix.lmstudio.apiKey') || '';
+    const lmstudioModel = config.get<string>('repomix.lmstudio.model') || '';
+    const lmstudioDimension = config.get<number>('repomix.lmstudio.dimension') || 768;
 
-    if (provider === 'gemini') {
-      if (googleApiKey) {
-        embeddingService.switchProvider({
-          provider: 'gemini',
-          gemini: { apiKey: googleApiKey }
-        });
-        console.log('[quick-repomix] ✓ Embedding service initialized with Gemini provider');
-      } else {
-        console.log('[quick-repomix] ⚠ Gemini provider selected but API key missing - skipping initialization');
-      }
-    } else if (provider === 'ollama') {
+    if (provider === 'ollama') {
       embeddingService.switchProvider({
         provider: 'ollama',
         ollama: {
@@ -151,6 +143,17 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       });
       console.log('[quick-repomix] ✓ Embedding service initialized with Ollama provider');
+    } else if (provider === 'lmstudio') {
+      embeddingService.switchProvider({
+        provider: 'lmstudio',
+        lmstudio: {
+          baseUrl: lmstudioBaseUrl,
+          apiKey: lmstudioApiKey,
+          model: lmstudioModel,
+          dimension: lmstudioDimension
+        }
+      });
+      console.log('[quick-repomix] ✓ Embedding service initialized with LM Studio provider');
     }
     console.log('[quick-repomix] Embedding service initialization complete');
   } catch (error) {

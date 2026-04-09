@@ -118,5 +118,5 @@ export function extractRetryDelay(error: unknown): number {
   }
   
   // Default exponential backoff with jitter
-  return undefined;
+  return 0;
 }

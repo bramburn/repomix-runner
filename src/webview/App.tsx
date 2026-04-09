@@ -19,7 +19,6 @@ import { BundleItem } from './components/BundleItem.js';
 import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
-import { ApplyTab } from './components/ApplyTab.js';
 
 import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
 import { updateVsState } from './utils.js';
@@ -213,7 +212,6 @@ export const App = () => {
           <Tab value="search">Search</Tab>
 
           <Tab value="settings">Settings</Tab>
-          <Tab value="apply">Apply</Tab>
           <Tab value="debug">Debug</Tab>
         </TabList>
 
@@ -259,7 +257,6 @@ export const App = () => {
             // but we need to update local state too? No, messages will loop back.
             />
           )}
-          {selectedTab === 'apply' && <ApplyTab />}
 
           {selectedTab === 'debug' && <DebugTab />}
         </div>

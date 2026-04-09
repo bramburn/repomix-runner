@@ -16,7 +16,8 @@ export class QdrantAdapter implements VectorDbAdapter {
     constructor(
         private readonly baseUrl: string,
         private readonly apiKey: string | undefined,
-        private readonly collection: string
+        private readonly collection: string,
+        private readonly dimension?: number
     ) {
         // Validate configuration
         if (!baseUrl || !collection) {
@@ -41,9 +42,79 @@ export class QdrantAdapter implements VectorDbAdapter {
         });
     }
 
-    async upsertVectors(args: { repoId: string; vectors: Vector[] }): Promise<void> {
+    /**
+     * Ensures a collection exists with the correct dimension.
+     * Creates the collection if it doesn't exist, or throws if dimension mismatches.
+     *
+     * @param collectionName - Name of the collection
+     * @param dimension - Expected vector dimension
+     * @throws Error if collection exists with wrong dimension
+     */
+    async ensureCollection(collectionName: string, dimension: number): Promise<void> {
+        try {
+            const collectionInfo = await this.client.getCollection(collectionName);
+
+            // Collection exists - check dimension
+            const vectorsConfig = collectionInfo.config?.params?.vectors;
+            let actualDim: number | undefined;
+
+            if (typeof vectorsConfig === 'object' && vectorsConfig !== null && 'size' in vectorsConfig) {
+                actualDim = (vectorsConfig as { size: number }).size;
+            }
+
+            if (actualDim !== undefined && actualDim !== dimension) {
+                throw new Error(
+                    `Collection '${collectionName}' exists with dimension ${actualDim} but expected ${dimension}. ` +
+                    `Please delete the collection or re-index with correct embedding config.`
+                );
+            }
+
+            console.log(`[QdrantAdapter] Collection "${collectionName}" exists with correct dimension ${dimension}`);
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+
+            // If error is not "not found", re-throw dimension mismatch errors
+            if (!errorMsg.toLowerCase().includes('not found') && !errorMsg.includes('404')) {
+                if (errorMsg.includes('exists with dimension')) {
+                    throw error;
+                }
+                // Log other errors but continue to try creation
+                console.warn(`[QdrantAdapter] Could not verify collection "${collectionName}":`, errorMsg);
+            }
+
+            // Collection doesn't exist - create it
+            console.log(`[QdrantAdapter] Creating collection "${collectionName}" with ${dimension} dimensions...`);
+            try {
+                await this.client.createCollection(collectionName, {
+                    vectors: {
+                        size: dimension,
+                        distance: 'Cosine'
+                    }
+                });
+                console.log(`[QdrantAdapter] Collection "${collectionName}" created successfully`);
+            } catch (createError) {
+                const createErrorMsg = createError instanceof Error ? createError.message : String(createError);
+                // Check if collection was created by another process between our check and create
+                if (createErrorMsg.includes('already exists') || createErrorMsg.includes('409')) {
+                    console.log(`[QdrantAdapter] Collection "${collectionName}" was created by another process`);
+                    return;
+                }
+                throw createError;
+            }
+        }
+    }
+
+    async upsertVectors(args: { repoId: string; vectors: Vector[]; dimension?: number }): Promise<void> {
         if (!args.vectors || args.vectors.length === 0) {
             return;
+        }
+
+        // Use dimension from args if provided, otherwise fall back to instance dimension (set by factory)
+        const effectiveDimension = args.dimension ?? this.dimension;
+
+        // Ensure collection exists before upserting (only if dimension is known)
+        if (effectiveDimension !== undefined) {
+            await this.ensureCollection(this.collection, effectiveDimension);
         }
 
         // Ensure all vectors have deterministic IDs and proper metadata

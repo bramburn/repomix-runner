@@ -335,26 +335,14 @@ export class IndexingController extends BaseController {
       const currentBranch = await new GitService().getCurrentBranch(cwd);
 
       const googleKey = await this.extensionContext.secrets.get(SECRET_GOOGLE_GEMINI);
-      
+
       // Initialize embedding service
       try {
         const { embeddingService } = await import('../../core/indexing/embeddingService.js');
         const config = vscode.workspace.getConfiguration();
-        const provider = config.get<string>('repomix.embedding.provider') || 'gemini';
-        
-        if (provider === 'gemini') {
-          if (!googleKey) {
-            this.context.postMessage({
-              command: 'repoSearchError',
-              error: 'Gemini API key is required for search. Please configure it in Settings.'
-            });
-            return;
-          }
-          embeddingService.switchProvider({
-            provider: 'gemini',
-            gemini: { apiKey: googleKey }
-          });
-        } else if (provider === 'ollama') {
+        const provider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
+
+        if (provider === 'ollama') {
           const ollamaUrl = config.get<string>('repomix.ollama.url') || 'http://localhost:11434';
           const ollamaModel = config.get<string>('repomix.ollama.model') || 'nomic-embed-text';
           const ollamaDimension = config.get<number>('repomix.ollama.dimension') || 768;

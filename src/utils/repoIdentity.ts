@@ -42,3 +42,17 @@ export async function getRepoId(workspaceFolder: string): Promise<string> {
   // 3. Fallback to folder name
   return `dir:${path.basename(workspaceFolder)}`;
 }
+
+/**
+ * Creates a safe collection name for vector databases by replacing special characters
+ * and limiting length to 128 characters.
+ *
+ * @param name - The raw name to make safe (e.g., repo identity, model name)
+ * @returns A safe collection name with only alphanumeric, underscore, and hyphen characters
+ */
+export function safeCollectionName(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .substring(0, 128);
+}

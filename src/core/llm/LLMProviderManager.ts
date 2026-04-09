@@ -1,5 +1,4 @@
 import type { LLMProvider, LLMConfig, RetryOptions, UsageStatistics } from './types';
-import { GeminiProvider } from './providers/GeminiProvider';
 import { OpenAIProvider } from './providers/OpenAIProvider';
 import { OllamaProvider } from './providers/OllamaProvider';
 import { LMStudioProvider } from './providers/LMStudioProvider';
@@ -28,12 +27,8 @@ export class LLMProviderManager {
     this.config = config;
     
     console.log('[LLMProviderManager] Initializing providers...');
-    
+
     // Initialize each configured provider
-    if (config.gemini?.apiKey) {
-      await this.registerProvider('gemini', new GeminiProvider(config.gemini));
-    }
-    
     if (config.openrouter?.apiKey) {
       const openaiConfig = {
         baseUrl: config.openrouter.baseUrl,

@@ -383,11 +383,6 @@ export const ReportClientInfoSchema = z.object({
   clientArch: z.enum(['x64', 'arm64', 'unknown']),
 });
 
-export const ApplyPatchesSchema = z.object({
-  command: z.literal('applyPatches'),
-  text: z.string(),
-});
-
 export const RemoteClipboardProcessingCompleteSchema = z.object({
   command: z.literal('remoteClipboardProcessingComplete'),
   resolverKey: z.string(),
@@ -1328,7 +1323,6 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   TestQdrantConnectionSchema,
   ShowNotificationSchema,
   ReportClientInfoSchema,
-  ApplyPatchesSchema,
   RemoteClipboardProcessingCompleteSchema,
   SearchSummaryReadySchema,
   GetEmbeddingConfigSchema,

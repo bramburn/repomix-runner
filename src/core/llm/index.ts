@@ -8,7 +8,6 @@
 export { LLMProviderManager, llmProviderManager } from './LLMProviderManager';
 export type { LLMProvider, ProviderCapabilities, GenerationOptions, TextResponse, StructuredResponse } from './types';
 export { BaseProvider } from './providers/BaseProvider';
-export { GeminiProvider } from './providers/GeminiProvider';
 export { OpenAIProvider } from './providers/OpenAIProvider';
 export { OllamaProvider } from './providers/OllamaProvider';
 export { LMStudioProvider } from './providers/LMStudioProvider';
