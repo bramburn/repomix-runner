@@ -390,17 +390,13 @@ export class IndexingController extends BaseController {
       } catch (e) {
         const errorDetail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
         let userFriendlyError = errorDetail;
-        
-        if (errorDetail.toLowerCase().includes('missing pinecone api key')) {
-          userFriendlyError = 'Pinecone API key is not configured. Please add your API key in the Settings tab.';
-        } else if (errorDetail.toLowerCase().includes('no pinecone index selected')) {
-          userFriendlyError = 'No Pinecone index selected for this repository. Please select an index in the Settings tab.';
-        } else if (errorDetail.toLowerCase().includes('missing qdrant url')) {
+
+        if (errorDetail.toLowerCase().includes('missing qdrant url')) {
           userFriendlyError = 'Qdrant URL is not configured. Please add your Qdrant URL in the Settings tab.';
         } else if (errorDetail.toLowerCase().includes('no qdrant collection configured')) {
           userFriendlyError = 'No Qdrant collection configured. Please select a collection in the Settings tab.';
         }
-        
+
         this.context.postMessage({
           command: 'repoSearchError',
           error: `Failed to initialize vector database connection.

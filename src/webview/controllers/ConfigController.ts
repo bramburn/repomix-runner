@@ -10,11 +10,10 @@ import { BlueprintService, initBlueprintService, getBlueprintService } from '../
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 
 const SECRET_GOOGLE_GEMINI = 'repomix.agent.googleApiKey';
-const SECRET_PINECONE = 'repomix.agent.pineconeApiKey';
 const SECRET_QDRANT = 'repomix.agent.qdrantApiKey';
 const SECRET_ANTHROPIC = 'repomix.chat.anthropicApiKey';
 export const SECRET_POSTGRES_CONNECTION = 'postgresConnectionString';
-type SecretKey = 'googleApiKey' | 'pineconeApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
+type SecretKey = 'googleApiKey' | 'qdrantApiKey' | 'anthropicApiKey';
 
 export class ConfigController extends BaseController {
   private migrationService: MigrationService;
@@ -52,17 +51,6 @@ export class ConfigController extends BaseController {
         return true;
       case 'deletePostgresConnection':
         await this.handleDeletePostgresConnection();
-        return true;
-
-      // --- Pinecone Index Management ---
-      case 'fetchPineconeIndexes':
-        await this.handleFetchPineconeIndexes(message.apiKey);
-        return true;
-      case 'savePineconeIndex':
-        await this.handleSavePineconeIndex(message.index);
-        return true;
-      case 'getPineconeIndex':
-        await this.handleGetPineconeIndex();
         return true;
 
       // --- Copy Mode ---
@@ -174,11 +162,9 @@ export class ConfigController extends BaseController {
       const storageKey =
         key === 'googleApiKey'
           ? SECRET_GOOGLE_GEMINI
-          : key === 'pineconeApiKey'
-            ? SECRET_PINECONE
-            : key === 'qdrantApiKey'
-              ? SECRET_QDRANT
-              : SECRET_ANTHROPIC;
+          : key === 'qdrantApiKey'
+            ? SECRET_QDRANT
+            : SECRET_ANTHROPIC;
       const secret = await this.extensionContext.secrets.get(storageKey);
       this.context.postMessage({ command: 'secretStatus', key, exists: !!secret });
     } catch (err) {
@@ -191,22 +177,18 @@ export class ConfigController extends BaseController {
       const storageKey =
         key === 'googleApiKey'
           ? SECRET_GOOGLE_GEMINI
-          : key === 'pineconeApiKey'
-            ? SECRET_PINECONE
-            : key === 'qdrantApiKey'
-              ? SECRET_QDRANT
-              : SECRET_ANTHROPIC;
+          : key === 'qdrantApiKey'
+            ? SECRET_QDRANT
+            : SECRET_ANTHROPIC;
       await this.extensionContext.secrets.store(storageKey, value);
       this.context.postMessage({ command: 'secretStatus', key, exists: true });
 
       const label =
         key === 'googleApiKey'
           ? 'Google'
-          : key === 'pineconeApiKey'
-            ? 'Pinecone'
-            : key === 'qdrantApiKey'
-              ? 'Qdrant'
-              : 'Anthropic';
+          : key === 'qdrantApiKey'
+            ? 'Qdrant'
+            : 'Anthropic';
       vscode.window.showInformationMessage(`${label} API Key saved successfully!`);
     } catch (err) {
       console.error('Failed to save secret:', err);
@@ -261,91 +243,6 @@ export class ConfigController extends BaseController {
     }
   }
 
-  // --- Pinecone Index Logic ---
-  private async handleFetchPineconeIndexes(explicitKey?: string) {
-    try {
-      let apiKey = explicitKey;
-      if (!apiKey) {
-        apiKey = await this.extensionContext.secrets.get(SECRET_PINECONE);
-      }
-
-      if (!apiKey) {
-        this.context.postMessage({
-          command: 'updatePineconeIndexes',
-          indexes: [],
-          error: 'Missing Pinecone API Key'
-        });
-        return;
-      }
-
-      const { Pinecone } = await import('@pinecone-database/pinecone');
-      const pc = new Pinecone({ apiKey });
-      const indexList = await pc.listIndexes();
-
-      this.context.postMessage({
-        command: 'updatePineconeIndexes',
-        indexes: indexList.indexes || [],
-      });
-    } catch (error: unknown) {
-      console.error('Failed to fetch Pinecone indexes:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.context.postMessage({
-        command: 'updatePineconeIndexes',
-        indexes: [],
-        error: errorMessage
-      });
-    }
-  }
-
-  private async handleSavePineconeIndex(index: any) {
-    try {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        throw new Error('No workspace folder open');
-      }
-
-      const rootPath = workspaceFolders[0].uri.fsPath;
-      const repoId = await getRepoId(rootPath);
-
-      // Get existing map or initialize new one
-      const repoConfigs: Record<string, any> = this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
-
-      // Update for this repo
-      repoConfigs[repoId] = index;
-
-      await this.extensionContext.globalState.update('repomix.pinecone.selectedIndexByRepo', repoConfigs);
-      await this.extensionContext.globalState.update('repomix.pinecone.selectedIndex', undefined);
-
-    } catch (error) {
-      console.error('Failed to save Pinecone index:', error);
-      vscode.window.showErrorMessage(`Failed to save selected index: ${error}`);
-    }
-  }
-
-  private async handleGetPineconeIndex() {
-    try {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        this.context.postMessage({ command: 'updateSelectedIndex', index: null });
-        return;
-      }
-
-      const rootPath = workspaceFolders[0].uri.fsPath;
-      const repoId = await getRepoId(rootPath);
-
-      const repoConfigs: Record<string, any> = this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
-      const index = repoConfigs[repoId] || null;
-
-      this.context.postMessage({
-        command: 'updateSelectedIndex',
-        index
-      });
-    } catch (error) {
-      console.error('Failed to get Pinecone index:', error);
-      this.context.postMessage({ command: 'updateSelectedIndex', index: null });
-    }
-  }
-
   private async handleGetCopyMode() {
     const mode = this.extensionContext.globalState.get('repomix.runner.copyMode') ?? 'content';
     this.context.postMessage({ command: 'updateCopyMode', mode });
@@ -368,12 +265,12 @@ export class ConfigController extends BaseController {
 
   private async handleGetVectorDbProvider() {
     const provider =
-      (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'pinecone';
+      (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'qdrant';
     this.context.postMessage({ command: 'vectorDbProvider', provider });
   }
 
-  private async handleSetVectorDbProvider(provider: any) {
-    const normalized = provider === 'qdrant' ? 'qdrant' : 'pinecone';
+  private async handleSetVectorDbProvider(provider: 'qdrant') {
+    const normalized: 'qdrant' = 'qdrant';
 
     try {
       // 0. Stop any in-flight indexing before switching
@@ -404,7 +301,7 @@ export class ConfigController extends BaseController {
       vscode.window.showErrorMessage(errorMsg);
 
       // Revert the UI state to the currently stored provider to keep settings in sync
-      const current = this.extensionContext.globalState.get('repomix.vectorDb.provider') || 'pinecone';
+      const current = this.extensionContext.globalState.get('repomix.vectorDb.provider') || 'qdrant';
       this.context.postMessage({ command: 'vectorDbProvider', provider: current });
     }
   }
@@ -624,24 +521,15 @@ export class ConfigController extends BaseController {
     try {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
-        this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'pinecone', info: null });
+        this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'qdrant', info: null });
         return;
       }
 
-      const rootPath = workspaceFolders[0].uri.fsPath;
-      const repoId = await getRepoId(rootPath);
-      const provider = (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'pinecone';
+      const provider = (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'qdrant';
 
       let collectionName: string | null = null;
 
-      if (provider === 'pinecone') {
-        const repoConfigs: Record<string, any> =
-          this.extensionContext.globalState.get('repomix.pinecone.selectedIndexByRepo') || {};
-        const selected = repoConfigs[repoId];
-        collectionName = typeof selected === 'string' ? selected : selected?.name;
-      } else {
-        collectionName = this.extensionContext.globalState.get('repomix.qdrant.collection') as string || null;
-      }
+      collectionName = this.extensionContext.globalState.get('repomix.qdrant.collection') as string || null;
 
       this.context.postMessage({
         command: 'vectorDbCollectionInfo',
@@ -650,7 +538,7 @@ export class ConfigController extends BaseController {
       });
     } catch (error) {
       console.error('Failed to get collection info:', error);
-      this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'pinecone', info: null });
+      this.context.postMessage({ command: 'vectorDbCollectionInfo', provider: 'qdrant', info: null });
     }
   }
 
@@ -673,6 +561,8 @@ export class ConfigController extends BaseController {
           collections: [],
           error: 'Qdrant URL not configured'
         });
+        // Also reset the fetching flag to release the button
+        this.context.postMessage({ command: 'qdrantFetchComplete' });
         return;
       }
 
@@ -698,7 +588,7 @@ export class ConfigController extends BaseController {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[ConfigController] Failed to fetch Qdrant collections:', error);
-      
+
       // Provide more specific error messages
       let userFriendlyError = errorMessage;
       if (errorMessage.includes('ECONNREFUSED')) {
@@ -716,6 +606,8 @@ export class ConfigController extends BaseController {
         collections: [],
         error: userFriendlyError
       });
+      // Reset the fetching flag to release the button
+      this.context.postMessage({ command: 'qdrantFetchComplete' });
     }
   }
 
@@ -846,6 +738,8 @@ export class ConfigController extends BaseController {
         models: [],
         error: errorMessage
       });
+      // Reset the fetching flag to release the button
+      this.context.postMessage({ command: 'ollamaFetchComplete' });
     }
   }
 
@@ -1134,6 +1028,8 @@ export class ConfigController extends BaseController {
         error: errorMessage
       });
       vscode.window.showErrorMessage(`Failed to fetch LM Studio models: ${errorMessage}`);
+      // Reset the fetching flag to release the button
+      this.context.postMessage({ command: 'lmstudioFetchComplete' });
     }
   }
 

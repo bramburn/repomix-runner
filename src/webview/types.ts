@@ -64,15 +64,6 @@ export interface EnvironmentInfo {
   binaryExists: boolean;           // true if binary file exists
 }
 
-export interface PineconeIndex {
-  name: string;
-  host: string;
-  dimension?: number;
-  metric?: string;
-  spec?: any;
-  status?: any;
-}
-
 export interface LongPressButtonProps {
   onClick: () => void;
   onLongPress: () => void;
@@ -107,8 +98,6 @@ export interface WebViewState {
   selectedTab?: string;
   agentQuery?: string;
   agentLastRun?: AgentState;
-  pineconeIndexes?: PineconeIndex[];
-  selectedPineconeIndex?: PineconeIndex | null;
   smartFilterEnabled?: boolean;
 }
 

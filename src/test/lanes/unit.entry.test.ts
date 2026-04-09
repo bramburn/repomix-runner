@@ -17,7 +17,6 @@ import '../core/files/gitignoreUtils.test.js';
 import '../core/files/markdownGenerator.test.js';
 import '../core/indexing/fileEmbeddingPipeline.test.js';
 import '../core/indexing/openRouterEmbedding.test.js';
-import '../core/indexing/pineconeService.test.js';
 import '../core/indexing/repoIndexMonitor.test.js';
 import '../search/nodes.test.js';
 import '../utils/deepMerge.test.js';

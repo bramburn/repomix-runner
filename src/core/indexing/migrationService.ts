@@ -15,7 +15,7 @@ export class MigrationService {
    * atomicaly switches the vector database provider and resets local index state.
    */
   async switchProvider(newProvider: VectorDbProvider): Promise<boolean> {
-    const currentProvider = this.globalState.get<VectorDbProvider>('repomix.vectorDb.provider') || 'pinecone';
+    const currentProvider = this.globalState.get<VectorDbProvider>('repomix.vectorDb.provider') || 'qdrant';
 
     if (currentProvider === newProvider) {
       return false; // No change needed
@@ -35,8 +35,8 @@ export class MigrationService {
     const cwd = getCwd();
     const repoId = await getRepoId(cwd);
     
-    // WARNING: This clears the tracking of which files are indexed. 
-    // It does NOT delete the actual vectors from the *old* provider (Pinecone), 
+    // WARNING: This clears the tracking of which files are indexed.
+    // It does NOT delete the actual vectors from the *old* provider,
     // which is good because we want to be able to switch back later if needed.
     await this.databaseService.clearRepoFiles(repoId);
 
@@ -46,17 +46,13 @@ export class MigrationService {
   }
 
   private async validateCredentials(provider: VectorDbProvider): Promise<boolean> {
-    if (provider === 'pinecone') {
-      const key = await this.secretStorage.get('repomix.agent.pineconeApiKey');
-      return !!key;
-    }
     if (provider === 'qdrant') {
       const key = await this.secretStorage.get('repomix.agent.qdrantApiKey');
       const url = this.globalState.get<string>('repomix.qdrant.url');
       const collection = this.globalState.get<string>('repomix.qdrant.collection');
-      
+
       // Qdrant allows keyless (local), but needs URL and Collection
-      return !!url && !!collection; 
+      return !!url && !!collection;
     }
     return false;
   }

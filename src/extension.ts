@@ -209,8 +209,7 @@ export async function activate(context: vscode.ExtensionContext) {
   //
   // CONFIGURATION REQUIREMENTS:
   // - Google API key (for embeddings)
-  // - Pinecone API key (for vector operations)
-  // - Pinecone index name (for storage)
+  // - Qdrant connection configured
   // If any are missing, monitoring is skipped (non-fatal)
   //
   // ==============================================================================
@@ -370,7 +369,7 @@ export async function activate(context: vscode.ExtensionContext) {
             currentBranch,
             repoRoot,
             googleApiKey,
-            adapter, // [CHANGE] Pass adapter instead of pineconeApiKey + indexName
+            adapter, // Pass adapter for vector DB operations
             { maxConcurrentFiles: 2 }, // Conservative concurrency for background processing
             undefined, // onProgress callback (not needed for background)
             undefined  // no AbortSignal (background runs until complete)

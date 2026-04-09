@@ -176,10 +176,10 @@ export const SearchTab = () => {
 
   const [fileCount, setFileCount] = useState<number | null>(null);
   const [vectorCount, setVectorCount] = useState<number | null>(null);
-  const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
+  const [vectorDbProvider, setVectorDbProvider] = useState<'qdrant'>('qdrant');
   const [collectionInfo, setCollectionInfo] = useState<{
     name: string;
-    provider: 'pinecone' | 'qdrant';
+    provider: 'qdrant';
   } | null>(null);
 
   const [isIndexing, setIsIndexing] = useState(false);
@@ -601,7 +601,7 @@ export const SearchTab = () => {
           break;
 
         case 'vectorDbProvider':
-          setVectorDbProvider(message.provider ?? 'pinecone');
+          setVectorDbProvider(message.provider ?? 'qdrant');
           break;
 
         case 'vectorDbCollectionInfo':
@@ -875,10 +875,10 @@ export const SearchTab = () => {
                 <div style={{ marginTop: '8px' }}>
                   {vectorCount !== null ? (
                     <Text size={200} style={{ opacity: 0.7 }}>
-                      {vectorDbProvider === 'qdrant' ? 'Qdrant' : 'Pinecone'} vectors (repo): <b>{vectorCount}</b>
+                      Qdrant vectors (repo): <b>{vectorCount}</b>
                     </Text>
                   ) : (
-                    <Text size={200} style={{ opacity: 0.5 }}>Loading {vectorDbProvider === 'qdrant' ? 'Qdrant' : 'Pinecone'} count…</Text>
+                    <Text size={200} style={{ opacity: 0.5 }}>Loading Qdrant count…</Text>
                   )}
                 </div>
 

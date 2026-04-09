@@ -15,13 +15,11 @@ import {
   CheckmarkCircleRegular,
   ErrorCircleRegular,
   ArrowClockwiseRegular,
-  SearchRegular,
   ChevronRightRegular,
   ChevronDownRegular,
   WarningRegular,
 } from '@fluentui/react-icons';
 import { vscode } from '../vscode-api.js';
-import { PineconeIndex } from '../types.js';
 
 // --- Interfaces ---
 
@@ -38,9 +36,7 @@ interface ConfigSectionProps {
 }
 
 interface SettingsTabProps {
-  pineconeIndexes: PineconeIndex[];
-  selectedPineconeIndex: PineconeIndex | null;
-  indexError: string | null;
+  qdrantConfigured: boolean;
 }
 
 // --- Reusable Components ---
@@ -129,21 +125,13 @@ const ConfigSection: React.FC<ConfigSectionProps> = ({
 // --- Main Component ---
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
-  pineconeIndexes,
-  selectedPineconeIndex,
-  indexError,
+  qdrantConfigured,
 }) => {
-  const [googleKey, setGoogleKey] = useState('');
-  const [pineconeKey, setPineconeKey] = useState('');
   const [qdrantKey, setQdrantKey] = useState('');
-  const [postgresConnectionString, setPostgresConnectionString] = useState('');
 
-  const [googleKeyExists, setGoogleKeyExists] = useState(false);
-  const [pineconeKeyExists, setPineconeKeyExists] = useState(false);
   const [qdrantKeyExists, setQdrantKeyExists] = useState(false);
-  const [postgresConnectionExists, setPostgresConnectionExists] = useState(false);
 
-  const [vectorDbProvider, setVectorDbProvider] = useState<'pinecone' | 'qdrant'>('pinecone');
+  const [vectorDbProvider, setVectorDbProvider] = useState<'qdrant'>('qdrant');
 
   const [qdrantUrl, setQdrantUrl] = useState('');
   const [qdrantCollection, setQdrantCollection] = useState('');
@@ -236,34 +224,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   // Runner Configuration State
   const [respectGitignoreInMarkdown, setRespectGitignoreInMarkdown] = useState<boolean>(false);
 
-  // Auto-fetch indexes if we have the key but no indexes yet
-  useEffect(() => {
-    if (pineconeKeyExists && pineconeIndexes.length === 0 && !isFetchingIndexes) {
-      setIsFetchingIndexes(true);
-      vscode.postMessage({ command: 'fetchPineconeIndexes' });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pineconeKeyExists]);
-
-  // Handle explicit key entry (debounce)
-  useEffect(() => {
-    if (!pineconeKey) {
-      return;
-    }
-    setIsFetchingIndexes(true);
-    const timer = setTimeout(() => {
-      vscode.postMessage({ command: 'fetchPineconeIndexes', apiKey: pineconeKey });
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [pineconeKey]);
-
-  // Sync fetching state with props change
-  useEffect(() => {
-    if (pineconeIndexes.length > 0 || indexError) {
-      setIsFetchingIndexes(false);
-    }
-  }, [pineconeIndexes, indexError]);
-
   // Fetch Qdrant collections when URL or key changes
   useEffect(() => {
     if (!qdrantUrl.trim() || vectorDbProvider !== 'qdrant') {
@@ -295,17 +255,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           setEnableGrouping(message.enabled);
           break;
         case 'secretStatus':
-          if (message.key === 'googleApiKey') setGoogleKeyExists(message.exists);
-          else if (message.key === 'pineconeApiKey') setPineconeKeyExists(message.exists);
-          else if (message.key === 'qdrantApiKey') setQdrantKeyExists(message.exists);
-          break;
-
-        case 'postgresConnectionStatus':
-          setPostgresConnectionExists(message.exists);
+          if (message.key === 'qdrantApiKey') setQdrantKeyExists(message.exists);
           break;
 
         case 'vectorDbProvider':
-          setVectorDbProvider(message.provider ?? 'pinecone');
+          setVectorDbProvider(message.provider ?? 'qdrant');
           break;
 
         case 'qdrantConfig':
@@ -347,6 +301,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           setIsFetchingQdrantCollections(false);
           break;
 
+        case 'qdrantFetchComplete':
+          setIsFetchingQdrantCollections(false);
+          break;
+
         case 'embeddingConfig':
           setEmbeddingProvider(message.provider);
           setOllamaUrl(message.ollamaUrl || 'http://localhost:11434');
@@ -366,6 +324,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         case 'ollamaModelsResult':
           setOllamaModels(message.models || []);
           setOllamaModelsError(message.error || null);
+          setIsFetchingOllamaModels(false);
+          break;
+
+        case 'ollamaFetchComplete':
           setIsFetchingOllamaModels(false);
           break;
 
@@ -393,6 +355,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         case 'lmstudioModelsResult':
           setLmstudioModels(message.models || []);
           setLmstudioModelsError(message.error || null);
+          setIsFetchingLMStudioModels(false);
+          break;
+
+        case 'lmstudioFetchComplete':
           setIsFetchingLMStudioModels(false);
           break;
 
@@ -460,15 +426,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       }
     };
     window.addEventListener('message', handler);
-    vscode.postMessage({ command: 'checkSecret', key: 'googleApiKey' });
-    vscode.postMessage({ command: 'checkSecret', key: 'pineconeApiKey' });
     vscode.postMessage({ command: 'checkSecret', key: 'qdrantApiKey' });
-    vscode.postMessage({ command: 'checkPostgresConnection' });
 
     vscode.postMessage({ command: 'getVectorDbProvider' });
     vscode.postMessage({ command: 'getQdrantConfig' });
 
-    vscode.postMessage({ command: 'getPineconeIndex' });
     vscode.postMessage({ command: 'getCopyMode' });
     vscode.postMessage({ command: 'getTokenBudget' });
     vscode.postMessage({ command: 'getEmbeddingConfig' });
@@ -481,28 +443,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  const handleSaveGoogleKey = () => {
-    vscode.postMessage({ command: 'saveSecret', key: 'googleApiKey', value: googleKey.trim() });
-    setGoogleKey('');
-  };
-
-  const handleSavePineconeKey = () => {
-    vscode.postMessage({ command: 'saveSecret', key: 'pineconeApiKey', value: pineconeKey.trim() });
-    setPineconeKey('');
-  };
-
   const handleSaveQdrantKey = () => {
     vscode.postMessage({ command: 'saveSecret', key: 'qdrantApiKey', value: qdrantKey.trim() });
     setQdrantKey('');
-  };
-
-  const handleSavePostgresConnection = () => {
-    vscode.postMessage({ command: 'savePostgresConnection', value: postgresConnectionString.trim() });
-    setPostgresConnectionString('');
-  };
-
-  const handleDeletePostgresConnection = () => {
-    vscode.postMessage({ command: 'deletePostgresConnection' });
   };
 
   const handleSaveQdrantConfig = () => {
@@ -540,26 +483,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     console.log('[SettingsTab] Sending message to extension:', JSON.stringify(message, null, 2));
     vscode.postMessage(message);
     console.log('[SettingsTab] Message sent, waiting for response...');
-  };
-
-  const handleProviderChange = (_e: any, data: any) => {
-    const p = data.optionValue === 'qdrant' ? 'qdrant' : 'pinecone';
-    setVectorDbProvider(p);
-    vscode.postMessage({ command: 'setVectorDbProvider', provider: p });
-  };
-
-
-  const handleIndexSelect = (_e: any, data: any) => {
-    const optionValue = data.optionValue as string | undefined;
-    const index = pineconeIndexes.find(i => i.name === optionValue);
-    if (index) {
-      vscode.postMessage({ command: 'savePineconeIndex', index });
-    }
-  };
-
-  const handleRefreshIndexes = () => {
-    setIsFetchingIndexes(true);
-    vscode.postMessage({ command: 'fetchPineconeIndexes' });
   };
 
   const handleCopyModeChange = (_ev: any, data: { checked: boolean }) => {
@@ -684,10 +607,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   // Check if prerequisites are met for repository analysis
-  const canAnalyze = googleKeyExists && (
-    (vectorDbProvider === 'pinecone' && pineconeKeyExists && selectedPineconeIndex) ||
-    (vectorDbProvider === 'qdrant' && qdrantUrl.trim() && qdrantCollection.trim())
-  );
+  const canAnalyze = qdrantUrl.trim() && qdrantCollection.trim();
 
   return (
     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -829,13 +749,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <Label weight="semibold">Vector DB</Label>
         <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <Label size="small">Active Provider</Label>
-          <Dropdown value={vectorDbProvider} onOptionSelect={handleProviderChange} style={{ width: '240px' }}>
-            <Option value="pinecone">Pinecone</Option>
-            <Option value="qdrant">Qdrant</Option>
-          </Dropdown>
+          <Text size={200} weight="semibold">Provider: Qdrant</Text>
           <Text size={100} style={{ opacity: 0.7 }}>
-            Choose which vector database Repomix uses for search (and indexing where supported).
+            Qdrant is used for vector search and indexing.
           </Text>
         </div>
       </div>
@@ -1112,64 +1028,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       <Divider />
 
 
-      <ConfigSection
-        title="Google Gemini API Key"
-        isConfigured={googleKeyExists}
-        value={googleKey}
-        onChange={setGoogleKey}
-        onSave={handleSaveGoogleKey}
-        placeholder="Enter Gemini API Key (starts with AIza...)"
-        description="Reserved for upcoming Agent-in-Search experience. Not required for Search-only usage today."
-      />
-
-      <Divider />
-
-      <ConfigSection
-        title="PostgreSQL Connection String"
-        isConfigured={postgresConnectionExists}
-        value={postgresConnectionString}
-        onChange={setPostgresConnectionString}
-        onSave={handleSavePostgresConnection}
-        onDelete={handleDeletePostgresConnection}
-        placeholder="postgresql://user:password@localhost:5432/database"
-        description="Securely stored connection string for chat history persistence. Contains database credentials - stored encrypted in VS Code secrets."
-      />
-
-      <Divider />
-
-      <ConfigSection
-        title="Pinecone API Key"
-        isConfigured={pineconeKeyExists}
-        value={pineconeKey}
-        onChange={setPineconeKey}
-        onSave={handleSavePineconeKey}
-        placeholder="Enter Pinecone API Key"
-        description="Required for vector search. Stored securely."
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-          <Label size="small">Active Index</Label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Dropdown
-              placeholder="Select an Index"
-              disabled={!pineconeKeyExists}
-              value={selectedPineconeIndex?.name}
-              onOptionSelect={handleIndexSelect}
-              style={{ flexGrow: 1 }}
-            >
-              {pineconeIndexes.map((index) => (
-                <Option key={index.name} value={index.name}>{index.name}</Option>
-              ))}
-            </Dropdown>
-            <Button
-              icon={isFetchingIndexes ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
-              onClick={handleRefreshIndexes}
-              disabled={!pineconeKeyExists || isFetchingIndexes}
-            />
-          </div>
-          {indexError && <Text size={100} style={{ color: 'var(--vscode-errorForeground)' }}>{indexError}</Text>}
-        </div>
-      </ConfigSection>
-
       <Divider />
 
       <ConfigSection
@@ -1259,17 +1117,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
         </div>
       </ConfigSection>
-
-      <Divider />
-
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <Label weight="semibold">Vector Search (Preview)</Label>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Input placeholder="Enter search query..." style={{ flexGrow: 1 }} />
-          <Button icon={<SearchRegular />}>Search</Button>
-        </div>
-      </div>
 
       <Divider />
 

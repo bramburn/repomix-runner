@@ -1,4 +1,4 @@
-export type VectorDbProvider = 'pinecone' | 'qdrant';
+export type VectorDbProvider = 'qdrant';
 
 export type Vector = {
   id: string;

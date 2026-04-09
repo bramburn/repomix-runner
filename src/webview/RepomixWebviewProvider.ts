@@ -169,11 +169,6 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
         console.log('[quick-repomix] Calling onWebviewLoaded for all controllers...');
         await Promise.all(this._controllers.map(c => c.onWebviewLoaded()));
         console.log('[quick-repomix] All controllers initialized');
-
-        // Also get initial Pinecone index status
-        const configCtrl = this._controllers.find(c => c instanceof ConfigController) as ConfigController;
-        await configCtrl.handleMessage({ command: 'getPineconeIndex' });
-        console.log('[quick-repomix] Pinecone index status fetched');
         return;
       }
 

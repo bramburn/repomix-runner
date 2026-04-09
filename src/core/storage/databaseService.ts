@@ -1334,7 +1334,7 @@ export class DatabaseService {
    *
    * Called by the file watcher when a file is deleted.
    * The 'deleted' status can be used for:
-   * - Cleanup: Periodically delete old vectors from Pinecone
+   * - Cleanup: Periodically delete old vectors from Qdrant
    * - Analytics: Track which files were removed
    * - Debugging: Understand repository changes over time
    *

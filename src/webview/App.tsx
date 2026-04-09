@@ -20,7 +20,7 @@ import { DefaultRepomixItem } from './components/DefaultRepomixItem.js';
 import { DebugTab } from './components/DebugTab.js';
 import { AgentView } from './components/AgentView.js';
 
-import { Bundle, DefaultRepomixInfo, PineconeIndex } from './types.js';
+import { Bundle, DefaultRepomixInfo } from './types.js';
 import { updateVsState } from './utils.js';
 
 // --- CLIENT OS DETECTION ---
@@ -63,14 +63,8 @@ export const App = () => {
   const [defaultRepomixState, setDefaultRepomixState] = useState<'idle' | 'queued' | 'running'>('idle');
   const [defaultRepomixInfo, setDefaultRepomixInfo] = useState<DefaultRepomixInfo>({ outputFileExists: false, outputFilePath: '' });
 
-  // Pinecone State (lifted from SettingsTab)
-  const [pineconeIndexes, setPineconeIndexes] = useState<PineconeIndex[]>(() => {
-    return vscode.getState()?.pineconeIndexes || [];
-  });
-  const [selectedPineconeIndex, setSelectedPineconeIndex] = useState<PineconeIndex | null>(() => {
-    return vscode.getState()?.selectedPineconeIndex || null;
-  });
-  const [pineconeIndexError, setPineconeIndexError] = useState<string | null>(null);
+  // Qdrant configured state
+  const [qdrantConfigured, setQdrantConfigured] = useState<boolean>(false);
 
   useEffect(() => {
     console.log('[quick-repomix] ===== APP USE EFFECT START =====');
@@ -111,21 +105,8 @@ export const App = () => {
         case 'updateVersion':
           setVersion(message.version);
           break;
-        case 'updatePineconeIndexes':
-          if (message.error) {
-            setPineconeIndexError(message.error);
-            setPineconeIndexes([]);
-            updateVsState({ pineconeIndexes: [] });
-          } else {
-            setPineconeIndexError(null);
-            setPineconeIndexes(message.indexes);
-            updateVsState({ pineconeIndexes: message.indexes });
-          }
-          break;
-
-        case 'updateSelectedPineconeIndex':
-          setSelectedPineconeIndex(message.index);
-          updateVsState({ selectedPineconeIndex: message.index });
+        case 'qdrantConfig':
+          setQdrantConfigured(!!(message.url && message.collection));
           break;
         case 'processRemoteFilesForClipboard':
           console.warn('[App] Received processRemoteFilesForClipboard - DEPRECATED/DISABLED due to webview sandbox limitations');
@@ -250,11 +231,7 @@ export const App = () => {
 
           {selectedTab === 'settings' && (
             <SettingsTab
-              pineconeIndexes={pineconeIndexes}
-              selectedPineconeIndex={selectedPineconeIndex}
-              indexError={pineconeIndexError}
-            // We can pass setter logic via vscode messages in SettingsTab,
-            // but we need to update local state too? No, messages will loop back.
+              qdrantConfigured={qdrantConfigured}
             />
           )}
 

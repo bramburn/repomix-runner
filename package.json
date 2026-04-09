@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/bramburn/repomix-runner.git"
   },
-  "version": "1.0.30",
+  "version": "1.0.30-alpha.2026-04-09T20-06-47",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -694,6 +694,7 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "rimraf dist && npm run lint && node esbuild.js --production",
     "package:vsix": "node scripts/ensure-bin.mjs && vsce package --out bin/",
+    "package:local": "node scripts/package-local.mjs",
     "compile-tests": "tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",

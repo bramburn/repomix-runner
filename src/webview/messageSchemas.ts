@@ -44,13 +44,13 @@ export const SaveApiKeySchema = z.object({
 
 export const SaveSecretSchema = z.object({
   command: z.literal('saveSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
+  key: z.enum(['googleApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
   value: z.string(),
 });
 
 export const CheckSecretSchema = z.object({
   command: z.literal('checkSecret'),
-  key: z.enum(['googleApiKey', 'pineconeApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
+  key: z.enum(['googleApiKey', 'qdrantApiKey', 'anthropicApiKey', 'postgresConnectionString']),
 });
 
 // --- PostgreSQL Connection Management ---
@@ -157,27 +157,6 @@ export const UpdateEnvironmentInfoSchema = z.object({
     binaryPath: z.string().optional(),
     binaryExists: z.boolean(),
   }),
-});
-
-export const FetchPineconeIndexesSchema = z.object({
-  command: z.literal('fetchPineconeIndexes'),
-  apiKey: z.string().optional(),
-});
-
-export const SavePineconeIndexSchema = z.object({
-  command: z.literal('savePineconeIndex'),
-  index: z.object({
-    name: z.string(),
-    host: z.string(),
-    dimension: z.number().optional(),
-    metric: z.string().optional(),
-    spec: z.record(z.unknown()).optional(),
-    status: z.record(z.unknown()).optional(),
-  }),
-});
-
-export const GetPineconeIndexSchema = z.object({
-  command: z.literal('getPineconeIndex'),
 });
 
 // --- Repository Indexing Schemas ---
@@ -324,12 +303,12 @@ export const GetVectorDbProviderSchema = z.object({
 
 export const SetVectorDbProviderSchema = z.object({
   command: z.literal('setVectorDbProvider'),
-  provider: z.enum(['pinecone', 'qdrant']),
+  provider: z.enum(['qdrant']),
 });
 
 export const VectorDbProviderSchema = z.object({
   command: z.literal('vectorDbProvider'),
-  provider: z.enum(['pinecone', 'qdrant']).optional(),
+  provider: z.enum(['qdrant']).optional(),
 });
 
 export const GetVectorDbCollectionInfoSchema = z.object({
@@ -338,7 +317,7 @@ export const GetVectorDbCollectionInfoSchema = z.object({
 
 export const VectorDbCollectionInfoSchema = z.object({
   command: z.literal('vectorDbCollectionInfo'),
-  provider: z.enum(['pinecone', 'qdrant']),
+  provider: z.enum(['qdrant']),
   info: z.object({ name: z.string() }).optional(),
 });
 
@@ -1296,9 +1275,6 @@ export const WebviewMessageSchema = z.discriminatedUnion('command', [
   CopyDebugOutputSchema,
   DeleteDebugRunSchema,
   GetEnvironmentInfoSchema,
-  FetchPineconeIndexesSchema,
-  SavePineconeIndexSchema,
-  GetPineconeIndexSchema,
   IndexRepoSchema,
   PauseRepoIndexingSchema,
   ResumeRepoIndexingSchema,
