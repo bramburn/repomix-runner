@@ -124,6 +124,16 @@ export class RepomixWebviewProvider implements vscode.WebviewViewProvider {
     ];
     console.log('[quick-repomix] Controllers initialized:', this._controllers.length, 'controllers');
 
+    // Subscribe to index history events from extension-side services
+    // This forwards events to the webview in real-time for the Debug tab
+    if (ExtensionServices.isInitialized) {
+      ExtensionServices.instance.indexHistoryEventEmitter.event((entry) => {
+        if (this._view) {
+          this._view.webview.postMessage({ command: 'indexHistoryEvent', entry });
+        }
+      });
+    }
+
     // Main Message Dispatcher
     console.log('[quick-repomix] Setting up message handler...');
     webviewView.webview.onDidReceiveMessage(async (data) => {

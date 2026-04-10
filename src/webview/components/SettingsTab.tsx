@@ -562,7 +562,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   // Check if prerequisites are met for repository analysis
-  const canAnalyze = qdrantUrl.trim() && qdrantCollection.trim();
+  const canAnalyze = qdrantUrl.trim();
 
   return (
     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1001,71 +1001,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             value={qdrantUrl}
             onChange={(_e, data) => setQdrantUrl(data.value)}
           />
-          <Label size="small">Collection</Label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Dropdown
-              placeholder="Select or enter collection name"
-              value={qdrantCollection}
-              onOptionSelect={(_e, data) => setQdrantCollection(data.optionValue || '')}
-              style={{ flexGrow: 1 }}
-            >
-              {qdrantCollections.map((collection) => (
-                <Option key={collection.name} value={collection.name}>{collection.name}</Option>
-              ))}
-            </Dropdown>
-            <Button
-              icon={isFetchingQdrantCollections ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />}
-              onClick={() => {
-                console.log('[SettingsTab] Manual fetch Qdrant collections with current key');
-                setIsFetchingQdrantCollections(true);
-                vscode.postMessage({ 
-                  command: 'fetchQdrantCollections',
-                  apiKey: qdrantKey.trim() || undefined
-                });
-              }}
-              disabled={!qdrantUrl.trim() || isFetchingQdrantCollections}
-              appearance="secondary"
-            />
-          </div>
-          {qdrantCollections.length > 0 && (
-            <Text size={100} style={{ color: 'var(--vscode-charts-green)' }}>
-              ✓ Found {qdrantCollections.length} collection{qdrantCollections.length !== 1 ? 's' : ''}
-            </Text>
-          )}
-          {isFetchingQdrantCollections && (
-            <Text size={100} style={{ color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic' }}>
-              Fetching collections...
-            </Text>
-          )}
-          {qdrantCollectionsError && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <Text size={100} style={{ color: 'var(--vscode-errorForeground)' }}>
-                {qdrantCollectionsError}
-              </Text>
-              <Text size={100} style={{ color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic' }}>
-                Tip: Check your Qdrant URL, API key, and network connectivity
-              </Text>
-            </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <Label size="small">Or enter new collection name</Label>
-            <Input
-              placeholder="e.g. repomix_vectors"
-              value={qdrantCollection}
-              onChange={(_e, data) => setQdrantCollection(data.value)}
-            />
-          </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button
               onClick={handleTestQdrantConnection}
-              disabled={!qdrantUrl.trim() || !qdrantCollection.trim() || qdrantTestLoading}
+              disabled={!qdrantUrl.trim() || qdrantTestLoading}
               appearance="secondary"
             >
               {qdrantTestLoading ? 'Testing...' : 'Test Connection'}
             </Button>
             <Button
               onClick={handleSaveQdrantConfig}
-              disabled={!qdrantUrl.trim() || !qdrantCollection.trim()}
+              disabled={!qdrantUrl.trim()}
             >
               Save Qdrant Settings
             </Button>

@@ -187,6 +187,10 @@ export const SearchTab = () => {
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexingState, setIndexingState] = useState<'idle' | 'running' | 'paused' | 'stopping'>('idle');
   const [indexingBlocked, setIndexingBlocked] = useState(false);
+  const [qdrantConnectionStatus, setQdrantConnectionStatus] = useState<{
+    status: 'connected' | 'error' | 'checking';
+    message?: string;
+  }>({ status: 'checking' });
   const [pausedProgress, setPausedProgress] = useState<{ completed: number; total: number } | null>(null);
 
   const [indexProgress, setIndexProgress] = useState<{
@@ -700,6 +704,20 @@ export const SearchTab = () => {
         case 'indexingBlocked':
           setIndexingBlocked(message.blocked);
           break;
+
+        case 'compatibilityStatus':
+          setQdrantConnectionStatus({
+            status: message.compatible ? 'connected' : 'error',
+            message: message.message
+          });
+          break;
+
+        case 'qdrantConnectionResult':
+          setQdrantConnectionStatus({
+            status: message.success ? 'connected' : 'error',
+            message: message.message || message.error
+          });
+          break;
       }
     };
 
@@ -907,6 +925,26 @@ export const SearchTab = () => {
               <DatabaseSearchRegular style={{ fontSize: '32px', opacity: 0.8 }} />
 
               <div style={{ textAlign: 'center' }}>
+                <div style={{ marginBottom: '8px' }}>
+                  <Text size={200} style={{ opacity: 0.7 }}>Qdrant Status: </Text>
+                  <Text size={200} weight="semibold" style={{ 
+                    color: qdrantConnectionStatus.status === 'connected' 
+                      ? 'var(--vscode-charts-green)' 
+                      : qdrantConnectionStatus.status === 'error' 
+                        ? 'var(--vscode-errorForeground)' 
+                        : 'var(--vscode-charts-orange)'
+                  }}>
+                    {qdrantConnectionStatus.status.charAt(0).toUpperCase() + qdrantConnectionStatus.status.slice(1)}
+                  </Text>
+                  {qdrantConnectionStatus.message && qdrantConnectionStatus.status === 'error' && (
+                    <div style={{ marginTop: '4px' }}>
+                      <Text size={100} style={{ color: 'var(--vscode-errorForeground)', opacity: 0.8 }}>
+                        {qdrantConnectionStatus.message}
+                      </Text>
+                    </div>
+                  )}
+                </div>
+
                 {fileCount !== null ? <Text size={400} weight="semibold">{fileCount}</Text> : <Spinner size="tiny" />}
                 <br />
                 <Text size={200} style={{ opacity: 0.7 }}>Files Indexed (local DB)</Text>
@@ -968,8 +1006,9 @@ export const SearchTab = () => {
                   marginBottom: '4px',
                 }}>
                   <Text size={200}>
-                    Indexing disabled due to embedding dimension mismatch.
-                    Go to Settings to reset your vector index.
+                    Indexing disabled. {qdrantConnectionStatus.status === 'error' 
+                      ? 'Check your Qdrant connection settings.' 
+                      : 'Go to Settings to reset your vector index.'}
                   </Text>
                 </div>
               )}

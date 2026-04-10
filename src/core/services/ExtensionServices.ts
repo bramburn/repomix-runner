@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DatabaseService } from '../storage/databaseService.js';
 import { BundleManager } from '../bundles/bundleManager.js';
 import { IndexingService } from './IndexingService.js';
+import { IndexHistoryEntry } from '../storage/databaseService.js';
 
 /**
  * ExtensionServices - Singleton container for all extension-level services.
@@ -20,7 +21,8 @@ export class ExtensionServices {
   public readonly databaseService: DatabaseService;
   public readonly bundleManager: BundleManager;
   public readonly indexingService: IndexingService;
-  
+  public readonly indexHistoryEventEmitter = new vscode.EventEmitter<Omit<IndexHistoryEntry, 'id'>>();
+
   private constructor(
     databaseService: DatabaseService,
     bundleManager: BundleManager,
@@ -78,6 +80,7 @@ export class ExtensionServices {
    * Called in deactivate().
    */
   dispose(): void {
+    this.indexHistoryEventEmitter.dispose();
     this.indexingService.removeAllListeners();
     ExtensionServices._instance = null;
     console.log('[ExtensionServices] Disposed');

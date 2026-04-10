@@ -5,6 +5,7 @@ import { logger } from '../../shared/logger.js';
 import { DatabaseService } from '../storage/databaseService.js';
 import type { VectorDbAdapter } from './vectorDb/types.js';
 import { embedAndUpsertFile, EmbeddingPipelineConfig, DEFAULT_MAX_CONCURRENT_FILES } from './fileEmbeddingPipeline.js';
+import { ExtensionServices } from '../../core/services/ExtensionServices.js';
 
 /**
  * Check if a path exists and is a regular file (not a directory)
@@ -451,14 +452,16 @@ export class RepoEmbeddingOrchestrator {
         console.log(`[REPO_EMBEDDING_ORCHESTRATOR] Marked as indexed (hash: ${hashPreview})`);
 
         // Record embedding completion to index history
-        await this.databaseService.addIndexHistoryEvent({
+        const completeEntry = {
           timestamp: Date.now(),
           repoId,
           filePath,
-          eventType: 'embedding_complete',
-          status: 'indexed',
+          eventType: 'embedding_complete' as const,
+          status: 'indexed' as const,
           details: JSON.stringify({ vectors: vectorCount, durationMs: fileTime, branchName })
-        });
+        };
+        await this.databaseService.addIndexHistoryEvent(completeEntry);
+        ExtensionServices.instance?.indexHistoryEventEmitter.fire(completeEntry);
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -475,14 +478,16 @@ export class RepoEmbeddingOrchestrator {
         errors.push({ filePath, error: errorMsg });
 
         // Record embedding failure to index history
-        await this.databaseService.addIndexHistoryEvent({
+        const failedEntry = {
           timestamp: Date.now(),
           repoId,
           filePath,
-          eventType: 'embedding_failed',
-          status: 'failed',
+          eventType: 'embedding_failed' as const,
+          status: 'failed' as const,
           details: JSON.stringify({ error: errorMsg, branchName })
-        });
+        };
+        await this.databaseService.addIndexHistoryEvent(failedEntry);
+        ExtensionServices.instance?.indexHistoryEventEmitter.fire(failedEntry);
       }
     }
 

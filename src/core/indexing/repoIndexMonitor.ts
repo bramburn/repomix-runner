@@ -2,6 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { DatabaseService } from "../storage/databaseService.js";
 import { logger } from "../../shared/logger.js";
+import { ExtensionServices } from "../../core/services/ExtensionServices.js";
 
 /**
  * Normalize a file URI to a repo-relative path with forward slashes.
@@ -134,18 +135,21 @@ export class RepoIndexMonitor {
     // Log only on first queue for each file (avoid spam)
     if (!wasAlreadyPending) {
       console.log(`[RepoIndexMonitor] Queued file for re-embedding: ${relativePath} (pending: ${this.pending.size})`);
-      
+
       // Record to index history (fire-and-forget to avoid blocking)
-      void this.getCurrentBranch().then((branchName) =>
-        this.databaseService.addIndexHistoryEvent({
-        timestamp: Date.now(),
-        repoId: this.repoId,
-        filePath: relativePath,
-        eventType: 'queued',
-        status: 'pending',
-        details: JSON.stringify({ branchName })
-      })
-      ).catch(err => console.error(`[RepoIndexMonitor] Failed to record history event:`, err));
+      void this.getCurrentBranch().then((branchName) => {
+        const entry = {
+          timestamp: Date.now(),
+          repoId: this.repoId,
+          filePath: relativePath,
+          eventType: 'queued' as const,
+          status: 'pending' as const,
+          details: JSON.stringify({ branchName })
+        };
+        this.databaseService.addIndexHistoryEvent(entry)
+          .catch(err => console.error(`[RepoIndexMonitor] Failed to record history event:`, err));
+        ExtensionServices.instance?.indexHistoryEventEmitter.fire(entry);
+      });
     }
   }
 
@@ -237,16 +241,20 @@ export class RepoIndexMonitor {
 
       // Record flush event to index history
       const flushTimestamp = Date.now();
-      await this.databaseService.addIndexHistoryBatch(
-        expandedPaths.map(p => ({
-          timestamp: flushTimestamp,
-          repoId: this.repoId,
-          filePath: p,
-          eventType: 'flush' as const,
-          status: 'pending' as const,
-          details: JSON.stringify({ batchSize: expandedPaths.length, branchName })
-        }))
-      );
+      const flushEntries = expandedPaths.map(p => ({
+        timestamp: flushTimestamp,
+        repoId: this.repoId,
+        filePath: p,
+        eventType: 'flush' as const,
+        status: 'pending' as const,
+        details: JSON.stringify({ batchSize: expandedPaths.length, branchName })
+      }));
+      await this.databaseService.addIndexHistoryBatch(flushEntries);
+
+      // Emit events to webview for real-time display
+      for (const entry of flushEntries) {
+        ExtensionServices.instance?.indexHistoryEventEmitter.fire(entry);
+      }
 
       // Step 2: Trigger incremental embedding callback
       console.log(`[RepoIndexMonitor] Step 2: Triggering incremental embedding callback...`);

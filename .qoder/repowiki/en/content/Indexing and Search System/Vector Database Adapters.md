@@ -12,7 +12,16 @@
 - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts)
+- [repoIdentity.ts](file://src/utils/repoIdentity.ts)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated Qdrant adapter section to reflect auto-generated collection names based on repository identity and embedding dimensions
+- Modified factory pattern section to document the new intelligent naming strategy
+- Added new section on collection management and naming conventions
+- Updated configuration examples to show automatic collection generation
+- Enhanced troubleshooting guide with collection naming best practices
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -29,11 +38,13 @@
 ## Introduction
 This document explains the Vector Database Adapters system that enables pluggable backends for vector storage and retrieval. It covers the adapter pattern implementation, Pinecone and Qdrant adapters, the factory that selects adapters based on configuration, connection and credential management, retry and error handling, and operational guidance for scaling, cost control, and monitoring.
 
+**Updated** The system now features intelligent auto-generated Qdrant collection names that combine repository identity with embedding dimensions for optimal isolation and organization.
+
 ## Project Structure
 The vector database subsystem is organized around a small set of cohesive modules:
 - An adapter interface and types define the contract for pluggable backends.
 - Two concrete adapters implement the interface for Pinecone and Qdrant.
-- A factory resolves the appropriate adapter per repository based on persisted settings and secrets.
+- A factory resolves the appropriate adapter per repository based on persisted settings and secrets, with intelligent Qdrant collection naming.
 - A shared service encapsulates Pinecone client reuse and advanced deletion semantics.
 - A retry utility provides exponential backoff for transient failures.
 - The embedding pipeline integrates adapters with batching, concurrency, and retries.
@@ -43,9 +54,9 @@ The vector database subsystem is organized around a small set of cohesive module
 graph TB
 subgraph "Vector DB Layer"
 Types["types.ts<br/>Adapter interface + types"]
-Factory["factory.ts<br/>Adapter factory"]
+Factory["factory.ts<br/>Adapter factory + Auto-Collection Naming"]
 PineconeAdapter["pineconeAdapter.ts<br/>Pinecone adapter"]
-QdrantAdapter["qdrantAdapter.ts<br/>Qdrant adapter"]
+QdrantAdapter["qdrantAdapter.ts<br/>Qdrant adapter + Auto-Collection"]
 PineconeService["pineconeService.ts<br/>Client reuse + delete-by-metadata"]
 Retry["retryService.ts<br/>Exponential backoff"]
 end
@@ -68,48 +79,48 @@ UI --> Ctl
 ```
 
 **Diagram sources**
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1-L800)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:1-200](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
+- [ConfigController.ts:1-800](file://src/webview/controllers/ConfigController.ts#L1-L800)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
 
 **Section sources**
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1-L800)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:1-200](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
+- [ConfigController.ts:1-800](file://src/webview/controllers/ConfigController.ts#L1-L800)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
 
 ## Core Components
 - Adapter interface and types: Defines the contract for upsert, query, delete, and metadata operations, plus shared types for vectors and results.
 - Pinecone adapter: Wraps a service that manages a Pinecone client instance and implements namespace-scoped upsert, query, and deletions.
-- Qdrant adapter: Implements deterministic vector IDs, payload-based filtering, and collection metadata extraction.
-- Factory: Selects provider and constructs the adapter using persisted settings and secrets.
+- Qdrant adapter: Implements deterministic vector IDs, payload-based filtering, collection metadata extraction, and auto-generated collection names.
+- Factory: Selects provider and constructs the adapter using persisted settings and secrets, with intelligent Qdrant collection naming based on repository identity and embedding dimensions.
 - Retry utility: Provides exponential backoff with configurable parameters.
 - Embedding pipeline: Orchestrates chunking, embedding, batching, and upsert with retries and concurrency controls.
 
 **Section sources**
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:1-200](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
 
 ## Architecture Overview
 The system separates concerns across layers:
 - UI layer persists provider and credentials and triggers connectivity checks.
-- Factory layer resolves the adapter based on current configuration.
-- Adapter layer abstracts backend-specific operations.
+- Factory layer resolves the adapter based on current configuration, with intelligent Qdrant collection naming.
+- Adapter layer abstracts backend-specific operations, including auto-collection management for Qdrant.
 - Shared services encapsulate provider-specific logic (e.g., Pinecone client reuse and advanced deletion).
 - Pipeline layer coordinates embedding and upsert with retries and concurrency.
 
@@ -133,16 +144,17 @@ Ctl-->>UI : "qdrantConnectionResult"
 UI->>Ctl : "getVectorDbProvider()"
 Ctl->>Fac : "getVectorDbAdapterForRepo(ctx, repoId)"
 Fac->>GS : "read provider + secrets"
+Fac->>Fac : "generate auto-collection name"
 Fac-->>Ctl : "{provider, adapter}"
 Ctl-->>UI : "vectorDbProvider"
 ```
 
 **Diagram sources**
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1-L800)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [ConfigController.ts:1-800](file://src/webview/controllers/ConfigController.ts#L1-L800)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
 
 ## Detailed Component Analysis
 
@@ -176,7 +188,7 @@ class PineconeAdapter {
 }
 class QdrantAdapter {
 +provider
-+constructor(baseUrl, apiKey?, collection)
++constructor(baseUrl, apiKey?, collection, dimension?)
 +upsertVectors(...)
 +queryVectors(...)
 +deleteRepo(...)
@@ -190,12 +202,12 @@ VectorDbAdapter <|.. QdrantAdapter
 ```
 
 **Diagram sources**
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
 
 **Section sources**
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
 
 ### Pinecone Adapter
 - Constructor accepts API key, index name, and optional host; uses a shared service for client reuse and namespace-scoped operations.
@@ -216,12 +228,12 @@ Fallback --> Done
 ```
 
 **Diagram sources**
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
 
 **Section sources**
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
 
 ### Qdrant Adapter
 - Validates base URL and collection presence; for hosted instances, requires an API key.
@@ -230,24 +242,27 @@ Fallback --> Done
 - Query filters by repoId and returns matches with scores and payloads.
 - Deletions use filter expressions for repoId and optionally filePath.
 - Metadata extraction reads collection config for dimension and distance metric.
+- **Auto-collection management**: Automatically creates collections with names derived from repository identity and embedding dimensions.
 
 ```mermaid
 sequenceDiagram
 participant P as "Pipeline"
 participant A as "QdrantAdapter"
 participant Q as "QdrantClient"
-P->>A : "upsertVectors({repoId, vectors})"
-A->>A : "generate deterministic IDs"
+P->>A : "upsertVectors({repoId, vectors, dimension})"
+A->>A : "ensureCollection(collection, dimension)"
+A->>Q : "createCollection if not exists"
+Q-->>A : "ack"
 A->>Q : "upsert(collection, points)"
 Q-->>A : "ack"
 A-->>P : "done"
 ```
 
 **Diagram sources**
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
+- [qdrantAdapter.ts:53-105](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L53-L105)
 
 **Section sources**
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
 
 ### Factory Pattern
 - Reads provider from global state and selects Pinecone or Qdrant.
@@ -257,7 +272,10 @@ A-->>P : "done"
 - Qdrant:
   - Reads base URL and collection from global state.
   - Validates API key presence for hosted instances.
+  - **Auto-collection mode**: Generates collection names based on repository identity and embedding dimensions.
 - Throws descriptive errors when required configuration is missing.
+
+**Updated** The factory now implements intelligent collection naming for Qdrant by combining a safe repository identifier with the embedding dimension to create unique, predictable collection names.
 
 ```mermaid
 flowchart TD
@@ -270,16 +288,43 @@ PCValid --> |No| ErrPC["throw"]
 IsPinecone --> |No| IsQdrant{"provider == 'qdrant'?"}
 IsQdrant --> |Yes| QCfg["Load baseUrl + collection + apiKey"]
 QCfg --> QValid{"baseUrl + collection?"}
-QValid --> |Yes| MakeQ["new QdrantAdapter(baseUrl, apiKey, collection)"]
+QValid --> |Yes| AutoGen["Generate auto-collection name:<br/>safeRepoId + '-' + dimension"]
+AutoGen --> MakeQ["new QdrantAdapter(baseUrl, apiKey, collection, dimension)"]
 QValid --> |No| ErrQ["throw"]
 IsQdrant --> |No| ErrProv["throw unsupported provider"]
 ```
 
 **Diagram sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
 
 **Section sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+
+### Auto-Generated Qdrant Collection Names
+**New Section** The factory now implements intelligent collection naming for Qdrant that combines repository identity with embedding dimensions to create unique, predictable collection names.
+
+- **Repository Identity**: Uses `safeCollectionName()` to sanitize repository identifiers, converting them to safe characters and limiting length to 128 characters.
+- **Embedding Dimensions**: Incorporates the embedding model's vector dimension into the collection name for dimension-aware isolation.
+- **Naming Strategy**: Creates names in the format `{safeRepoId}-{dimension}`, ensuring uniqueness across different repositories and embedding configurations.
+- **Automatic Management**: Collections are automatically created on first upsert with the correct vector dimension and distance metric.
+
+```mermaid
+flowchart TD
+RepoId["Get repoId from workspace"] --> SafeRepo["safeCollectionName(repoId)"]
+SafeRepo --> EmbedConfig["getEmbeddingConfig()"]
+EmbedConfig --> Dimension["Extract dimension"]
+Dimension --> Combine["Combine: safeRepoId + '-' + dimension"]
+Combine --> AutoName["Auto-generated collection name"]
+AutoName --> Create["Create collection on first upsert"]
+```
+
+**Diagram sources**
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
+- [repoIdentity.ts:53-58](file://src/utils/repoIdentity.ts#L53-L58)
+
+**Section sources**
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
+- [repoIdentity.ts:53-58](file://src/utils/repoIdentity.ts#L53-L58)
 
 ### Connection Pooling, Retry, and Error Handling
 - Pinecone client reuse: The Pinecone service caches a client keyed by API key to avoid repeated initialization.
@@ -299,14 +344,14 @@ Backoff --> Retry
 ```
 
 **Diagram sources**
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L407-L438)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L51-L59)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:407-438](file://src/core/indexing/fileEmbeddingPipeline.ts#L407-L438)
+- [pineconeService.ts:51-59](file://src/core/indexing/pineconeService.ts#L51-L59)
 
 **Section sources**
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L51-L59)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L407-L438)
+- [pineconeService.ts:51-59](file://src/core/indexing/pineconeService.ts#L51-L59)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:407-438](file://src/core/indexing/fileEmbeddingPipeline.ts#L407-L438)
 
 ### Configuration and UI Integration
 - UI settings collect provider, credentials, and backend-specific parameters.
@@ -330,18 +375,18 @@ C-->>UI : "provider updated + compatibility status"
 ```
 
 **Diagram sources**
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L251-L286)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [ConfigController.ts:251-286](file://src/webview/controllers/ConfigController.ts#L251-L286)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
 
 **Section sources**
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L251-L286)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [ConfigController.ts:251-286](file://src/webview/controllers/ConfigController.ts#L251-L286)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
 
 ## Dependency Analysis
-- Cohesion: Each adapter encapsulates backend specifics; the factory centralizes selection logic; the service isolates Pinecone client reuse.
-- Coupling: The pipeline depends on the adapter interface; adapters depend on third-party SDKs; the factory depends on secrets/global state.
+- Cohesion: Each adapter encapsulates backend specifics; the factory centralizes selection logic with intelligent collection naming; the service isolates Pinecone client reuse.
+- Coupling: The pipeline depends on the adapter interface; adapters depend on third-party SDKs; the factory depends on secrets/global state and repository identity utilities.
 - External dependencies: Pinecone SDK and Qdrant REST client.
 - Potential circularities: None observed among the analyzed modules.
 
@@ -352,6 +397,7 @@ Pipeline --> Retry["retryService.ts"]
 Pipeline --> Factory["factory.ts"]
 Factory --> PineconeAdapter["pineconeAdapter.ts"]
 Factory --> QdrantAdapter["qdrantAdapter.ts"]
+QdrantAdapter --> RepoIdentity["repoIdentity.ts"]
 PineconeAdapter --> PineconeService["pineconeService.ts"]
 ConfigCtl["ConfigController.ts"] --> Factory
 ConfigCtl --> Migration["migrationService.ts"]
@@ -359,27 +405,29 @@ UI["SettingsTab.tsx"] --> ConfigCtl
 ```
 
 **Diagram sources**
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
-- [types.ts](file://src/core/indexing/vectorDb/types.ts#L1-L44)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1-L800)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [fileEmbeddingPipeline.ts:1-200](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
+- [types.ts:1-44](file://src/core/indexing/vectorDb/types.ts#L1-L44)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [repoIdentity.ts:1-59](file://src/utils/repoIdentity.ts#L1-L59)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [ConfigController.ts:1-800](file://src/webview/controllers/ConfigController.ts#L1-L800)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
 
 **Section sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [pineconeService.ts](file://src/core/indexing/pineconeService.ts#L1-L285)
-- [retryService.ts](file://src/core/indexing/retryService.ts#L1-L71)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L1-L800)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L1-L200)
+- [factory.ts:1-78](file://src/core/indexing/vectorDb/factory.ts#L1-L78)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [repoIdentity.ts:1-59](file://src/utils/repoIdentity.ts#L1-L59)
+- [pineconeService.ts:1-285](file://src/core/indexing/pineconeService.ts#L1-L285)
+- [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
+- [fileEmbeddingPipeline.ts:1-200](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L200)
+- [ConfigController.ts:1-800](file://src/webview/controllers/ConfigController.ts#L1-L800)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
+- [SettingsTab.tsx:1-200](file://src/webview/components/SettingsTab.tsx#L1-L200)
 
 ## Performance Considerations
 - Batching and concurrency:
@@ -393,11 +441,10 @@ UI["SettingsTab.tsx"] --> ConfigCtl
 - Qdrant:
   - Ensure collection vector config (size and distance) matches embedding dimensions.
   - Use filter expressions to constrain queries and reduce payload sizes.
+  - **Auto-collection benefits**: Intelligent naming prevents dimension conflicts and reduces manual collection management overhead.
 - Monitoring:
   - Track upsert durations, query latencies, and error rates per provider.
   - Observe vector counts and growth trends to right-size clusters.
-
-[No sources needed since this section provides general guidance]
 
 ## Troubleshooting Guide
 - Missing credentials:
@@ -409,22 +456,26 @@ UI["SettingsTab.tsx"] --> ConfigCtl
 - Connectivity tests:
   - Pinecone: Verify API key and index availability.
   - Qdrant: Confirm URL format, server accessibility, and collection existence.
+- **Auto-collection issues**:
+  - **Collection naming conflicts**: If multiple repositories use the same embedding configuration, consider adjusting repository identifiers or embedding models.
+  - **Dimension mismatches**: Auto-generated collections enforce dimension consistency; changing embedding models requires deleting old collections or using different collection names.
+  - **Permission errors**: Ensure the Qdrant API key has sufficient permissions for collection creation and vector operations.
 - Error handling:
   - Adapters log structured context and rethrow with normalized messages.
   - Pipeline wraps concurrent failures as indexing errors for better diagnostics.
 
 **Section sources**
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L251-L286)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L321-L445)
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
-- [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L244)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L145-L184)
+- [ConfigController.ts:251-286](file://src/webview/controllers/ConfigController.ts#L251-L286)
+- [ConfigController.ts:321-445](file://src/webview/controllers/ConfigController.ts#L321-L445)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
+- [pineconeAdapter.ts:1-82](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L1-L82)
+- [qdrantAdapter.ts:1-524](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L524)
+- [fileEmbeddingPipeline.ts:145-184](file://src/core/indexing/fileEmbeddingPipeline.ts#L145-L184)
 
 ## Conclusion
 The Vector Database Adapters system cleanly separates backend concerns behind a unified interface, enabling seamless switching between Pinecone and Qdrant. Robust configuration management, connectivity testing, and retry/backoff strategies improve reliability. The embedding pipeline integrates these components with batching and concurrency controls, while migration and compatibility checks support safe provider transitions.
 
-[No sources needed since this section summarizes without analyzing specific files]
+**Updated** The introduction of auto-generated Qdrant collection names enhances the system's intelligence and reliability by automatically managing collection isolation based on repository identity and embedding dimensions, reducing manual configuration overhead and preventing common dimension-related conflicts.
 
 ## Appendices
 
@@ -436,35 +487,41 @@ The Vector Database Adapters system cleanly separates backend concerns behind a 
 - Qdrant
   - Provider: qdrant
   - Credentials: stored as a secret (required for hosted)
-  - Selection: global base URL and collection
+  - Selection: **Auto-generated collection names** based on repository identity and embedding dimensions
+  - **Collection naming**: `{safeRepoId}-{dimension}` format
 
 **Section sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L288-L309)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L120-L200)
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
+- [ConfigController.ts:288-309](file://src/webview/controllers/ConfigController.ts#L288-L309)
+- [SettingsTab.tsx:120-200](file://src/webview/components/SettingsTab.tsx#L120-L200)
 
 ### Migration Procedures
 - Switch provider:
   - Validate credentials and update provider in global state.
   - Reset local index state for the current repository to trigger re-indexing.
   - Run compatibility checks to ensure embedding and index dimensions match.
+- **Auto-collection migration**:
+  - New installations automatically use auto-generated collection names.
+  - Existing users can benefit from auto-generation by switching providers or updating embedding configurations.
 
 **Section sources**
-- [migrationService.ts](file://src/core/indexing/migrationService.ts#L1-L63)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L251-L286)
+- [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
+- [ConfigController.ts:251-286](file://src/webview/controllers/ConfigController.ts#L251-L286)
 
 ### Scalability and Cost Optimization
 - Horizontal scaling:
   - Use provider-native sharding or multiple collections/namespaces.
+  - **Auto-collection benefits**: Intelligent naming supports horizontal scaling by creating separate collections for different embedding configurations.
 - Index sizing:
   - Match vector dimensions to embedding model outputs.
+  - **Dimension enforcement**: Auto-generated collections prevent dimension mismatches that could cause costly re-indexing.
 - Query optimization:
   - Filter early and narrow payloads.
+  - **Collection isolation**: Auto-generated names help organize collections by repository and dimension for efficient querying.
 - Cost control:
   - Monitor vector counts and query volume; adjust cluster sizes accordingly.
   - Prefer metadata filtering and targeted deletions to avoid unnecessary storage churn.
-
-[No sources needed since this section provides general guidance]
+  - **Reduced maintenance**: Auto-collection management reduces administrative overhead and potential errors.
 
 ### Monitoring Approaches
 - Metrics to track:
@@ -472,7 +529,8 @@ The Vector Database Adapters system cleanly separates backend concerns behind a 
   - Query latency and recall
   - Vector counts and growth rate
   - Error rates and retry counts
+  - **Collection metrics**: Monitor auto-generated collection usage and dimension consistency
 - Alerts:
   - High error rates, timeouts, and dimension mismatches
-
-[No sources needed since this section provides general guidance]
+  - **Collection creation failures**: Monitor auto-collection creation attempts and permission issues
+  - Repository identifier changes affecting collection naming

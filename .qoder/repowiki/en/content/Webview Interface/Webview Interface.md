@@ -27,12 +27,10 @@
 
 ## Update Summary
 **Changes Made**
-- Removed AI chat webview components (AiChatRoot.tsx, AiChatWebviewProvider.tsx) and chat-related controllers
-- Removed chat-specific UI components and message handling
-- Simplified the main control panel to focus on agent view and settings interface
-- Updated tab structure to remove Smart Agent tab and AI chat functionality
-- Streamlined message schemas to exclude chat-related commands
-- Consolidated the interface to provide a more focused developer experience
+- Enhanced SearchTab with new quick-action buttons (Select All Code, Clear All, Reset Defaults) for improved filter management
+- Improved categorized filter system with logical organization (Languages, Data & Documents, System & Configuration)
+- Simplified SettingsTab by removing Qdrant collection name field, focusing on URL and API key configuration
+- Enhanced file filter management with better user experience and accessibility
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,10 +40,11 @@
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Agent View System](#agent-view-system)
 7. [Settings and Configuration](#settings-and-configuration)
-8. [Dependency Analysis](#dependency-analysis)
-9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
+8. [Search and Filter System](#search-and-filter-system)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 This document describes the Webview Interface system for the Repomix Runner Plus extension. It covers the React-based control panel architecture with a comprehensive tabbed interface focused on agent view and settings functionality. The system implements an MVC pattern using controllers and views, state management strategies, and a bidirectional message system between the webview and the extension context. The interface provides integrated agentic capabilities with thread management, enhanced search functionality with branch-aware vector search, comprehensive token budgeting and cost tracking, and a streamlined control panel experience.
@@ -153,7 +152,7 @@ Key responsibilities:
 - [ExecutionQueueManager.ts:15-133](file://src/webview/services/ExecutionQueueManager.ts#L15-L133)
 
 ## Architecture Overview
-The system follows an MVC-inspired pattern with comprehensive coverage and a unified webview provider:
+The system follows an MVC-inspired pattern with comprehensive coverage and a unified webview provider architecture:
 - Views: React components that render UI and collect user actions.
 - Controllers: TypeScript classes that interpret messages, coordinate services, and update UI via messages.
 - Model/State: Lifted in App.tsx and persisted via VS Code state; controllers also maintain internal state and push updates to the UI.
@@ -364,7 +363,7 @@ APP --> DEBUG
 - [DefaultRepomixItem.tsx:1-91](file://src/webview/components/DefaultRepomixItem.tsx#L1-L91)
 - [AgentView.tsx:1-174](file://src/webview/components/AgentView.tsx#L1-L174)
 - [SettingsTab.tsx:1-1262](file://src/webview/components/SettingsTab.tsx#L1-L1262)
-- [SearchTab.tsx:1-1197](file://src/webview/components/SearchTab.tsx#L1-L1197)
+- [SearchTab.tsx:1-1481](file://src/webview/components/SearchTab.tsx#L1-L1481)
 - [DebugTab.tsx:1-472](file://src/webview/components/DebugTab.tsx#L1-L472)
 
 ### State Synchronization and Event Propagation
@@ -495,10 +494,10 @@ Key responsibilities:
 ## Settings and Configuration
 
 ### SettingsTab: Comprehensive Configuration Management
-The SettingsTab component provides extensive configuration management for vector databases, embedding providers, and token budgeting. The component features a collapsible accordion interface with comprehensive validation and error handling.
+The SettingsTab component provides extensive configuration management for vector databases, embedding providers, and token budgeting. The component features a simplified interface with streamlined Qdrant configuration and comprehensive validation and error handling.
 
 Key configuration sections:
-- **Vector Database Configuration**: Qdrant connection management with URL, collection, and API key handling
+- **Vector Database Configuration**: Qdrant connection management with URL and API key handling (collection name field removed)
 - **Embedding Provider Configuration**: Support for Ollama and LM Studio with model discovery and dimension testing
 - **Enrichment Configuration**: LLM provider selection with Gemini, Ollama, LM Studio, and OpenRouter support
 - **Token Budget Management**: Adjustable token budget with validation and persistence
@@ -528,7 +527,7 @@ SETTINGSTAB --> COMPAT
 - [SettingsTab.tsx:127-200](file://src/webview/components/SettingsTab.tsx#L127-L200)
 
 **Section sources**
-- [SettingsTab.tsx:1-1262](file://src/webview/components/SettingsTab.tsx#L1-L1262)
+- [SettingsTab.tsx:1-1163](file://src/webview/components/SettingsTab.tsx#L1-L1163)
 
 ### ConfigController: Configuration Management
 The ConfigController provides comprehensive configuration management with validation, testing, and persistence capabilities.
@@ -543,6 +542,61 @@ Key responsibilities:
 
 **Section sources**
 - [ConfigController.ts:1-1017](file://src/webview/controllers/ConfigController.ts#L1-L1017)
+
+## Search and Filter System
+
+### Enhanced SearchTab: Advanced Filtering and Quick Actions
+The SearchTab component provides a sophisticated search interface with enhanced filter management and quick-action capabilities. The component features a categorized filter system organized into logical groups for improved usability.
+
+**Updated** Enhanced with new quick-action buttons and improved categorization system
+
+Key enhancements:
+- **Quick Action Buttons**: Three new buttons in the file filters section:
+  - Select All Code: Quickly enable all programming language filters
+  - Clear All: Reset all filters to disabled state
+  - Reset Defaults: Restore default filter configuration
+- **Categorized Filter System**: Logical organization of file types:
+  - Languages: TypeScript, JavaScript, Python, Rust, C#, Java, Dart
+  - Data & Documents: YAML, JSON, XML, Markdown
+  - System & Configuration: Config files, Mobile projects, Known extensionless files
+- **Improved User Experience**: Better visual organization with grid layouts and clear categorization
+
+```mermaid
+flowchart TD
+Start(["SearchTab Mount"]) --> LoadState["Load saved filter state"]
+LoadState --> SetupActions["Setup quick-action handlers"]
+SetupActions --> RenderFilters["Render categorized filters"]
+RenderFilters --> UserAction{"User action?"}
+UserAction --> |Select All Code| HandleSelectAll["handleSelectAllCode()"]
+UserAction --> |Clear All| HandleClearAll["handleClearAllFilters()"]
+UserAction --> |Reset Defaults| HandleReset["handleResetFilters()"]
+HandleSelectAll --> UpdateState["Update filter state"]
+HandleClearAll --> UpdateState
+HandleReset --> UpdateState
+UpdateState --> RenderFilters
+```
+
+**Diagram sources**
+- [SearchTab.tsx:794-806](file://src/webview/components/SearchTab.tsx#L794-L806)
+- [SearchTab.tsx:773-792](file://src/webview/components/SearchTab.tsx#L773-L792)
+- [SearchTab.tsx:771](file://src/webview/components/SearchTab.tsx#L771)
+
+**Section sources**
+- [SearchTab.tsx:1073-1225](file://src/webview/components/SearchTab.tsx#L1073-L1225)
+- [SearchTab.tsx:794-806](file://src/webview/components/SearchTab.tsx#L794-L806)
+- [SearchTab.tsx:773-792](file://src/webview/components/SearchTab.tsx#L773-L792)
+
+### File Type Filter Management
+The SearchTab implements a comprehensive file type filtering system with support for:
+- Individual language-specific filters
+- Category-based filtering (languages, data formats, system files)
+- Custom extension patterns with exclusion support
+- Catch-all mode for bypassing filters
+- Real-time filter validation and feedback
+
+**Section sources**
+- [SearchTab.tsx:35-61](file://src/webview/components/SearchTab.tsx#L35-L61)
+- [SearchTab.tsx:230-236](file://src/webview/components/SearchTab.tsx#L230-L236)
 
 ## Dependency Analysis
 The webview depends on:
@@ -595,6 +649,7 @@ CCTRL --> QDRANT["@qdrant/js-client-rest"]
 - Configuration caching: SettingsTab caches model lists and embedding dimensions to reduce API calls.
 - Database optimization: AgentController uses efficient database queries for history and run management.
 - Message batching: RepomixWebviewProvider batches controller initialization and message handling.
+- Filter optimization: SearchTab uses memoized filter calculations to improve performance with large result sets.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -606,6 +661,7 @@ Common issues and resolutions:
 - Qdrant connection issues: Verify URL format, API key authentication, and server accessibility. Check the debug logs for specific error messages.
 - Embedding provider configuration: Ensure Ollama/LM Studio servers are accessible and models are properly configured.
 - Settings persistence: Verify VS Code secrets storage is available and configuration changes are properly saved.
+- Filter performance: Large filter sets may impact search performance; use the quick-action buttons to optimize filter configurations.
 
 **Section sources**
 - [RepomixWebviewProvider.ts:110-116](file://src/webview/RepomixWebviewProvider.ts#L110-L116)
@@ -615,4 +671,8 @@ Common issues and resolutions:
 - [SettingsTab.tsx:480-501](file://src/webview/components/SettingsTab.tsx#L480-L501)
 
 ## Conclusion
-The Webview Interface employs a clear separation of concerns: React components render the UI, controllers encapsulate business logic, and a robust message system ensures type-safe, bidirectional communication with the extension host. State is centralized in App.tsx and synchronized via messages, while controllers manage service interactions and UI updates. The architecture supports extensibility through new controllers, components, and message schemas, enabling incremental feature development while maintaining consistency and reliability. The simplified interface now provides a focused developer experience with integrated agent functionality, comprehensive configuration management, and streamlined workflow processes. The removal of AI chat components allows for better resource allocation and a more cohesive user experience centered around the core Repomix Runner Plus functionality.
+The Webview Interface employs a clear separation of concerns: React components render the UI, controllers encapsulate business logic, and a robust message system ensures type-safe, bidirectional communication with the extension host. State is centralized in App.tsx and synchronized via messages, while controllers manage service interactions and UI updates. The architecture supports extensibility through new controllers, components, and message schemas, enabling incremental feature development while maintaining consistency and reliability. 
+
+The recent enhancements to the SearchTab with quick-action buttons and improved categorization system, along with the simplified SettingsTab configuration, demonstrate the system's commitment to user experience and streamlined functionality. The removal of the Qdrant collection name field in favor of URL-based configuration reduces complexity while maintaining essential functionality. The enhanced filter management system provides developers with powerful tools for precise code exploration and analysis, supporting the core mission of the Repomix Runner Plus extension to provide intelligent code search and analysis capabilities.
+
+The simplified interface now provides a focused developer experience with integrated agent functionality, comprehensive configuration management, and streamlined workflow processes. The enhanced SearchTab offers improved discoverability and control over file filtering, while the streamlined SettingsTab ensures that essential configuration options remain accessible without unnecessary complexity. These improvements contribute to better resource allocation and a more cohesive user experience centered around the core Repomix Runner Plus functionality.
