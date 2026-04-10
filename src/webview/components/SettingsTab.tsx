@@ -134,23 +134,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [vectorDbProvider, setVectorDbProvider] = useState<'qdrant'>('qdrant');
 
   const [qdrantUrl, setQdrantUrl] = useState('');
-  const [qdrantCollection, setQdrantCollection] = useState('');
   const [qdrantTestLoading, setQdrantTestLoading] = useState(false);
 
   // Debug logging for Qdrant state changes
   useEffect(() => {
     console.log('[SettingsTab] Qdrant state updated:', {
       url: qdrantUrl,
-      collection: qdrantCollection,
       hasKey: !!qdrantKey,
       keyLength: qdrantKey.length,
       provider: vectorDbProvider
     });
-  }, [qdrantUrl, qdrantCollection, qdrantKey, vectorDbProvider]);
-
-  const [qdrantCollections, setQdrantCollections] = useState<Array<{ name: string }>>([]);
-  const [qdrantCollectionsError, setQdrantCollectionsError] = useState<string | null>(null);
-  const [isFetchingQdrantCollections, setIsFetchingQdrantCollections] = useState(false);
+  }, [qdrantUrl, qdrantKey, vectorDbProvider]);
 
   // Embedding Provider State
   const [embeddingProvider, setEmbeddingProvider] = useState<'ollama' | 'lmstudio'>('lmstudio');
@@ -224,29 +218,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   // Runner Configuration State
   const [respectGitignoreInMarkdown, setRespectGitignoreInMarkdown] = useState<boolean>(false);
 
-  // Fetch Qdrant collections when URL or key changes
-  useEffect(() => {
-    if (!qdrantUrl.trim() || vectorDbProvider !== 'qdrant') {
-      return;
-    }
-    console.log('[SettingsTab] Auto-fetching Qdrant collections due to URL/key change');
-    setIsFetchingQdrantCollections(true);
-    const timer = setTimeout(() => {
-      vscode.postMessage({ 
-        command: 'fetchQdrantCollections',
-        apiKey: qdrantKey.trim() || undefined
-      });
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [qdrantUrl, qdrantKey, vectorDbProvider]);
-
-  // Sync fetching state with collections response
-  useEffect(() => {
-    if (qdrantCollections.length > 0 || qdrantCollectionsError) {
-      setIsFetchingQdrantCollections(false);
-    }
-  }, [qdrantCollections, qdrantCollectionsError]);
-
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const message = event.data;
@@ -264,7 +235,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
         case 'qdrantConfig':
           setQdrantUrl(message.url ?? '');
-          setQdrantCollection(message.collection ?? '');
           break;
 
         case 'updateCopyMode':
@@ -293,16 +263,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               message: `Connection failed: ${message.error}`,
             });
           }
-          break;
-
-        case 'updateQdrantCollections':
-          setQdrantCollections(message.collections || []);
-          setQdrantCollectionsError(message.error || null);
-          setIsFetchingQdrantCollections(false);
-          break;
-
-        case 'qdrantFetchComplete':
-          setIsFetchingQdrantCollections(false);
           break;
 
         case 'embeddingConfig':
@@ -451,14 +411,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const handleSaveQdrantConfig = () => {
     // Explicit check to ensure we never send empty values causing Zod errors
     const url = qdrantUrl.trim();
-    const collection = qdrantCollection.trim();
 
-    if (!url || !collection) return;
+    if (!url) return;
 
     vscode.postMessage({
       command: 'setQdrantConfig',
       url: url,
-      collection: collection,
     });
   };
 
@@ -467,8 +425,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     console.log('[SettingsTab] === Qdrant Test Connection Started ===');
     console.log('[SettingsTab] qdrantUrl:', qdrantUrl);
     console.log('[SettingsTab] qdrantUrl.trim():', qdrantUrl.trim());
-    console.log('[SettingsTab] qdrantCollection:', qdrantCollection);
-    console.log('[SettingsTab] qdrantCollection.trim():', qdrantCollection.trim());
     console.log('[SettingsTab] qdrantKey present:', !!qdrantKey);
     console.log('[SettingsTab] qdrantKey.trim():', qdrantKey.trim());
     console.log('[SettingsTab] apiKey to send:', qdrantKey.trim() || undefined);
@@ -477,7 +433,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     const message = {
       command: 'testQdrantConnection',
       url: qdrantUrl.trim(),
-      collection: qdrantCollection.trim(),
       apiKey: qdrantKey.trim() || undefined,
     };
     console.log('[SettingsTab] Sending message to extension:', JSON.stringify(message, null, 2));

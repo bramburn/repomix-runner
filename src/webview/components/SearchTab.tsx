@@ -12,6 +12,8 @@ import {
   AccordionPanel,
   AccordionToggleEventHandler,
   Textarea,
+  Checkbox,
+  Divider,
 } from '@fluentui/react-components';
 import {
   DeleteRegular,
@@ -748,6 +750,43 @@ export const SearchTab = () => {
 
   const handleDestroy = () => vscode.postMessage({ command: 'deleteRepoIndex' });
 
+  const handleResetFilters = () => setFileTypeFilter(DEFAULT_FILTERS);
+
+  const handleClearAllFilters = () => {
+    setFileTypeFilter({
+      typescript: false,
+      javascript: false,
+      python: false,
+      rust: false,
+      csharp: false,
+      java: false,
+      dart: false,
+      yaml: false,
+      json: false,
+      xml: false,
+      markdown: false,
+      config: false,
+      mobile: false,
+      includeNoExtKnown: false,
+      includeAllExtensions: false,
+      custom: '',
+    });
+  };
+
+  const handleSelectAllCode = () => {
+    setFileTypeFilter((prev) => ({
+      ...prev,
+      typescript: true,
+      javascript: true,
+      python: true,
+      rust: true,
+      csharp: true,
+      java: true,
+      dart: true,
+      includeAllExtensions: false,
+    }));
+  };
+
   const handleSearch = () => {
     const q = query.trim();
     if (!q) return;
@@ -1006,77 +1045,140 @@ export const SearchTab = () => {
             )}
           </AccordionHeader>
           <AccordionPanel>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  gap: '6px',
-                }}
-              >
-                {[
-                  { key: 'typescript', label: 'TypeScript (.ts/.tsx)' },
-                  { key: 'javascript', label: 'JavaScript (.js/.jsx)' },
-                  { key: 'python', label: 'Python (.py)' },
-                  { key: 'rust', label: 'Rust (.rs)' },
-                  { key: 'csharp', label: 'C# (.cs)' },
-                  { key: 'java', label: 'Java (.java)' },
-                  { key: 'dart', label: 'Dart (.dart)' },
-                  { key: 'yaml', label: 'YAML (.yaml/.yml)' },
-                  { key: 'json', label: 'JSON (.json/.jsonc)' },
-                  { key: 'xml', label: 'XML (.xml)' },
-                  { key: 'markdown', label: 'Markdown (.md/.mdx)' },
-                  { key: 'config', label: 'Config files (.env/.toml/.ini/...)' },
-                  { key: 'mobile', label: 'Android/iOS (.kt/.gradle/.swift/...)' },
-                  { key: 'includeNoExtKnown', label: 'Known extensionless (Dockerfile, .gitignore, ...)' },
-                  { key: 'includeAllExtensions', label: 'Catch-all: include all extensions' },
-                ].map(({ key, label }) => (
-                  <label
-                    key={key}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '11px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
-                      onChange={(e) =>
-                        setFileTypeFilter((prev) => ({
-                          ...prev,
-                          [key]: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              
+              {/* Quick Actions */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button size="small" appearance="subtle" onClick={handleSelectAllCode}>
+                  Select All Code
+                </Button>
+                <Button size="small" appearance="subtle" onClick={handleClearAllFilters}>
+                  Clear All
+                </Button>
+                <Button size="small" appearance="subtle" onClick={handleResetFilters}>
+                  Reset Defaults
+                </Button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <Label size="small">Custom extensions (comma-separated)</Label>
+              <Divider />
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                
+                {/* Languages */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <Label weight="semibold" size="small">Languages</Label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+                    {[
+                      { key: 'typescript', label: 'TypeScript (.ts/.tsx)' },
+                      { key: 'javascript', label: 'JavaScript (.js/.jsx)' },
+                      { key: 'python', label: 'Python (.py)' },
+                      { key: 'rust', label: 'Rust (.rs)' },
+                      { key: 'csharp', label: 'C# (.cs)' },
+                      { key: 'java', label: 'Java (.java)' },
+                      { key: 'dart', label: 'Dart (.dart)' },
+                    ].map(({ key, label }) => (
+                      <Checkbox
+                        key={key}
+                        label={label}
+                        size="medium"
+                        disabled={fileTypeFilter.includeAllExtensions}
+                        checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
+                        onChange={(e, data) =>
+                          setFileTypeFilter((prev) => ({
+                            ...prev,
+                            [key]: !!data.checked,
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Data & Documents */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <Label weight="semibold" size="small">Data & Documents</Label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+                    {[
+                      { key: 'yaml', label: 'YAML (.yaml/.yml)' },
+                      { key: 'json', label: 'JSON (.json/.jsonc)' },
+                      { key: 'xml', label: 'XML (.xml)' },
+                      { key: 'markdown', label: 'Markdown (.md/.mdx)' },
+                    ].map(({ key, label }) => (
+                      <Checkbox
+                        key={key}
+                        label={label}
+                        size="medium"
+                        disabled={fileTypeFilter.includeAllExtensions}
+                        checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
+                        onChange={(e, data) =>
+                          setFileTypeFilter((prev) => ({
+                            ...prev,
+                            [key]: !!data.checked,
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* System & Configuration */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <Label weight="semibold" size="small">System & Configuration</Label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+                    {[
+                      { key: 'config', label: 'Config files (.env/.toml/...)' },
+                      { key: 'mobile', label: 'Mobile projects (.kt/.swift/...)' },
+                      { key: 'includeNoExtKnown', label: 'Known extensionless' },
+                    ].map(({ key, label }) => (
+                      <Checkbox
+                        key={key}
+                        label={label}
+                        size="medium"
+                        disabled={fileTypeFilter.includeAllExtensions}
+                        checked={fileTypeFilter[key as keyof FileTypeFilterState] as boolean}
+                        onChange={(e, data) =>
+                          setFileTypeFilter((prev) => ({
+                            ...prev,
+                            [key]: !!data.checked,
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <Divider />
+
+                {/* Overrides */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <Checkbox
+                    label="Catch-all: include all extensions"
+                    checked={fileTypeFilter.includeAllExtensions}
+                    onChange={(e, data) =>
+                      setFileTypeFilter((prev) => ({
+                        ...prev,
+                        includeAllExtensions: !!data.checked,
+                      }))
+                    }
+                  />
+                  {fileTypeFilter.includeAllExtensions && (
+                    <Text size={200} style={{ color: 'var(--vscode-textLink-foreground)', fontStyle: 'italic' }}>
+                      All other filters are ignored when Catch-all is enabled.
+                    </Text>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: '4px' }}>
+                <Label>Custom extensions (comma-separated)</Label>
                 <Input
                   value={fileTypeFilter.custom}
                   onChange={(e, data) => setFileTypeFilter((prev) => ({ ...prev, custom: data.value }))}
                   placeholder="e.g. .txt, !.md (use ! to exclude)"
                 />
                 <Text size={200} style={{ opacity: 0.7 }}>
-                  Tip: turn on <b>Catch-all</b> if you want to avoid missing anything; otherwise use Config/Mobile for most projects. Use <b>!</b> to exclude specific types.
+                  Use <b>!</b> to exclude specific types (e.g. <b>!*.lock</b>).
                 </Text>
-              </div>
-
-              {/* Reset Filters Button */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                <Button
-                  appearance="secondary"
-                  size="small"
-                  onClick={() => setFileTypeFilter(DEFAULT_FILTERS)}
-                >
-                  Reset Filters
-                </Button>
               </div>
             </div>
           </AccordionPanel>
@@ -1107,21 +1209,17 @@ export const SearchTab = () => {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            padding: '6px 10px',
+            padding: '2px 6px',
             border: '1px solid var(--vscode-widget-border)',
             borderRadius: 4,
           }}
         >
-          <input
+          <Checkbox
             id="repomix-smart-filter"
-            type="checkbox"
+            label="Smart Filter"
             checked={smartFilterEnabled}
-            onChange={(e) => setSmartFilterEnabled(e.target.checked)}
+            onChange={(e, data) => setSmartFilterEnabled(!!data.checked)}
           />
-          <Label htmlFor="repomix-smart-filter" style={{ margin: 0 }}>
-            Smart Filter
-          </Label>
         </div>
 
         {/* Dynamic Confidence Threshold Slider - Available for both smart and non-smart search */}

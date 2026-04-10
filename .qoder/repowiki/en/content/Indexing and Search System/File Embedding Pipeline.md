@@ -16,8 +16,6 @@
 - [vectorDb/types.ts](file://src/core/indexing/vectorDb/types.ts)
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts)
 - [fileEmbeddingPipeline.test.ts](file://src/test/core/indexing/fileEmbeddingPipeline.test.ts)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts)
-- [compressFile.ts](file://src/core/compression/compressFile.ts)
 - [repomix.config.json](file://repomix.config.json)
 - [README.md](file://README.md)
 - [nodes.ts](file://src/search/nodes.ts)
@@ -28,10 +26,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced JavaScript module format support with addition of .mjs and .cjs extensions in both markdownGenerator.ts and fileEmbeddingPipeline.ts
-- Expanded text processing capabilities to include modern JavaScript module formats
-- Improved compatibility with ES modules and CommonJS module systems
-- Updated file extension handling for comprehensive JavaScript ecosystem support
+- Significantly expanded language support for text file detection and processing
+- Added comprehensive Python ecosystem support: pyproject.toml, poetry.lock, uv.lock
+- Enhanced JavaScript/TypeScript ecosystem coverage: bun.lockb, deno.json, deno.jsonc, deno.lock
+- Expanded C#/.NET project file support: .csproj, .sln, packages.config, global.json, Directory.Build props/targets
+- Enhanced text file detection logic with broader project file recognition
+- Updated Tree-sitter service to support Python, C#, and Dart languages
+- Added Python WASM parser support and updated language detection mappings
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -49,23 +50,23 @@
 
 ## Introduction
 This document describes the File Embedding Pipeline, which transforms raw file content into vector embeddings suitable for similarity search and retrieval. The pipeline performs:
-- Binary file filtering
-- Text extraction and validation
-- Semantic and line-based text chunking
+- Binary file filtering with enhanced language support
+- Text extraction and validation with expanded project file recognition
+- Semantic and line-based text chunking with Tree-sitter AST support
 - Preprocessing and metadata enrichment
 - Provider-agnostic embedding generation with priority queue management across three providers (Gemini, Ollama, and LM Studio)
 - Batched vector upsert into a vector database
 
-The pipeline now supports enhanced JavaScript module format processing with comprehensive support for modern JavaScript ecosystems, including ES modules (.mjs) and CommonJS modules (.cjs). The enhanced embedding service includes priority-based request queuing, comprehensive debugging statistics, and request serialization to prevent rate limiting.
+The pipeline now supports significantly expanded language ecosystems including Python, JavaScript/TypeScript, C#/.NET, and enhanced text file detection logic for modern development workflows.
 
 ## Project Structure
-The embedding pipeline spans several modules with expanded provider support and enhanced JavaScript module format handling:
+The embedding pipeline spans several modules with enhanced language support:
 - Orchestration and repository scanning
-- File processing and chunking with expanded JavaScript support
-- Enhanced embedding service with priority queue management across three providers
+- File processing and chunking with expanded language detection
+- Multi-provider embedding service with priority queue management
 - Vector database adapter interface
 - Utilities for retries, batching, and vector identity
-- Web UI components for LM Studio configuration and model management
+- Tree-sitter service with Python, C#, and Dart language support
 
 ```mermaid
 graph TB
@@ -77,8 +78,6 @@ subgraph "File Processing"
 FEP["fileEmbeddingPipeline.ts"]
 TC["textChunker.ts"]
 TS["treeSitterService.ts"]
-MG["markdownGenerator.ts"]
-CF["compressFile.ts"]
 end
 subgraph "Enhanced Embedding Layer"
 ES["embeddingService.ts"]
@@ -94,10 +93,10 @@ VDT["vectorDb\\types.ts"]
 VID["vectorIdentity.ts"]
 RS["retryService.ts"]
 end
-subgraph "LM Studio Integration"
-WSC["ConfigController.ts"]
-WSS["SettingsTab.tsx"]
-LMS["LM Studio Config Schema"]
+subgraph "Language Support"
+PYTHON["Python Ecosystem<br/>pyproject.toml, poetry.lock, uv.lock"]
+JSTS["JavaScript/TypeScript Ecosystem<br/>bun.lockb, deno.json, deno.lock"]
+CSHARP[".NET/C# Support<br/>.csproj, .sln, packages.config"]
 end
 subgraph "Usage Context"
 SEARCH["search/nodes.ts"]
@@ -117,12 +116,13 @@ ES --> ET
 FEP --> VDT
 FEP --> VID
 FEP --> RS
-MG --> FEP
-CF --> TC
 SEARCH --> ES
 AGENT --> ES
-WSC --> LMS
-WSS --> LP
+PYTHON --> FEP
+JSTS --> FEP
+CSHARP --> FEP
+TS --> PYTHON
+TS --> CSHARP
 ```
 
 **Diagram sources**
@@ -140,11 +140,6 @@ WSS --> LP
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts#L17-L32)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [nodes.ts](file://src/search/nodes.ts#L95-L105)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
-- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 **Section sources**
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
@@ -161,8 +156,7 @@ WSS --> LP
 - Vector Identity: Deterministic vector ID generation and parsing for integrity and incremental updates.
 - Retry and Batching: Robust retries with exponential backoff and batching utilities for throughput.
 - Repository Orchestrator: Coordinates repository-wide indexing and incremental updates.
-- LM Studio Integration: Web UI components for model discovery, configuration testing, and dimension validation.
-- Enhanced JavaScript Module Support: Expanded processing capabilities for ES modules (.mjs) and CommonJS modules (.cjs).
+- Enhanced Language Detection: Supports expanded ecosystem files including Python, JavaScript/TypeScript, and C#/.NET project files.
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
@@ -171,12 +165,9 @@ WSS --> LP
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts#L17-L66)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L71)
 - [repoEmbeddingOrchestrator.ts](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L49-L217)
-- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L10-L90)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 ## Architecture Overview
-The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds using the selected provider, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities across three providers and provides comprehensive debugging capabilities with expanded JavaScript module format support.
+The pipeline follows a staged flow: repository orchestration feeds file paths to the embedding pipeline, which reads content, chunks it, embeds using the selected provider, and upserts vectors into the vector database. The enhanced embedding service now manages request priorities across three providers and provides comprehensive debugging capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -189,7 +180,7 @@ participant Provider as "Gemini/Ollama/LM Studio"
 participant Adapter as "VectorDbAdapter"
 Orchestrator->>Pipeline : "Process file"
 Pipeline->>Pipeline : "Skip binary / empty / .git"
-Pipeline->>Pipeline : "Read file content (including .mjs/.cjs)"
+Pipeline->>Pipeline : "Enhanced text detection<br/>Python/JS/.NET project files"
 Pipeline->>Chunker : "Generate chunks (semantic or line-based)"
 Chunker-->>Pipeline : "TextChunk[]"
 Pipeline->>EmbedSvc : "embedTexts(batch, priority=false)"
@@ -218,7 +209,7 @@ Pipeline-->>Orchestrator : "vector count"
 
 ### File Embedding Pipeline
 Responsibilities:
-- Binary detection and skip
+- Binary detection and skip with enhanced language support
 - Empty content and directory checks
 - Abort signal handling
 - Chunking configuration selection (semantic vs token-based)
@@ -227,8 +218,8 @@ Responsibilities:
 - Comprehensive logging and error wrapping
 
 Key behaviors:
-- Binary file filtering uses extension and basename whitelists.
-- Enhanced JavaScript module format support includes .mjs and .cjs extensions.
+- Binary file filtering uses extension and basename whitelists with expanded ecosystem support.
+- Enhanced text detection recognizes Python (pyproject.toml, poetry.lock, uv.lock), JavaScript/TypeScript (bun.lockb, deno.json, deno.jsonc, deno.lock), and C#/.NET project files.
 - Chunking is chosen based on AST support and language detection.
 - Embeddings are produced in batches with configurable concurrency.
 - Vectors are upserted in batches with separate concurrency control.
@@ -239,10 +230,10 @@ flowchart TD
 Start(["Start embedAndUpsertFile"]) --> CheckGit[".git filter"]
 CheckGit --> IsBinary{"Binary?"}
 IsBinary --> |Yes| SkipBinary["Skip file"]
-IsBinary --> |No| ReadFile["Read UTF-8 content (including .mjs/.cjs)"]
+IsBinary --> |No| ReadFile["Read UTF-8 content"]
 ReadFile --> EmptyCheck{"Empty?"}
 EmptyCheck --> |Yes| SkipEmpty["Skip file"]
-EmptyCheck --> |No| DetectLang["Detect language & AST support"]
+EmptyCheck --> |No| DetectLang["Detect language & AST support<br/>Enhanced: Python/JS/.NET"]
 DetectLang --> ChunkCfg["Build ChunkingConfig<br/>useSemanticChunking/useTokenEstimation"]
 ChunkCfg --> ChunkText["chunkText()"]
 ChunkText --> FilterEmpty["Filter empty chunks"]
@@ -261,6 +252,33 @@ BatchUpsert --> Done(["Return vector count"])
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
+
+### Enhanced Text Detection Logic
+The pipeline now supports significantly expanded language ecosystems:
+
+**Python Ecosystem:**
+- pyproject.toml: Modern Python project configuration
+- poetry.lock: Poetry dependency lock file
+- uv.lock: uv package manager lock file
+
+**JavaScript/TypeScript Ecosystem:**
+- bun.lockb: Bun package manager lock file
+- deno.json: Deno runtime configuration
+- deno.jsonc: Deno runtime configuration with comments
+- deno.lock: Deno dependency lock file
+
+**C#/.NET Ecosystem:**
+- .csproj: C# project files
+- .sln: Visual Studio solution files
+- packages.config: NuGet packages configuration
+- global.json: .NET SDK configuration
+- Directory.Build.props: MSBuild properties
+- Directory.Build.targets: MSBuild targets
+
+**Section sources**
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L40-L75)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
+- [fileEmbeddingPipeline.test.ts](file://src/test/core/indexing/fileEmbeddingPipeline.test.ts#L95-L129)
 
 ### Enhanced Text Chunking Algorithm
 Capabilities:
@@ -397,52 +415,27 @@ LMStudioProvider ..|> IEmbeddingProvider
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L42-L44)
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L87-L89)
 
-### Enhanced JavaScript Module Format Support
-The system now provides comprehensive support for modern JavaScript module formats, expanding beyond traditional .js files to include ES modules (.mjs) and CommonJS modules (.cjs). This enhancement ensures compatibility with contemporary JavaScript development practices and build systems.
+### Enhanced Tree-sitter Service
+The Tree-sitter service now supports additional programming languages crucial for modern development ecosystems:
 
-**Updated** Enhanced with support for .mjs and .cjs JavaScript module formats
+**Supported Languages:**
+- JavaScript/TypeScript: Enhanced AST parsing
+- Python: Full Python language support with pyproject.toml recognition
+- Rust: Existing support maintained
+- C#: New comprehensive C# language support
+- Dart: New Dart language support
 
-Key Features:
-- ES modules (.mjs) support for modern JavaScript development
-- CommonJS modules (.cjs) compatibility for legacy and mixed environments
-- Seamless integration with existing JavaScript processing pipeline
-- AST-based chunking for both .mjs and .cjs files when Tree-sitter support is available
-- Consistent handling with other JavaScript file types (.js, .jsx, .ts, .tsx)
-
-JavaScript module format coverage includes:
-- Traditional JavaScript: .js, .jsx
-- Modern JavaScript: .mjs (ES modules), .cjs (CommonJS)
-- TypeScript variants: .ts, .tsx
-- Mixed environment support: .mts, .cts for TypeScript modules
+**Language Detection Enhancements:**
+- Updated language detection mappings for .cs and .dart extensions
+- Enhanced symbol extraction for C# methods, classes, and interfaces
+- Improved Python function and class detection
+- Dart function signature and class detection
 
 **Section sources**
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
-
-### LM Studio Provider Implementation
-The LM Studio provider offers local AI inference capabilities with comprehensive error handling and dimension validation. It supports optional authentication and handles multiple response formats from the LM Studio API.
-
-**New** LM Studio provider implementation with robust error handling and dimension validation
-
-Key Features:
-- Local AI inference support for offline embedding generation
-- Optional API key authentication with bearer token support
-- Flexible response format handling (OpenAI-style and direct responses)
-- Dimension validation with warning-only approach for flexibility
-- Parallelized batch processing for improved throughput
-- Comprehensive error logging and debugging information
-
-Configuration Options:
-- baseUrl: LM Studio server URL (default: http://localhost:1234/v1)
-- apiKey: Optional bearer token for authentication
-- model: Embedding model loaded in LM Studio
-- dimension: Expected embedding vector dimension
-
-**Section sources**
-- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L3-L8)
-- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L17-L78)
-- [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L80-L89)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L7-L8)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L84-L89)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L454-L467)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L472-L482)
 
 ### Vector Identity and Metadata
 Vector IDs are deterministic and include repoId, file path, chunk index, and a short text hash. Metadata includes repoId, file path, chunk indices, source, text hash, and updated timestamp. This enables:
@@ -564,7 +557,6 @@ Usage Examples:
 | **Offline Capability** | No | Yes | Yes |
 | **Model Loading** | Predefined | Dynamic | Dynamic |
 | **Error Handling** | Structured | Standard | Comprehensive |
-| **JavaScript Module Support** | .js, .jsx, .ts, .tsx | .js, .jsx, .mjs, .cjs, .ts, .tsx | .js, .jsx, .mjs, .cjs, .ts, .tsx |
 
 ### Provider Configuration Examples
 
@@ -609,9 +601,8 @@ lmstudio: {
   - Multi-provider Embedding service for provider abstraction
   - Vector DB adapter for persistence
   - Retry service for robustness
-  - Tree-sitter service for AST-based chunking
+  - Tree-sitter service for AST-based chunking with expanded language support
   - Vector identity for deterministic IDs
-  - Enhanced JavaScript module format support for .mjs and .cjs files
 
 ```mermaid
 graph LR
@@ -627,10 +618,11 @@ ES --> LP["LMStudioProvider.ts"]
 ES --> ET["types.ts"]
 ES --> ESQ["Priority Queue System"]
 ES --> ESD["Debugging Stats"]
-WSC --> LMS["LM Studio Config Schema"]
-WSS --> LP
-MG["markdownGenerator.ts"] --> FEP
-CF["compressFile.ts"] --> TC
+PYTHON[".NET/C# Support"] --> FEP
+JSTS["Python Ecosystem"] --> FEP
+CSHARP["JavaScript/TypeScript"] --> FEP
+TS --> PYTHON
+TS --> CSHARP
 ```
 
 **Diagram sources**
@@ -643,11 +635,6 @@ CF["compressFile.ts"] --> TC
 - [OllamaProvider.ts](file://src/core/indexing/embeddings/OllamaProvider.ts#L1-L1)
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L1-L1)
 - [types.ts](file://src/core/indexing/embeddings/types.ts#L1-L6)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
-- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L4-L10)
@@ -682,12 +669,10 @@ CF["compressFile.ts"] --> TC
   - LM Studio supports local inference with configurable model loading
   - Gemini provides fixed dimensionality for predictable performance
   - Ollama offers flexible model selection with dynamic dimension control
-- Enhanced JavaScript module processing:
-  - Efficient handling of .mjs and .cjs files with AST-based chunking
-  - Optimized memory usage for modern JavaScript module formats
-  - Consistent performance across different JavaScript module types
-
-[No sources needed since this section provides general guidance]
+- Enhanced language support:
+  - Expanded ecosystem file processing reduces unnecessary binary filtering
+  - Improved language detection reduces misclassification errors
+  - Tree-sitter AST parsing optimized for Python, C#, and Dart languages
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -715,16 +700,19 @@ Common issues and resolutions:
 - Priority starvation:
   - Ensure user-facing operations use `priority: true`
   - Background tasks automatically use lower priority
-- LM Studio specific issues:
-  - Verify LM Studio server is running and accessible
-  - Ensure embedding models are loaded in LM Studio
-  - Check model compatibility with configured dimension
-  - Test model availability using web UI components
-- JavaScript module format issues:
-  - .mjs and .cjs files are now properly recognized as text files
-  - Ensure Tree-sitter language support is available for AST-based chunking
-  - Verify file permissions for .mjs and .cjs module files
-  - Check for syntax errors in JavaScript module files affecting chunking
+- Language detection issues:
+  - Verify file extensions match supported ecosystems
+  - Check Tree-sitter WASM files are available for new languages
+  - Ensure proper language mapping for .cs and .dart files
+- Python ecosystem files:
+  - pyproject.toml, poetry.lock, and uv.lock are now recognized as text files
+  - Verify Python WASM parser is available in assets/tree-sitter-wasm
+- JavaScript/TypeScript ecosystem files:
+  - bun.lockb, deno.json, deno.jsonc, and deno.lock are now processed as text
+  - Ensure proper language detection for .ts and .tsx files
+- C#/.NET project files:
+  - .csproj, .sln, packages.config, global.json, and Directory.Build files are recognized
+  - Verify Tree-sitter C# language support is properly initialized
 
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L200-L213)
@@ -735,13 +723,9 @@ Common issues and resolutions:
 - [LMStudioProvider.ts](file://src/core/indexing/embeddings/LMStudioProvider.ts#L41-L45)
 - [retryService.ts](file://src/core/indexing/retryService.ts#L22-L58)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
 
 ## Conclusion
-The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors across three embedding providers. Its enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports Gemini, Ollama, and LM Studio providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale with flexible deployment options. The enhanced JavaScript module format support expands compatibility with modern development practices, ensuring comprehensive coverage of contemporary JavaScript ecosystems including ES modules (.mjs) and CommonJS modules (.cjs).
-
-[No sources needed since this section summarizes without analyzing specific files]
+The File Embedding Pipeline provides a robust, extensible, and efficient mechanism to transform repository content into searchable vectors across three embedding providers. Its enhanced language support now covers modern development ecosystems including Python, JavaScript/TypeScript, and C#/.NET projects. The expanded text detection logic ensures comprehensive project file recognition, while the enhanced priority queue system ensures responsive user operations while maintaining fair background processing. The modular design supports Gemini, Ollama, and LM Studio providers, safe incremental updates, comprehensive debugging capabilities, and strong error handling, enabling reliable embeddings at scale with flexible deployment options.
 
 ## Appendices
 
@@ -778,20 +762,16 @@ Provider configuration examples for EmbeddingService:
   - Indexing operations: `embeddingService.embedTexts(chunks, 'indexing', false)`
   - Example reference: [nodes.ts](file://src/search/nodes.ts#L101-L102)
 
-- LM Studio Configuration Schema
-  - baseUrl: string URL with default 'http://localhost:1234/v1'
-  - apiKey: optional string with default empty
-  - model: string minimum length 1
-  - dimension: positive number with default 768
-  - Example reference: [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
+- Enhanced Language Support Configuration
+  - Python ecosystem: pyproject.toml, poetry.lock, uv.lock
+  - JavaScript/TypeScript: bun.lockb, deno.json, deno.jsonc, deno.lock
+  - C#/.NET: .csproj, .sln, packages.config, global.json, Directory.Build.*
+  - Example reference: [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L50-L66)
 
-- LM Studio Web UI Integration
-  - Model discovery via `/models` endpoint
-  - Dimension testing via sample embedding requests
-  - Real-time configuration validation
-  - Example references:
-    - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-    - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+- Tree-sitter Language Configuration
+  - Supported languages: javascript, typescript, python, rust, csharp, dart
+  - WASM parsers location: assets/tree-sitter-wasm/
+  - Example reference: [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L84-L89)
 
 - Repository indexing configuration (repomix.config.json)
   - maxFileSize: controls maximum file size considered
@@ -802,27 +782,14 @@ Provider configuration examples for EmbeddingService:
   - Scans repository, applies ignore patterns, persists file list to database
   - Example reference: [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
 
-- Enhanced JavaScript Module Format Support
-  - .js, .jsx, .mjs, .cjs, .ts, .tsx files are now processed as text
-  - AST-based chunking available for .mjs and .cjs when Tree-sitter support is present
-  - Consistent handling with other JavaScript file types
-  - Example references:
-    - [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-    - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
-    - [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
-
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L5-L15)
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L130-L143)
 - [nodes.ts](file://src/search/nodes.ts#L101-L102)
-- [configSchema.ts](file://src/config/configSchema.ts#L151-L157)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L50-L66)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L84-L89)
 - [repomix.config.json](file://repomix.config.json#L1-L43)
 - [repoIndexer.ts](file://src/core/indexing/repoIndexer.ts#L28-L121)
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
 
 ### Validation and Metadata Expectations
 - Vector metadata fields verified by tests:
@@ -841,30 +808,28 @@ Provider configuration examples for EmbeddingService:
 **Section sources**
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L76-L83)
 
-### LM Studio Integration Details
-- Web UI components for LM Studio configuration:
-  - Model discovery with automatic fetching
-  - Dimension testing with real-time feedback
-  - Configuration validation and error handling
-  - Example references:
-    - [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-    - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
+### Enhanced Language Support Details
+- Python ecosystem files recognized as text:
+  - pyproject.toml: Modern Python project configuration
+  - poetry.lock: Poetry dependency management
+  - uv.lock: uv package manager lock files
+- JavaScript/TypeScript ecosystem files recognized as text:
+  - bun.lockb: Bun package manager
+  - deno.json/deno.jsonc: Deno runtime configuration
+  - deno.lock: Deno dependency lock
+- C#/.NET project files recognized as text:
+  - .csproj: C# project files
+  - .sln: Visual Studio solutions
+  - packages.config: NuGet packages
+  - global.json: .NET SDK configuration
+  - Directory.Build.props/targets: MSBuild customization
+- Tree-sitter language support:
+  - Python, C#, and Dart language parsers available
+  - WASM files located in assets/tree-sitter-wasm/
+  - Language detection mappings updated for new extensions
 
 **Section sources**
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L839-L963)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L530-L973)
-
-### Enhanced JavaScript Module Format Coverage
-- Comprehensive JavaScript ecosystem support:
-  - ES modules: .mjs (ECMAScript modules)
-  - CommonJS modules: .cjs (CommonJS modules)
-  - Traditional JavaScript: .js, .jsx
-  - TypeScript variants: .ts, .tsx
-  - Mixed environment support: .mts, .cts for TypeScript modules
-  - AST-based chunking for modern JavaScript formats when supported
-  - Consistent processing pipeline across all JavaScript module types
-
-**Section sources**
-- [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L57-L73)
-- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L80-L102)
-- [compressFile.ts](file://src/core/compression/compressFile.ts#L143-L144)
+- [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L50-L66)
+- [fileEmbeddingPipeline.test.ts](file://src/test/core/indexing/fileEmbeddingPipeline.test.ts#L95-L129)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L454-L467)
+- [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L472-L482)

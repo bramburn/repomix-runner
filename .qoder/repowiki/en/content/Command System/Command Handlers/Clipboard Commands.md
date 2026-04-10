@@ -20,6 +20,7 @@
 - [main.rs](file://rust/src/main.rs)
 - [Cargo.toml](file://rust/Cargo.toml)
 - [configLoader.ts](file://src/config/configLoader.ts)
+- [configSchema.ts](file://src/config/configSchema.ts)
 - [extension.ts](file://src/extension.ts)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts)
 - [BundleController.ts](file://src/webview/controllers/BundleController.ts)
@@ -28,16 +29,19 @@
 - [showTempNotification.ts](file://src/shared/showTempNotification.ts)
 - [logger.ts](file://src/shared/logger.ts)
 - [testCompression.ts](file://src/commands/testCompression.ts)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts)
 - [package.json](file://package.json)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced compressed Markdown generation with compression status tracking using compressed="true" attribute
-- Improved token counting notifications with formatted token count display in success messages
-- Better user feedback mechanisms with enhanced copy operation status reporting
-- Updated compressed content generation to include compression metadata in file entries
-- Enhanced copy operation success messages to display token count information
+- Enhanced clipboard commands with gitignore filtering capabilities for both copySelectedFilesToClipboard and copySelectedFilesAsCompressed commands
+- Added comprehensive notification system for ignored files with threshold-based user feedback
+- Implemented statistics reporting for filtered file operations including ignoredCount and totalCount metrics
+- Integrated expandUrisToFilesRespectingGitignore utility for intelligent file expansion with .gitignore respect
+- Added respectGitignoreInMarkdown configuration option with default false setting
+- Enhanced user feedback with gitignore-aware success messages and console logging
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -53,15 +57,15 @@
 
 ## Introduction
 This document explains the clipboard-related command implementations in the Repomix Runner extension. It focuses on:
-- copySelectedFilesToClipboard: Copies selected files or folders as Markdown to the clipboard, supporting both file-content and file modes.
-- copySelectedFilesAsCompressed: **Enhanced** command that copies selected files as compressed Markdown representations using AST-based compression for supported languages, offering users a choice between full content and compressed representations with enhanced compression status tracking.
+- copySelectedFilesToClipboard: Copies selected files or folders as Markdown to the clipboard, supporting both file-content and file modes with enhanced gitignore filtering capabilities.
+- copySelectedFilesAsCompressed: **Enhanced** command that copies selected files as compressed Markdown representations using AST-based compression for supported languages, offering users a choice between full content and compressed representations with enhanced compression status tracking and gitignore filtering.
 - copyRepomixOutput: Copies the last generated Repomix output file to the clipboard.
 - copySingleFileRespectingMode: Consolidated single file copy utility that respects the global copy mode setting and provides unified clipboard operations across all components.
 
-The system covers cross-platform clipboard operations, integration with a Rust-based clipboard binary, remote clipboard support, copy modes, validation, error handling, markdown generation, compressed content generation with compression status tracking, and temporary file management. Practical examples illustrate behavior in local and remote SSH environments, along with performance and security considerations.
+The system covers cross-platform clipboard operations, integration with a Rust-based clipboard binary, remote clipboard support, copy modes, validation, error handling, markdown generation, compressed content generation with compression status tracking, gitignore filtering with intelligent statistics reporting, and temporary file management. Practical examples illustrate behavior in local and remote SSH environments, along with performance and security considerations.
 
 ## Project Structure
-Clipboard functionality spans JavaScript/TypeScript commands and core modules, plus a Rust binary for cross-platform file clipboard operations. The enhanced compressed copying feature adds AST-based compression capabilities with language-specific parsing and improved user feedback mechanisms.
+Clipboard functionality spans JavaScript/TypeScript commands and core modules, plus a Rust binary for cross-platform file clipboard operations. The enhanced compressed copying feature adds AST-based compression capabilities with language-specific parsing and improved user feedback mechanisms. The new gitignore filtering system provides intelligent file selection based on .gitignore rules with comprehensive statistics reporting.
 
 ```mermaid
 graph TB
@@ -89,6 +93,8 @@ LOGGER["logger.ts"]
 TESTCOMP["testCompression.ts"]
 GDIFF["gitDiffValidator.ts"]
 PKG["package.json"]
+EXPANDER["filteredFileExpander.ts"]
+GITIGNORE["gitignoreUtils.ts"]
 end
 subgraph "Rust Binary"
 RS["main.rs"]
@@ -98,9 +104,11 @@ subgraph "Webview (Remote)"
 WVH["remoteClipboardHandler.ts"]
 WVT["remoteClipboardMessages.ts"]
 end
+CMD1 --> EXPANDER
 CMD1 --> CORE1
 CMD1 --> CORE2
 CMD1 --> CFG
+CMD2 --> EXPANDER
 CMD2 --> CORE3
 CMD2 --> COMPRESS
 CMD2 --> CORE4
@@ -109,6 +117,7 @@ CMD3 --> CFG
 CMD3 --> CMD4
 CMD4 --> CORE4
 CMD4 --> CORE6
+EXPANDER --> GITIGNORE
 EXT --> CMD1
 EXT --> CMD2
 EXT --> CMD3
@@ -127,8 +136,8 @@ TESTCOMP --> COMPRESS
 ```
 
 **Diagram sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L148)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L173)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L171)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L196)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L1-L108)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L1-L39)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L1-L122)
@@ -153,22 +162,26 @@ TESTCOMP --> COMPRESS
 - [Cargo.toml](file://rust/Cargo.toml#L1-L12)
 - [remoteClipboardHandler.ts](file://src/webview/handlers/remoteClipboardHandler.ts#L1-L190)
 - [remoteClipboardMessages.ts](file://src/webview/types/remoteClipboardMessages.ts#L1-L52)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L101)
 - [package.json](file://package.json#L1-L661)
 
 **Section sources**
 - [extension.ts](file://src/extension.ts#L808-L813)
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L148)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L173)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L171)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L196)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L1-L108)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L1-L39)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L1-L122)
 - [package.json](file://package.json#L1-L661)
 
 ## Core Components
-- copySelectedFilesToClipboard: Orchestrates expansion of selected URIs (files and folders), workspace-relative path validation, markdown generation, and clipboard copy using either VS Code API or the Rust binary. Now delegates single file operations to the consolidated copySingleFileRespectingMode utility.
-- **Enhanced**: copySelectedFilesAsCompressed: **Enhanced** command that generates compressed Markdown representations using AST-based compression for supported languages (TypeScript, JavaScript, Dart, Python, C#, Rust). Falls back to full content for unsupported languages and includes token counting with enhanced user feedback displaying token counts in success messages.
+- copySelectedFilesToClipboard: Orchestrates expansion of selected URIs (files and folders), workspace-relative path validation, markdown generation, and clipboard copy using either VS Code API or the Rust binary. Now delegates single file operations to the consolidated copySingleFileRespectingMode utility and includes enhanced gitignore filtering with statistics reporting.
+- **Enhanced**: copySelectedFilesAsCompressed: **Enhanced** command that generates compressed Markdown representations using AST-based compression for supported languages (TypeScript, JavaScript, Dart, Python, C#, Rust). Falls back to full content for unsupported languages and includes token counting with enhanced user feedback displaying token counts in success messages. Now includes comprehensive gitignore filtering with intelligent statistics reporting and notification system.
 - copyRepomixOutput: Enhanced to use the consolidated copySingleFileRespectingMode utility, providing consistent mode handling and improved user feedback with mode differentiation.
 - copySingleFileRespectingMode: Consolidated single file copy utility that provides unified clipboard operations respecting global copy mode settings, supporting both content and file modes with proper error handling and temporary file management.
+- **Enhanced**: filteredFileExpander: **New** core module that expands URIs to files with optional .gitignore filtering, providing comprehensive statistics including ignoredCount and totalCount metrics for intelligent file selection and user feedback.
+- **Enhanced**: gitignoreUtils: **New** utility module that collects and processes .gitignore patterns from all subdirectories with proper path scoping and pattern normalization for accurate file filtering.
 - **Enhanced**: compressedMarkdownGenerator: **Enhanced** module that generates compressed markdown by concatenating files through AST compression, falling back to full content for unsupported languages with proper error handling and compression status tracking using compressed="true" attribute.
 - compressFile: **New** core compression module that implements language-specific parsing using Tree-sitter parsers, chunk deduplication, and adjacent chunk merging for efficient content representation.
 - runRepomixClipboardGenerateMarkdown: Streamlined to delegate single file operations to copySingleFileRespectingMode, reducing code duplication and improving consistency across markdown generation and clipboard operations.
@@ -177,15 +190,18 @@ TESTCOMP --> COMPRESS
 - remoteClipboardHandler: Executes the Rust binary on remote machines to copy files to the Windows clipboard, managing temporary files and cleanup.
 - remoteDetection: Detects remote environments and client OS/architecture for correct binary execution decisions.
 - tempDirManager: Manages temporary directories and safe cleanup of temporary files.
-- configLoader: Supplies the copy mode (content vs file) used by clipboard operations.
+- configLoader: Supplies the copy mode (content vs file) and respectGitignoreInMarkdown setting used by clipboard operations.
+- configSchema: Defines the respectGitignoreInMarkdown configuration option with default false setting for controlling .gitignore filtering behavior.
 - gitUtils: Comprehensive Git repository interaction utilities including repository detection, change tracking, URI deduplication, and change counting for console feedback.
 - gitDiffValidator: Advanced Git-based validation for blueprint freshness checking with critical path monitoring.
 
 **Section sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L67-L147)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L58-L144)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L68-L170)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L59-L196)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L18-L59)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L12-L38)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L11-L58)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 - [runRepomixClipboardGenerateMarkdown.ts](file://src/core/files/runRepomixClipboardGenerateMarkdown.ts#L29-L83)
@@ -195,16 +211,18 @@ TESTCOMP --> COMPRESS
 - [remoteDetection.ts](file://src/core/files/remoteDetection.ts#L31-L108)
 - [tempDirManager.ts](file://src/core/files/tempDirManager.ts#L9-L67)
 - [configLoader.ts](file://src/config/configLoader.ts#L99-L103)
+- [configSchema.ts](file://src/config/configSchema.ts#L126-L138)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L88-L121)
 - [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L40-L207)
 
 ## Architecture Overview
-The clipboard system integrates three pathways with enhanced Git integration, improved console feedback, and enhanced user notification mechanisms, now centered around the consolidated copySingleFileRespectingMode utility and enhanced with compressed file copying capabilities:
+The clipboard system integrates three pathways with enhanced Git integration, improved console feedback, and enhanced user notification mechanisms, now centered around the consolidated copySingleFileRespectingMode utility and enhanced with compressed file copying capabilities and intelligent gitignore filtering:
 - Local file-mode: Uses a Rust binary to copy files to the OS clipboard (Windows) or platform-specific commands (macOS/Linux).
 - Local content-mode: Uses VS Code's clipboard API to copy concatenated Markdown text.
 - Remote SSH: Webview executes the Rust binary on the client machine to place files on the Windows clipboard.
 - Single file operations: Unified copy system that respects global copy mode settings with enhanced error handling and dynamic UI feedback.
 - **Enhanced**: Compressed file copying: AST-based compression for supported languages with fallback to full content, providing reduced token count while preserving essential code structure, enhanced with compression status tracking and improved user feedback.
+- **Enhanced**: Gitignore filtering: Intelligent file expansion with .gitignore respect, comprehensive statistics reporting, and threshold-based user notifications for ignored files.
 - Git repository integration: Automatic detection of staged, unstaged, and untracked changes with intelligent repository selection, change tracking, and detailed console feedback through getChangesCounts.
 
 ```mermaid
@@ -213,6 +231,7 @@ participant U as "User"
 participant VS as "VS Code"
 participant CMD as "copySelectedFilesToClipboard.ts"
 participant CMDC as "copySelectedFilesAsCompressed.ts"
+participant EXP as "filteredFileExpander.ts"
 participant GITSVC as "gitUtils.ts"
 participant SFM as "copySingleFileRespectingMode.ts"
 participant MD as "markdownGenerator.ts"
@@ -225,7 +244,11 @@ participant RB as "Rust Binary (main.rs)"
 participant WV as "remoteClipboardHandler.ts"
 U->>VS : Invoke "copySelectedFilesAsCompressed"
 VS->>CMDC : Execute handler
-CMDC->>CMDC : Expand URIs and validate paths
+CMDC->>CMDC : Expand URIs with gitignore filtering
+CMDC->>EXP : expandUrisToFilesRespectingGitignore()
+EXP->>EXP : Load .gitignore patterns
+EXP->>EXP : Filter files based on patterns
+EXP-->>CMDC : {files, ignoredCount, totalCount}
 CMDC->>CMDG : Generate compressed Markdown with compression status
 CMDG->>COMP : Parse and compress files
 COMP-->>CMDG : Compressed content or null (with status)
@@ -237,17 +260,21 @@ CMDC->>CMDC : Create temp compressed file
 CMDC->>RC : Copy compressed file via clipboard mechanism
 RC->>RB : Execute binary or platform command
 end
-CMDC->>VS : Show success message with token count display
+CMDC->>VS : Show success message with token count and gitignore info
 U->>VS : Invoke "copySelectedFilesToClipboard"
 VS->>CMD : Execute handler with selected files
-CMD->>CMD : Expand URIs and validate paths
+CMD->>CMD : Expand URIs with gitignore filtering
+CMD->>EXP : expandUrisToFilesRespectingGitignore()
+EXP->>EXP : Load .gitignore patterns
+EXP->>EXP : Filter files based on patterns
+EXP-->>CMD : {files, ignoredCount, totalCount}
 CMD->>MD : Generate concatenated Markdown (content mode)
 CMD->>RMD : Generate Markdown and copy via Rust binary (file mode)
 RMD->>SFM : Delegate to consolidated utility
 SFM->>RC : Handle file mode operations
 SFM->>VS : Handle content mode operations
 Note over SFM : Unified single file handling
-CMD-->>VS : Show success message with token count
+CMD-->>VS : Show success message with token count and gitignore info
 VS->>RC : For file-mode operations
 RC->>RD : Detect remote/local OS
 alt Remote SSH
@@ -258,8 +285,10 @@ end
 ```
 
 **Diagram sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L119-L133)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L109-L127)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L84-L118)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L75-L109)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L12-L38)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L61-L106)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L11-L58)
@@ -274,46 +303,50 @@ end
 ## Detailed Component Analysis
 
 ### copySelectedFilesToClipboard
-- Purpose: Copy selected files/folders to the clipboard as Markdown.
+- Purpose: Copy selected files/folders to the clipboard as Markdown with enhanced gitignore filtering capabilities.
 - Key steps:
-  - Expand URIs to files (folders recursively), capped at 50 files.
+  - Expand URIs to files (folders recursively, up to 50 files) with optional .gitignore filtering based on respectGitignoreInMarkdown setting.
   - Compute workspace-relative paths and filter out items outside the workspace.
   - Validate paths to prevent traversal or absolute paths.
   - Choose copy mode from configuration:
     - content: concatenate Markdown and write text to clipboard.
     - file: generate Markdown and copy via Rust binary (Windows) or VS Code API (Unix-like).
+  - **Enhanced**: Show notification about ignored files when respectGitignoreInMarkdown is enabled and ignoredCount > 0.
+  - **Enhanced**: Include gitignore filtering statistics in success messages.
 - Enhanced: Now delegates single file operations to copySingleFileRespectingMode for consistent behavior.
 - Progress UI and notifications inform the user of progress and results.
 - Error handling logs and shows user-friendly messages.
 
 ```mermaid
 flowchart TD
-Start(["Entry"]) --> Expand["Expand URIs to files (<=50)"]
+Start(["Entry"]) --> Expand["Expand URIs with gitignore filtering (<=50)"]
 Expand --> ValidatePaths["Compute relative paths and validate"]
 ValidatePaths --> Mode{"Copy mode?"}
 Mode --> |content| GenText["Generate concatenated Markdown"]
 GenText --> WriteText["Write text to clipboard"]
 Mode --> |file| GenFile["Generate Markdown and copy via Rust binary"]
 GenFile --> Delegate["Delegate to copySingleFileRespectingMode"]
-Delegate --> Done(["Show success with token count"])
+Delegate --> Notify["Show ignored files notification if applicable"]
+Notify --> Done(["Show success with token count and gitignore info"])
 WriteText --> Done
 ValidatePaths --> |Invalid| ErrMsg["Show error and exit"]
 ```
 
 **Diagram sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L67-L147)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L84-L170)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
 - [markdownGenerator.ts](file://src/core/files/markdownGenerator.ts#L104-L146)
 - [runRepomixClipboardGenerateMarkdown.ts](file://src/core/files/runRepomixClipboardGenerateMarkdown.ts#L29-L83)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L12-L38)
 
 **Section sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L67-L147)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L68-L170)
 - [configLoader.ts](file://src/config/configLoader.ts#L99-L103)
 
 ### copySelectedFilesAsCompressed (Enhanced)
-- Purpose: **Enhanced** command that copies selected files as compressed Markdown representations using AST-based compression for supported languages.
+- Purpose: **Enhanced** command that copies selected files as compressed Markdown representations using AST-based compression for supported languages with comprehensive gitignore filtering capabilities.
 - Key features:
-  - Expand URIs to files (folders recursively), capped at 50 files.
+  - Expand URIs to files (folders recursively, up to 50 files) with optional .gitignore filtering based on respectGitignoreInMarkdown setting.
   - Compute workspace-relative paths and filter out items outside the workspace.
   - Validate paths to prevent traversal or absolute paths.
   - **Enhanced**: Generate compressed content regardless of copy mode setting using AST-based compression with enhanced compression status tracking.
@@ -324,32 +357,36 @@ ValidatePaths --> |Invalid| ErrMsg["Show error and exit"]
   - **Enhanced**: File mode handling creates temporary compressed files for clipboard operations with enhanced user feedback.
   - **Enhanced**: Compression status tracking using compressed="true" attribute in file entries.
   - **Enhanced**: Improved success messages displaying token count information for better user feedback.
+  - **Enhanced**: Comprehensive gitignore filtering with intelligent statistics reporting including ignoredCount and totalCount metrics.
+  - **Enhanced**: Threshold-based notification system for ignored files (only show when ignoredCount >= 5).
 - Progress UI and notifications inform the user of progress and results.
 - Error handling logs and shows user-friendly messages.
 
 ```mermaid
 flowchart TD
-Start(["Entry"]) --> Expand["Expand URIs to files (<=50)"]
+Start(["Entry"]) --> Expand["Expand URIs with gitignore filtering (<=50)"]
 Expand --> ValidatePaths["Compute relative paths and validate"]
 ValidatePaths --> GenCompressed["Generate compressed Markdown with status tracking"]
 GenCompressed --> Mode{"Copy mode?"}
 Mode --> |content| WriteText["Write compressed text to clipboard with token count"]
 Mode --> |file| CreateTemp["Create temporary compressed file"]
 CreateTemp --> CopyFile["Copy compressed file via clipboard mechanism"]
-WriteText --> Done(["Show success with token count display"])
+WriteText --> Done(["Show success with token count display and gitignore info"])
 CopyFile --> Cleanup["Schedule temporary file cleanup"]
 Cleanup --> Done
 ValidatePaths --> |Invalid| ErrMsg["Show error and exit"]
 ```
 
 **Diagram sources**
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L58-L144)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L75-L196)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L11-L58)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L12-L38)
 
 **Section sources**
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L58-L144)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L59-L196)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L11-L58)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L74-L132)
 
@@ -429,6 +466,98 @@ Validate --> |Invalid| Error["Throw error"]
 **Section sources**
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L12-L38)
 - [configLoader.ts](file://src/config/configLoader.ts#L99-L103)
+
+### filteredFileExpander (Enhanced)
+- Purpose: **Enhanced** core module that expands URIs to files with optional .gitignore filtering, providing comprehensive statistics including ignoredCount and totalCount metrics for intelligent file selection and user feedback.
+- Key features:
+  - **New**: Integrates with gitignoreUtils to collect patterns from all subdirectories with proper path scoping.
+  - **New**: Uses the ignore npm package for accurate .gitignore pattern matching and file filtering.
+  - **New**: Maintains comprehensive statistics including ignoredCount and totalCount for user feedback.
+  - **New**: Preserves explicitly selected files even if they match .gitignore patterns.
+  - **New**: Implements intelligent directory filtering to skip entire subtrees when directories themselves are ignored.
+  - **New**: Converts file paths to forward slashes for gitignore compatibility and proper matching.
+  - **New**: Handles edge cases like files outside the workspace root gracefully.
+  - **Enhanced**: Provides detailed console logging for debugging and user awareness.
+- Error handling:
+  - Gracefully falls back to including all files if .gitignore loading fails.
+  - Silently ignores inaccessible directories during pattern collection.
+- Statistics reporting:
+  - Returns ignoredCount for user feedback when files are filtered out.
+  - Returns totalCount for comprehensive statistics before filtering.
+
+```mermaid
+flowchart TD
+Start(["Entry"]) --> InitIG["Initialize ignore instance"]
+InitIG --> LoadPatterns["Load .gitignore patterns from all subdirectories"]
+LoadPatterns --> Walk["Walk through URIs recursively"]
+Walk --> CheckFile{"Is file?"}
+CheckFile --> |Yes| Include["Always include explicitly selected files"]
+CheckFile --> |No| CheckDir{"Is directory?"}
+CheckDir --> |Yes| DirFilter["Check if directory itself is ignored"]
+DirFilter --> |Ignored| Skip["Skip entire subtree"]
+DirFilter --> |Not ignored| WalkChildren["Process children"]
+CheckDir --> |No| Error["Handle error"]
+WalkChildren --> CheckChildType{"Child type?"}
+CheckChildType --> |File| ChildFilter["Apply .gitignore filtering"]
+ChildFilter --> |Included| Add["Add to result"]
+ChildFilter --> |Excluded| Count["Increment ignoredCount"]
+CheckChildType --> |Directory| WalkChild["Recursive walk"]
+WalkChild --> WalkChildren
+Add --> WalkChildren
+Count --> WalkChildren
+Skip --> WalkChildren
+Include --> WalkChildren
+Error --> WalkChildren
+WalkChildren --> Done{"Max files reached?"}
+Done --> |No| Walk
+Done --> Stats["Calculate statistics"]
+Stats --> Return(["Return {files, ignoredCount, totalCount}"])
+```
+
+**Diagram sources**
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
+
+**Section sources**
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L168)
+
+### gitignoreUtils (New)
+- Purpose: **New** utility module that collects and processes .gitignore patterns from all subdirectories with proper path scoping and pattern normalization for accurate file filtering.
+- Key features:
+  - **New**: Recursively discovers all .gitignore files in a directory tree with depth-based sorting for proper precedence.
+  - **New**: Processes patterns according to git ignore specification including support for absolute patterns (/pattern), global patterns (**/pattern), and directory patterns (dir/).
+  - **New**: Applies proper path scoping where patterns are prefixed with relative directory paths for accurate matching.
+  - **New**: Handles edge cases like comments, empty lines, and malformed patterns gracefully.
+  - **New**: Skips .git directory to avoid indexing git internals.
+  - **New**: Provides comprehensive error handling with detailed console logging for debugging.
+- Pattern processing:
+  - Converts absolute patterns to relative patterns based on .gitignore location.
+  - Adds recursive versions of directory patterns for matching in subdirectories.
+  - Preserves global patterns (**/pattern) as-is for cross-directory matching.
+- Error handling:
+  - Silently skips directories that cannot be read due to permission issues.
+  - Continues processing even if individual .gitignore files cannot be read.
+
+```mermaid
+flowchart TD
+Start(["Entry"]) --> FindGI["Find all .gitignore files recursively"]
+FindGI --> SortDepth["Sort by depth (root first)"]
+SortDepth --> ProcessFiles["Process each .gitignore file"]
+ProcessFiles --> ReadContent["Read file content"]
+ReadContent --> SplitLines["Split into lines"]
+SplitLines --> FilterLines["Filter comments and empty lines"]
+FilterLines --> ParsePatterns["Parse patterns with proper scoping"]
+ParsePatterns --> AddPattern["Add pattern with directory prefix"]
+AddPattern --> NextFile{"More files?"}
+NextFile --> |Yes| ProcessFiles
+NextFile --> |No| LogStats["Log collected patterns"]
+LogStats --> Return(["Return scoped patterns array"])
+```
+
+**Diagram sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+
+**Section sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 
 ### compressedMarkdownGenerator (Enhanced)
 - Purpose: **Enhanced** module that generates compressed markdown by concatenating files through AST compression, falling back to full content for unsupported languages with enhanced compression status tracking.
@@ -750,10 +879,13 @@ Count --> Return(["Return concatenated + tokenCount"])
 - **Enhanced**: Token counting notifications provide immediate feedback on content size reduction achieved through compression.
 - **Enhanced**: Logger system provides comprehensive logging with emoji prefixes for better debugging and user awareness.
 - **Enhanced**: ShowTempNotification utility provides consistent progress indication with customizable duration and cancellation support.
+- **Enhanced**: Gitignore filtering notifications provide intelligent feedback about ignored files with threshold-based user communication (only shown when ignoredCount >= 5).
+- **Enhanced**: Statistics reporting provides comprehensive insights into filtering effectiveness with ignoredCount and totalCount metrics.
 
 **Section sources**
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L40-L44)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L129-L138)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L156-L161)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L162-L164)
 - [logger.ts](file://src/shared/logger.ts#L44-L94)
 - [showTempNotification.ts](file://src/shared/showTempNotification.ts#L1-L61)
 
@@ -768,6 +900,7 @@ Count --> Return(["Return concatenated + tokenCount"])
 - Unified Copy System: Integration with the consolidated copySingleFileRespectingMode command enables consistent behavior across different copy operations
 - **Enhanced**: Copy mode propagation: Controllers receive copy mode information to update UI state appropriately
 - **Enhanced**: Token count display: Success messages now show formatted token count for better user understanding
+- **Enhanced**: Gitignore filtering indicators: Success messages now include "(respecting .gitignore)" suffix when filtering is enabled
 
 **Section sources**
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L214-L219)
@@ -787,7 +920,7 @@ Count --> Return(["Return concatenated + tokenCount"])
 - [messageSchemas.ts](file://src/webview/messageSchemas.ts#L255-L258)
 
 ### Package.json Configuration Updates
-- Version Bump: Updated to version 1.0.22 for proper release management
+- Version Bump: Updated to version 1.0.23 for proper release management
 - **Enhanced**: Activation event for copySelectedFilesAsCompressed command
 - SCM Menu Integration: Enhanced SCM context menu support with proper Git repository integration
 - Command Registration: Proper activation events and command palette integration
@@ -801,8 +934,9 @@ Count --> Return(["Return concatenated + tokenCount"])
 - [package.json](file://package.json#L521)
 
 ## Dependency Analysis
-- Commands depend on configuration for copy mode and on markdown generation utilities.
+- Commands depend on configuration for copy mode and respectGitignoreInMarkdown setting for controlling .gitignore filtering behavior.
 - **Enhanced**: Compressed file copying depends on AST-based compression modules and language-specific parsers with enhanced compression status tracking.
+- **Enhanced**: Gitignore filtering depends on filteredFileExpander and gitignoreUtils modules for comprehensive file expansion with statistics reporting.
 - File-mode clipboard operations depend on remote detection and temporary directory management.
 - Enhanced: Single file operations integrate with the consolidated copySingleFileRespectingMode utility and webview message schemas.
 - Git integration depends on VS Code's Git extension API and integrates with existing clipboard infrastructure with improved change tracking and console feedback.
@@ -811,16 +945,20 @@ Count --> Return(["Return concatenated + tokenCount"])
 - Webview components depend on message schemas for type-safe communication.
 - Package.json configuration provides proper SCM menu integration and version management.
 - **Enhanced**: Logger and notification systems provide comprehensive user feedback and debugging capabilities.
+- **Enhanced**: Configuration schema defines respectGitignoreInMarkdown setting with default false for backward compatibility.
 
 ```mermaid
 graph LR
 CMD1["copySelectedFilesToClipboard.ts"] --> CFG["configLoader.ts"]
 CMD1 --> MD["markdownGenerator.ts"]
 CMD1 --> RMD["runRepomixClipboardGenerateMarkdown.ts"]
+CMD1 --> EXP["filteredFileExpander.ts"]
+EXP --> GI["gitignoreUtils.ts"]
 CMD2["copySelectedFilesAsCompressed.ts"] --> CMDG["compressedMarkdownGenerator.ts"]
 CMD2 --> COMP["compressFile.ts"]
 CMD2 --> RC["copyToClipboard.ts"]
 CMD2 --> TM["tempDirManager.ts"]
+CMD2 --> EXP
 CMD3["copyRepomixOutput.ts"] --> CFG
 CMD3 --> SFM["copySingleFileRespectingMode.ts"]
 CMD4["copySingleFileRespectingMode.ts"] --> CFG
@@ -848,11 +986,12 @@ PKG["package.json"] --> EXT
 LOGGER["logger.ts"] --> CMD2
 SHOWNOTIFY["showTempNotification.ts"] --> CMD2
 TESTCOMP["testCompression.ts"] --> COMP
+CONFIGSCHEMA["configSchema.ts"] --> CFG
 ```
 
 **Diagram sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L148)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L173)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L171)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L196)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L1-L108)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L1-L39)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L1-L122)
@@ -876,11 +1015,14 @@ TESTCOMP["testCompression.ts"] --> COMP
 - [logger.ts](file://src/shared/logger.ts#L44-L94)
 - [showTempNotification.ts](file://src/shared/showTempNotification.ts#L1-L61)
 - [testCompression.ts](file://src/commands/testCompression.ts#L1-L38)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L101)
+- [configSchema.ts](file://src/config/configSchema.ts#L126-L138)
 
 **Section sources**
 - [extension.ts](file://src/extension.ts#L808-L813)
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L148)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L173)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L1-L171)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L1-L196)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L1-L108)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L1-L39)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L1-L122)
@@ -904,6 +1046,8 @@ TESTCOMP["testCompression.ts"] --> COMP
 - **Enhanced**: Package.json optimization: Proper SCM menu integration reduces command discovery overhead.
 - **Enhanced**: Consolidated utility: Reduced code duplication and improved performance through centralized clipboard operations.
 - **Enhanced**: User feedback systems: Logger and notification systems provide real-time feedback without significant performance impact.
+- **Enhanced**: Gitignore filtering: Pattern collection and file expansion add minimal overhead with significant user benefit for intelligent file selection.
+- **Enhanced**: Statistics reporting: ignoredCount and totalCount calculations provide comprehensive insights without impacting performance significantly.
 
 ## Security Considerations
 - Path validation: Workspace-relative paths are validated to prevent traversal and absolute paths.
@@ -916,19 +1060,23 @@ TESTCOMP["testCompression.ts"] --> COMP
 - **Enhanced**: Language-specific parsing: Tree-sitter parsers provide controlled code analysis with proper error handling.
 - **Enhanced**: Binary file detection: isBinaryFile function prevents processing of binary content in compressed mode.
 - **Enhanced**: Graceful fallbacks: Unsupported languages and compression failures fall back to full content without security risks.
-- **Enhanced**: Git repository access: Uses VS Code's built-in Git extension API with proper error handling and fallback mechanisms.
+- **Enhanced**: Git extension access: Uses VS Code's built-in Git extension API with proper error handling and fallback mechanisms.
 - **Enhanced**: Change validation: Git operations are performed through secure child process execution with proper error handling.
 - **Enhanced**: Console feedback: Detailed change counts provide transparency without exposing sensitive repository information.
 - **Enhanced**: Consolidated security: Single point of validation and error handling reduces security vulnerabilities.
 - **Enhanced**: User feedback security: Token count display and compression status tracking provide transparency without exposing sensitive content details.
+- **Enhanced**: Gitignore filtering security: .gitignore patterns are processed securely with proper path validation and error handling.
+- **Enhanced**: Pattern processing security: .gitignore pattern collection handles malformed patterns gracefully without security risks.
 
 **Section sources**
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L109-L113)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L101-L104)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L132-L135)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L123-L126)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L13-L15)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L31-L34)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L79-L82)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L32-L51)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L65-L76)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L40-L44)
 - [main.rs](file://rust/src/main.rs#L223-L248)
 
 ## Troubleshooting Guide
@@ -951,19 +1099,25 @@ TESTCOMP["testCompression.ts"] --> COMP
 - **Enhanced**: Token counting errors: Verify GPT tokenizer availability and proper encoding for compressed content.
 - **Enhanced**: User feedback issues: Logger and notification systems provide comprehensive feedback for debugging.
 - **Enhanced**: Compression status tracking: Verify compressed="true" attribute is properly applied to compressed file entries.
+- **Enhanced**: Gitignore filtering issues: Check .gitignore patterns are properly loaded and processed; verify respectGitignoreInMarkdown setting is enabled.
+- **Enhanced**: Statistics reporting problems: Verify ignoredCount and totalCount metrics are calculated correctly; check for proper pattern scoping.
+- **Enhanced**: Notification system failures: Verify threshold-based notifications only trigger for ignoredCount >= 5; check console logging for ignored files.
+- **Enhanced**: Configuration issues: Verify respectGitignoreInMarkdown setting is properly saved and loaded from VS Code settings.
 
 **Section sources**
 - [copyToClipboard.ts](file://src/core/files/copyToClipboard.ts#L109-L118)
 - [remoteDetection.ts](file://src/core/files/remoteDetection.ts#L79-L94)
 - [copyRepomixOutput.ts](file://src/commands/copyRepomixOutput.ts#L32-L40)
-- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L109-L113)
-- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L101-L104)
+- [copySelectedFilesToClipboard.ts](file://src/commands/copySelectedFilesToClipboard.ts#L132-L135)
+- [copySelectedFilesAsCompressed.ts](file://src/commands/copySelectedFilesAsCompressed.ts#L123-L126)
 - [copySingleFileRespectingMode.ts](file://src/commands/copySingleFileRespectingMode.ts#L13-L15)
 - [compressedMarkdownGenerator.ts](file://src/core/files/compressedMarkdownGenerator.ts#L50-L52)
 - [compressFile.ts](file://src/core/compression/compressFile.ts#L128-L131)
 - [remoteClipboardHandler.ts](file://src/webview/handlers/remoteClipboardHandler.ts#L107-L132)
 - [messageSchemas.ts](file://src/webview/messageSchemas.ts#L255-L258)
 - [gitUtils.ts](file://src/git/gitUtils.ts#L32-L51)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L46-L49)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L40-L44)
 - [package.json](file://package.json#L26)
 - [package.json](file://package.json#L339)
 - [package.json](file://package.json#L521)
@@ -971,7 +1125,11 @@ TESTCOMP["testCompression.ts"] --> COMP
 - [showTempNotification.ts](file://src/shared/showTempNotification.ts#L1-L61)
 
 ## Conclusion
-The clipboard system provides flexible, cross-platform copying of file content and Markdown summaries. It supports both local and remote environments, integrates a Rust-based binary for robust file clipboard operations on Windows, and offers safe temporary file management. The consolidation of clipboard functionality into the copySingleFileRespectingMode utility significantly enhances the system with configurable single file operations that respect global copy mode settings.
+The clipboard system provides flexible, cross-platform copying of file content and Markdown summaries with enhanced gitignore filtering capabilities. It supports both local and remote environments, integrates a Rust-based binary for robust file clipboard operations on Windows, and offers safe temporary file management. The consolidation of clipboard functionality into the copySingleFileRespectingMode utility significantly enhances the system with configurable single file operations that respect global copy mode settings.
+
+**Enhanced Gitignore Filtering Features** represent a major advancement in the clipboard system, introducing intelligent file selection capabilities that respect .gitignore patterns from all subdirectories with comprehensive statistics reporting. The filteredFileExpander module provides sophisticated file expansion with ignoredCount and totalCount metrics, enabling users to understand the filtering effectiveness. The gitignoreUtils module processes patterns according to git specification with proper path scoping and pattern normalization.
+
+**Enhanced Notification System** provides intelligent user feedback about ignored files with threshold-based communication (only shown when ignoredCount >= 5), preventing notification spam while keeping users informed about filtering behavior. The respectGitignoreInMarkdown configuration option allows users to control .gitignore filtering behavior with a default setting of false for backward compatibility.
 
 **Enhanced Compressed File Copying Features** represent a major advancement in the clipboard system, introducing AST-based compression capabilities for supported programming languages with enhanced compression status tracking. The copySelectedFilesAsCompressed command provides users with a choice between full content and compressed representations, significantly reducing token count for AI processing while preserving essential code structure. The compressed content generation utilizes Tree-sitter parsers for efficient AST analysis, with intelligent chunk deduplication and adjacent merging for optimal content representation.
 
@@ -981,4 +1139,4 @@ The system now includes comprehensive language support including TypeScript, Jav
 
 The Git integration maintains backward compatibility while extending functionality for modern development workflows that heavily utilize version control systems. The new compressed copying feature complements existing clipboard operations by providing specialized content reduction capabilities for AI-assisted development scenarios with enhanced user feedback and transparency. Enhanced package.json configuration provides proper activation events and menu integration for the new compressed copying functionality.
 
-**Updated** Version 1.0.22 introduces enhanced compressed file copying capabilities with compression status tracking, improved token counting notifications, better user feedback mechanisms, and consolidated clipboard operations for a more professional development experience with reduced code duplication and improved maintainability.
+**Updated** Version 1.0.23 introduces enhanced gitignore filtering capabilities with comprehensive statistics reporting, intelligent notification system for ignored files, and enhanced compressed file copying features with compression status tracking, improved token counting notifications, better user feedback mechanisms, and consolidated clipboard operations for a more professional development experience with reduced code duplication and improved maintainability.

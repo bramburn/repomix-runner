@@ -340,13 +340,11 @@ export const GetQdrantConfigSchema = z.object({
 export const SetQdrantConfigSchema = z.object({
   command: z.literal('setQdrantConfig'),
   url: z.string().min(1, "URL is required"),
-  collection: z.string().min(1, "Collection name is required"),
 });
 
 export const TestQdrantConnectionSchema = z.object({
   command: z.literal('testQdrantConnection'),
   url: z.string().min(1, "URL is required"),
-  collection: z.string().min(1, "Collection name is required"),
   apiKey: z.string().optional(),
 });
 

@@ -20,15 +20,16 @@
 - [RepomixWebviewProvider.ts](file://src/webview/RepomixWebviewProvider.ts)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts)
+- [extension.ts](file://src/extension.ts)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated architecture overview to reflect the new singleton IndexingService pattern
-- Revised IndexingController documentation to reflect its role as a thin adapter
-- Added ExtensionServices singleton pattern documentation
-- Updated component interaction diagrams to show the new service architecture
-- Enhanced troubleshooting section with new state management considerations
+- Updated background monitoring service documentation to reflect the new comprehensive gitignore filtering approach
+- Added documentation for the multi-directory pattern collection system that replaces simple root .gitignore loading
+- Enhanced file watcher implementation details with gitignore-based filtering capabilities
+- Updated troubleshooting section with gitignore-related considerations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,7 +45,7 @@
 ## Introduction
 The Background Indexing Service is a sophisticated system designed to continuously maintain and update searchable embeddings for repositories. It provides real-time incremental indexing capabilities, allowing developers to search through their codebase with up-to-date results even as files change during development. The service supports multiple vector database providers (Pinecone and Qdrant), semantic chunking powered by Tree-sitter, and intelligent caching mechanisms for optimal performance.
 
-**Updated** The system has undergone a major architectural refactoring that centralizes all repository indexing logic into a dedicated singleton IndexingService, which survives webview recreations and manages all long-running stateful operations.
+**Updated** The system has undergone a major architectural refactoring that centralizes all repository indexing logic into a dedicated singleton IndexingService, which survives webview recreations and manages all long-running stateful operations. The background monitoring service now implements a comprehensive gitignore filtering approach that replaces the previous simple root .gitignore loading with a sophisticated multi-directory pattern collection system.
 
 ## Project Structure
 The indexing service follows a modular architecture with clear separation of concerns, now centered around a singleton IndexingService:
@@ -172,6 +173,20 @@ The core processing engine that transforms source code into vector embeddings wi
 **Section sources**
 - [fileEmbeddingPipeline.ts](file://src/core/indexing/fileEmbeddingPipeline.ts#L186-L469)
 
+### Gitignore Filtering System
+**New** The background monitoring service now implements a comprehensive gitignore filtering system that replaces the previous simple root .gitignore loading with a sophisticated multi-directory pattern collection approach.
+
+**Key Features:**
+- **Multi-Directory Pattern Collection**: Recursively discovers .gitignore files throughout the entire repository tree
+- **Proper Pattern Scoping**: Applies gitignore rules according to git specification with correct path prefixing
+- **Pattern Transformation**: Converts absolute patterns to relative patterns and adds recursive variants for subdirectories
+- **Depth-Based Processing**: Processes .gitignore files in depth order to ensure correct precedence
+- **Integration with File Watcher**: Seamlessly filters file change events before queuing for re-embedding
+
+**Section sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L101)
+- [extension.ts](file://src/extension.ts#L206-L290)
+
 ## Architecture Overview
 
 ```mermaid
@@ -244,6 +259,43 @@ RepoIndexMonitor --> DatabaseService : "persists state"
 **Section sources**
 - [repoIndexMonitor.ts](file://src/core/indexing/repoIndexMonitor.ts#L14-L246)
 - [databaseService.ts](file://src/core/storage/databaseService.ts#L890-L1000)
+
+### Gitignore-Based File Filtering
+
+**New** The background monitoring service now implements comprehensive gitignore filtering that replaces the previous simple root .gitignore loading approach:
+
+```mermaid
+flowchart TD
+Start([Repository Root]) --> FindGitignore["Find All .gitignore Files<br/>Recursively Through Directory Tree"]
+FindGitignore --> SortDepth["Sort By Depth<br/>(Root First)"]
+SortDepth --> ProcessFiles["Process Each .gitignore File"]
+ProcessFiles --> ParseLines["Parse Lines & Filter Comments"]
+ParseLines --> TransformPatterns["Transform Patterns According to Git Spec"]
+TransformPatterns --> AddRecursive["Add Recursive Variants for Subdirectories"]
+AddRecursive --> CombinePatterns["Combine All Patterns"]
+CombinePatterns --> CreateIgnoreInstance["Create Ignore Instance"]
+CreateIgnoreInstance --> FilterEvents["Filter File Change Events"]
+FilterEvents --> QueueFiles["Queue Valid Files for Re-embedding"]
+QueueFiles --> End([Filtered File Queue])
+TransformPatterns --> Rule1["Patterns Without Slash:<br/>Apply Recursively to All Subdirectories"]
+TransformPatterns --> Rule2["Patterns Starting with '/':<br/>Relative to .gitignore Location"]
+TransformPatterns --> Rule3["Patterns Ending with '/':<br/>Directory Pattern + Recursive Variant"]
+```
+
+**Diagram sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [extension.ts](file://src/extension.ts#L229-L284)
+
+**Key Features:**
+- **Multi-Directory Discovery**: Recursively finds .gitignore files in all subdirectories
+- **Pattern Scoping**: Applies proper gitignore scoping rules with correct path prefixing
+- **Pattern Transformation**: Converts patterns to match the repository structure
+- **Depth-Based Processing**: Ensures root patterns take precedence over subdirectory patterns
+- **Integration with File Watcher**: Filters file change events before queuing for re-embedding
+
+**Section sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L4-L101)
+- [extension.ts](file://src/extension.ts#L206-L290)
 
 ### Semantic Code Chunking
 
@@ -330,6 +382,7 @@ TS[Tree-sitter]
 PC[Pinecone SDK]
 QD[Qdrant Client]
 SQL[sql.js]
+IG[ignore npm package]
 end
 subgraph "Internal Dependencies"
 ES[ExtensionServices]
@@ -348,15 +401,17 @@ REPO --> PC
 REPO --> QD
 IS --> DB
 DB --> SQL
+IG --> GitignoreUtils
 ```
 
-**Updated** The dependency structure now flows through the ExtensionServices singleton, which manages the IndexingService lifecycle.
+**Updated** The dependency structure now flows through the ExtensionServices singleton, which manages the IndexingService lifecycle. The gitignore filtering system depends on the ignore npm package and the gitignoreUtils module.
 
 **Diagram sources**
 - [ExtensionServices.ts](file://src/core/services/ExtensionServices.ts#L20-L31)
 - [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L108-L116)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L28-L62)
 - [databaseService.ts](file://src/core/storage/databaseService.ts#L124-L155)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L3)
 
 **Section sources**
 - [treeSitterService.ts](file://src/core/indexing/treeSitterService.ts#L103-L116)
@@ -387,6 +442,13 @@ The system implements multiple layers of concurrency control:
 - **Abort Control**: Graceful shutdown with AbortController signals
 - **UI State Restoration**: Seamless recovery after webview recreations
 
+### Gitignore Filtering Performance
+**New** The comprehensive gitignore filtering system is optimized for performance:
+- **Pattern Caching**: Collected patterns are cached in memory for the extension session
+- **Efficient Path Matching**: Uses the ignore npm package for fast pattern matching
+- **Early Filtering**: Filters file events before they reach the debouncing mechanism
+- **Minimal Overhead**: Gitignore processing occurs only during extension initialization
+
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
@@ -411,12 +473,29 @@ The system implements multiple layers of concurrency control:
 - **Cause**: Previous architecture tied indexing to webview lifecycle
 - **Solution**: System now uses singleton IndexingService that survives recreations
 
-**Updated** Added troubleshooting guidance for the new singleton architecture and state persistence features.
+**Gitignore Filtering Issues**
+- **Symptoms**: Files not being indexed despite being in the repository
+- **Cause**: Gitignore patterns incorrectly filtering files
+- **Solution**: Check .gitignore files throughout the repository tree and verify pattern precedence
+- **Additional**: The system now respects patterns from all subdirectories, not just the root
+
+**Background Monitor Not Activating**
+- **Symptoms**: Background indexing not running even when enabled
+- **Cause**: Missing required configuration (API keys or vector database)
+- **Solution**: Ensure Google API key and vector database configuration are properly set
+- **Note**: Background monitoring is optional and non-fatal if configuration is missing
+
+**Updated** Added troubleshooting guidance for the new singleton architecture, state persistence features, and comprehensive gitignore filtering system.
 
 **Section sources**
 - [IndexingService.ts](file://src/core/services/IndexingService.ts#L78-L84)
 - [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx#L524-L570)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L48-L53)
 
 ## Conclusion
 
-The Background Indexing Service provides a robust, scalable solution for maintaining searchable code embeddings. Its modular architecture supports multiple vector database providers, intelligent semantic chunking, and real-time incremental updates. The recent architectural refactoring introduces a singleton IndexingService pattern that survives webview recreations, providing enhanced state persistence and improved reliability. The system's comprehensive error handling, progress tracking, and state management make it suitable for both small projects and large enterprise codebases. With proper configuration and monitoring, it delivers accurate search results while minimizing performance impact on development workflows.
+The Background Indexing Service provides a robust, scalable solution for maintaining searchable code embeddings. Its modular architecture supports multiple vector database providers, intelligent semantic chunking, and real-time incremental updates. The recent architectural refactoring introduces a singleton IndexingService pattern that survives webview recreations, providing enhanced state persistence and improved reliability.
+
+**Updated** The system's comprehensive gitignore filtering approach represents a significant improvement over the previous simple root .gitignore loading method. The new multi-directory pattern collection system ensures that all .gitignore configurations throughout the repository tree are properly respected, providing accurate filtering of files that should not be indexed. This enhancement improves both the accuracy and performance of the background monitoring service by preventing unnecessary processing of build artifacts, dependencies, and other files that are typically excluded from version control.
+
+The system's comprehensive error handling, progress tracking, and state management make it suitable for both small projects and large enterprise codebases. With proper configuration and monitoring, it delivers accurate search results while minimizing performance impact on development workflows. The combination of the singleton architecture, comprehensive gitignore filtering, and sophisticated background monitoring makes this service a powerful tool for modern development environments.

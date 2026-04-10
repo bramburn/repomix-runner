@@ -11,6 +11,8 @@
 - [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx)
 - [logger.ts](file://src/shared/logger.ts)
@@ -25,6 +27,7 @@
 - Improved vector database adapters with native grouping support
 - Enhanced LLM-based reranking with confidence threshold filtering
 - Updated UI with intelligent threshold adjustment and reset controls
+- **Added comprehensive .gitignore pattern collection for enhanced file discovery filtering**
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -36,15 +39,16 @@
 7. [Dynamic Confidence Thresholding](#dynamic-confidence-thresholding)
 8. [File-Level Grouping Implementation](#file-level-grouping-implementation)
 9. [Multi-Query RAG Integration](#multi-query-rag-integration)
-10. [Enhanced Error Handling and Logging](#enhanced-error-handling-and-logging)
-11. [User Feedback and Experience](#user-feedback-and-experience)
-12. [Performance Considerations](#performance-considerations)
-13. [Troubleshooting Guide](#troubleshooting-guide)
-14. [Conclusion](#conclusion)
-15. [Appendices](#appendices)
+10. [Enhanced .gitignore Pattern Collection](#enhanced-gitignore-pattern-collection)
+11. [Enhanced Error Handling and Logging](#enhanced-error-handling-and-logging)
+12. [User Feedback and Experience](#user-feedback-and-experience)
+13. [Performance Considerations](#performance-considerations)
+14. [Troubleshooting Guide](#troubleshooting-guide)
+15. [Conclusion](#conclusion)
+16. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Semantic Search Algorithms subsystem responsible for retrieving and ranking relevant repository artifacts using vector search and LLM-based reranking. The system has been significantly enhanced with dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with query expansion capabilities.
+This document describes the Semantic Search Algorithms subsystem responsible for retrieving and ranking relevant repository artifacts using vector search and LLM-based reranking. The system has been significantly enhanced with dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with query expansion capabilities. **A major enhancement is the comprehensive .gitignore pattern collection system that now discovers and applies patterns from all subdirectories for more accurate file discovery during semantic search operations.**
 
 Key enhancements include:
 - **Dynamic Confidence Thresholding**: Intelligent threshold adjustment with adaptive range slider and reset functionality
@@ -53,6 +57,7 @@ Key enhancements include:
 - **Enhanced Vector Database Support**: Native grouping capabilities in Pinecone and Qdrant adapters
 - **Improved LLM Reranking**: Confidence-based filtering with threshold tuning
 - **Advanced UI Controls**: Interactive threshold adjustment with real-time feedback
+- **Comprehensive .gitignore Filtering**: Recursive pattern collection from all .gitignore files for precise file discovery
 
 ## Project Structure
 The semantic search subsystem spans four primary areas:
@@ -60,6 +65,7 @@ The semantic search subsystem spans four primary areas:
 - **Multi-Query RAG Pipeline**: Query expansion with semantic variant generation and parallel processing
 - **Vector Database Layer**: Enhanced adapters with native grouping and confidence filtering
 - **Intelligent UI Controls**: Dynamic threshold adjustment with adaptive range optimization
+- **Enhanced .gitignore System**: Recursive pattern discovery and application across all repository subdirectories
 
 ```mermaid
 graph TB
@@ -77,6 +83,10 @@ VF["factory.ts<br/>getVectorDbAdapterForRepo()"]
 PC["pineconeAdapter.ts<br/>+ client-side grouping<br/>+ native grouping support"]
 QD["qdrantAdapter.ts<br/>+ native grouping<br/>+ adaptive group sizes"]
 end
+subgraph "Enhanced .gitignore System"
+GI["gitignoreUtils.ts<br/>collectGitignorePatterns()<br/>+ recursive pattern discovery"]
+FFE["filteredFileExpander.ts<br/>expandUrisToFilesRespectingGitignore()<br/>+ comprehensive filtering"]
+end
 subgraph "Intelligent UI Controls"
 IC["IndexingController.ts<br/>+ dynamic threshold handling"]
 STab["SearchTab.tsx<br/>+ adaptive slider<br/>+ reset range button"]
@@ -90,6 +100,8 @@ ND --> LR
 ND --> VF
 VF --> PC
 VF --> QD
+ND --> GI
+GI --> FFE
 IC --> SG
 IC --> LG
 IC --> RS
@@ -99,11 +111,13 @@ STab --> IC
 **Diagram sources**
 - [graph.ts](file://src/search/graph.ts#L5-L25)
 - [state.ts](file://src/search/state.ts#L7-L56)
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L58-L64)
 - [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L43-L144)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L17-L75)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L86-L176)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L127-L129)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 
@@ -111,6 +125,8 @@ STab --> IC
 - [graph.ts](file://src/search/graph.ts#L1-L53)
 - [state.ts](file://src/search/state.ts#L1-L57)
 - [nodes.ts](file://src/search/nodes.ts#L1-L381)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L1-L101)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L1-L169)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L125-L190)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L1127-L1171)
 
@@ -122,6 +138,7 @@ STab --> IC
 - **Enhanced Vector Database Adapters**: Native grouping support in Pinecone and Qdrant with client-side fallback
 - **Advanced LLM Reranking**: Confidence-based filtering with threshold tuning and combined scoring
 - **Intelligent UI Controls**: Interactive threshold adjustment with real-time feedback and adaptive range optimization
+- **Comprehensive .gitignore Pattern Collection**: Recursive discovery and application of patterns from all repository subdirectories
 
 **Section sources**
 - [state.ts](file://src/search/state.ts#L16-L16)
@@ -130,9 +147,10 @@ STab --> IC
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
 - [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 
 ## Architecture Overview
-The enhanced semantic search workflow maintains the LangGraph StateGraph structure while integrating advanced capabilities. The system now provides dynamic confidence thresholding, file-level grouping, and multi-query RAG expansion with comprehensive observability and user feedback.
+The enhanced semantic search workflow maintains the LangGraph StateGraph structure while integrating advanced capabilities. The system now provides dynamic confidence thresholding, file-level grouping, multi-query RAG expansion, and comprehensive .gitignore filtering with recursive pattern discovery across all repository subdirectories.
 
 ```mermaid
 sequenceDiagram
@@ -140,6 +158,7 @@ participant UI as "SearchTab.tsx"
 participant Ctrl as "IndexingController.ts"
 participant Graph as "graph.ts"
 participant Nodes as "nodes.ts"
+participant GI as "gitignoreUtils.ts"
 participant QE as "queryExpansion.ts"
 participant Emb as "embeddingService.ts"
 participant VDB as "Pinecone/Qdrant Adapter"
@@ -165,6 +184,10 @@ Graph->>Nodes : "rerank()"
 Nodes->>LLM : "rerankResultsWithLLM(userQuery, hits, apiKey, repoRoot, config)"
 LLM-->>Nodes : "rerankedHits with confidence filtering"
 Graph->>Nodes : "finalize()"
+Note over Nodes : .gitignore filtering with recursive pattern discovery
+Nodes->>GI : "collectGitignorePatterns(repoRoot)"
+GI-->>Nodes : "allPatterns array"
+Nodes->>Nodes : "apply .gitignore filtering to results"
 Nodes-->>Graph : "finalHits"
 Graph-->>Ctrl : "finalState.finalHits"
 Ctrl-->>UI : "repoSearchResults"
@@ -174,7 +197,8 @@ end
 **Diagram sources**
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
 - [graph.ts](file://src/search/graph.ts#L30-L52)
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 - [queryExpansion.ts](file://src/core/indexing/queryExpansion.ts#L58-L64)
 - [embeddingService.ts](file://src/core/indexing/embeddingService.ts#L89-L142)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L25-L75)
@@ -197,19 +221,19 @@ Expand --> Embed["Parallel embedding<br/>Promise.all()"]
 Embed --> QueryDB["Query Vector DB<br/>with grouping support"]
 QueryDB --> Dedupe["dedupeNode<br/>with grouping awareness"]
 Dedupe --> Rerank["rerankNode<br/>with confidence filtering"]
-Rerank --> Finalize["finalizeNode<br/>with .gitignore filtering"]
+Rerank --> Finalize["finalizeNode<br/>with enhanced .gitignore filtering"]
 Finalize --> End
 ```
 
 **Diagram sources**
 - [graph.ts](file://src/search/graph.ts#L14-L24)
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
 - [state.ts](file://src/search/state.ts#L7-L56)
 
 **Section sources**
 - [state.ts](file://src/search/state.ts#L16-L16)
 - [graph.ts](file://src/search/graph.ts#L1-L53)
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
 
 ### Multi-Query RAG Integration with Semantic Variant Generation
 The system now implements advanced multi-query RAG expansion with semantic variant generation. The `getAllQueriesToSearch` function generates 3-5 semantic variants of the original query using Gemini AI, creating a comprehensive search strategy.
@@ -276,6 +300,53 @@ The system now supports configurable file-level grouping to eliminate duplicate 
 - [nodes.ts](file://src/search/nodes.ts#L179-L181)
 - [pineconeAdapter.ts](file://src/core/indexing/vectorDb/providers/pineconeAdapter.ts#L43-L70)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L114-L146)
+
+## Enhanced .gitignore Pattern Collection
+
+### Recursive Pattern Discovery System
+The system now implements a comprehensive .gitignore pattern collection mechanism that recursively discovers patterns from all subdirectories in the repository. The `collectGitignorePatterns` function performs a depth-first traversal to ensure proper precedence and scoping.
+
+```mermaid
+flowchart TD
+A["Repository Root"] --> B["walkDir(rootDir)<br/>Recursive directory traversal"]
+B --> C{"Entry Type?"}
+C --> |Directory| D["Check if .git<br/>Skip if yes"]
+D --> E["Recurse into subdirectory"]
+C --> |File| F{"Is .gitignore?"}
+F --> |Yes| G["Load patterns from file"]
+G --> H["Apply pattern scoping rules"]
+H --> I["Add to patterns array"]
+F --> |No| J["Continue traversal"]
+E --> B
+I --> K["Sort by depth<br/>(root first)"]
+K --> L["Process patterns with proper scoping"]
+L --> M["Return all collected patterns"]
+```
+
+**Diagram sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+
+### Pattern Scoping and Precedence Rules
+The enhanced .gitignore system implements proper gitignore specification compliance with sophisticated pattern scoping rules:
+
+- **Absolute patterns** (`/pattern`): Applied relative to the .gitignore file's location
+- **Global patterns** (`**/pattern`): Match anywhere in the repository tree
+- **Directory patterns** (`dir/`): Apply to the directory and all contents
+- **Recursive patterns**: Non-root .gitignore files add both local and recursive matching patterns
+
+### Comprehensive Filtering Implementation
+The `finalizeNode` now applies enhanced .gitignore filtering using the collected patterns:
+
+1. **Pattern Collection**: Recursively discovers all .gitignore files and patterns
+2. **Pattern Loading**: Loads patterns with proper path scoping and precedence
+3. **Default Ignores**: Adds common patterns like `.git`, `node_modules`, `dist`, etc.
+4. **Result Filtering**: Applies ignore rules to semantic search results
+5. **Performance Optimization**: Skips ignored directories during traversal
+
+**Section sources**
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
+- [nodes.ts](file://src/search/nodes.ts#L348-L369)
+- [filteredFileExpander.ts](file://src/core/files/filteredFileExpander.ts#L29-L169)
 
 ## Dynamic Confidence Thresholding
 
@@ -388,6 +459,7 @@ The logger utility supports multiple output channels with emoji indicators and v
 - **Error Recovery**: Comprehensive error handling with fallback mechanisms prevents single point of failure
 - **Logging Overhead**: Detailed logging provides valuable debugging information with minimal performance impact
 - **Retry Efficiency**: Exponential backoff reduces retry frequency while maintaining reliability
+- **Enhanced .gitignore Filtering**: Recursive pattern discovery with caching for improved performance
 
 ## Troubleshooting Guide
 The enhanced error handling provides comprehensive troubleshooting capabilities with improved user guidance.
@@ -411,6 +483,12 @@ The enhanced error handling provides comprehensive troubleshooting capabilities 
 - Priority queuing helps mitigate rate limiting impacts during user operations
 - Detailed queue statistics aid in diagnosing embedding service performance
 
+### .gitignore Pattern Collection Issues
+- **Pattern Loading Failures**: Errors during .gitignore file reading are caught and logged with warnings
+- **Permission Issues**: Directory traversal gracefully skips unreadable directories
+- **Pattern Scope Errors**: Malformed patterns are logged but don't break the entire filtering system
+- **Performance Concerns**: Large repositories with many .gitignore files may take longer to process initially
+
 ### UI Feedback and Error Handling
 - Expanded queries and results are posted to the webview with detailed progress tracking
 - Errors are surfaced via structured `repoSearchError` messages with specific failure categories
@@ -422,6 +500,7 @@ participant UI as "SearchTab.tsx"
 participant Ctrl as "IndexingController.ts"
 participant Graph as "graph.ts"
 participant Nodes as "nodes.ts"
+participant GI as "gitignoreUtils.ts"
 participant LLM as "llmReranking.ts"
 UI->>Ctrl : "searchRepo(...)"
 Ctrl->>Graph : "runSearchGraph(...)"
@@ -437,6 +516,10 @@ Nodes->>Nodes : "Vector DB query with grouping"
 Nodes->>Nodes : "Deduplication with grouping awareness"
 Nodes->>Nodes : "LLM reranking with confidence filtering"
 Graph->>Nodes : "finalize()"
+Note over Nodes : Enhanced .gitignore filtering
+Nodes->>GI : "collectGitignorePatterns(repoRoot)"
+GI-->>Nodes : "allPatterns array"
+Nodes->>Nodes : "Apply comprehensive filtering"
 Nodes-->>Ctrl : "finalHits"
 Ctrl-->>UI : "repoSearchResults"
 end
@@ -444,18 +527,19 @@ end
 
 **Diagram sources**
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
+- [gitignoreUtils.ts](file://src/core/files/gitignoreUtils.ts#L17-L100)
 - [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
 - [SearchTab.tsx](file://src/webview/components/SearchTab.tsx#L751-L775)
 
 **Section sources**
-- [nodes.ts](file://src/search/nodes.ts#L60-L262)
+- [nodes.ts](file://src/search/nodes.ts#L60-L381)
 - [IndexingController.ts](file://src/webview/controllers/IndexingController.ts#L323-L472)
 - [llmReranking.ts](file://src/core/indexing/llmReranking.ts#L116-L133)
 - [logger.ts](file://src/shared/logger.ts#L7-L132)
 
 ## Conclusion
-The enhanced Semantic Search Algorithms subsystem now provides comprehensive dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with integrated query expansion. The system's modular design with priority queuing, structured error categorization, and advanced UI controls ensures reliable operation with exceptional user experience. The intelligent threshold adjustment, native grouping support, and semantic variant generation deliver superior search quality while maintaining excellent performance characteristics.
+The enhanced Semantic Search Algorithms subsystem now provides comprehensive dynamic confidence thresholding, file-level grouping, multi-query RAG integration, and improved search graph nodes with integrated query expansion. **The major enhancement is the comprehensive .gitignore pattern collection system that recursively discovers patterns from all repository subdirectories, providing precise file discovery filtering during semantic search operations.** The system's modular design with priority queuing, structured error categorization, and advanced UI controls ensures reliable operation with exceptional user experience. The intelligent threshold adjustment, native grouping support, semantic variant generation, and enhanced .gitignore filtering deliver superior search quality while maintaining excellent performance characteristics.
 
 ## Appendices
 
@@ -467,6 +551,7 @@ The enhanced Semantic Search Algorithms subsystem now provides comprehensive dyn
 - **User Guidance**: Leverage user-friendly error messages to quickly identify and resolve issues
 - **Logging Strategy**: Utilize detailed logging for debugging while maintaining reasonable verbosity
 - **Retry Configuration**: Configure appropriate retry settings for different failure scenarios
+- **.gitignore Optimization**: Ensure .gitignore files are properly maintained for best search results
 
 ### Common Error Scenarios and Solutions
 - **Rate Limiting**: Wait for cooldown period or reduce concurrent operations
@@ -476,6 +561,8 @@ The enhanced Semantic Search Algorithms subsystem now provides comprehensive dyn
 - **Provider Initialization**: Ensure embedding provider is properly configured and initialized
 - **Grouping Issues**: Check vector database support for grouping functionality
 - **Threshold Problems**: Use reset range button to restore default threshold values
+- **.gitignore Pattern Issues**: Check for malformed patterns or permission issues in .gitignore files
+- **Large Repository Performance**: Consider enabling file-level grouping for repositories with many files
 
 ### Advanced Configuration Options
 - **Dynamic Range Adjustment**: Automatic range optimization based on current threshold position
@@ -483,3 +570,14 @@ The enhanced Semantic Search Algorithms subsystem now provides comprehensive dyn
 - **Multi-Query Expansion**: Semantic variant generation for enhanced search coverage
 - **Confidence Filtering**: Adjustable confidence thresholds for result quality control
 - **Parallel Processing**: Optimized query execution for improved performance
+- **Enhanced .gitignore Filtering**: Recursive pattern discovery from all repository subdirectories
+- **Pattern Scoping Rules**: Proper handling of absolute, global, and directory patterns
+- **Performance Optimization**: Caching and efficient pattern matching for large repositories
+
+### .gitignore Pattern Collection Features
+- **Recursive Discovery**: Automatically finds .gitignore files in all subdirectories
+- **Proper Scoping**: Applies gitignore specification compliance with precedence rules
+- **Performance Optimization**: Sorts patterns by depth to ensure correct precedence
+- **Error Resilience**: Gracefully handles unreadable directories and malformed patterns
+- **Integration**: Seamlessly integrated into the search pipeline for comprehensive filtering
+- **Statistics**: Provides ignored file counts and filtering effectiveness metrics

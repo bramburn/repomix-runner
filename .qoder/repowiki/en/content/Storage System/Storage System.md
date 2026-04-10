@@ -2,14 +2,8 @@
 
 <cite>
 **Referenced Files in This Document**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts)
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts)
-- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts)
-- [batchRepository.ts](file://src/chat/db/batchRepository.ts)
-- [extension.ts](file://src/extension.ts)
 - [databaseService.ts](file://src/core/storage/databaseService.ts)
+- [extension.ts](file://src/extension.ts)
 - [bundleDataProvider.ts](file://src/core/bundles/bundleDataProvider.ts)
 - [bundleFileDecorationProvider.ts](file://src/core/bundles/bundleFileDecorationProvider.ts)
 - [bundleManager.ts](file://src/core/bundles/bundleManager.ts)
@@ -23,39 +17,23 @@
 - [GitService.ts](file://src/git/GitService.ts)
 - [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts)
 - [vectorIdentity.ts](file://src/core/indexing/vectorIdentity.ts)
-- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql)
-- [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql)
-- [compressContext.ts](file://src/chat/nodes/compressContext.ts)
-- [contextManager.ts](file://src/chat/compression/contextManager.ts)
-- [batchManager.ts](file://src/chat/batch/batchManager.ts)
-- [batchPoller.ts](file://src/chat/batch/batchPoller.ts)
-- [batchRepository.ts](file://src/chat/batch/batchRepository.ts)
-- [batchTypes.ts](file://src/chat/batch/types.ts)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx)
-- [SettingsTab.tsx](file://src/webview/components/SettingsTab.tsx)
-- [messageSchemas.ts](file://src/webview/messageSchemas.ts)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts)
-- [types.ts](file://src/chat/queue/types.ts)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts)
-- [index.ts](file://src/chat/queue/index.ts)
-- [pathValidation.ts](file://src/utils/pathValidation.ts)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts)
-- [AiChatWebviewProvider.ts](file://src/webview/AiChatWebviewProvider.ts)
-- [package.json](file://package.json)
+- [LLMProviderManager.ts](file://src/core/llm/LLMProviderManager.ts)
+- [types.ts](file://src/core/llm/types.ts)
+- [compatibilityShim.ts](file://src/core/llm/compatibilityShim.ts)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
+- [enrich-repo.ts](file://scripts/enrich-repo.ts)
+- [ENRICHMENT_README.md](file://ENRICHMENT_README.md)
+- [ENRICHMENT_TESTS.md](file://ENRICHMENT_TESTS.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced PostgreSQL connection management with unified connection string retrieval logic from VS Code settings
-- Improved timeout mechanisms with configurable timeout protection during initialization
-- Streamlined initialization process with non-blocking background pool creation
-- Added new settings-based configuration approach with precedence over secrets
-- Enhanced error handling with graceful degradation and user-friendly notifications
-- Improved connection testing with separate temp pool for validation
+- Enhanced database service with new tables for LLM provider management and code enrichment features
+- Added comprehensive LLM provider management system with provider orchestration and rate limiting
+- Integrated code enrichment feature with PostgreSQL database integration for symbol summarization
+- Updated configuration schemas to support new LLM provider settings and enrichment toggles
+- Expanded data models to include usage statistics, provider capabilities, and enrichment metadata
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -63,819 +41,525 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [PostgreSQL Connection Management](#postgresql-connection-management)
-7. [Enhanced Secret Management System](#enhanced-secret-management-system)
-8. [Vector Database Provider Integration](#vector-database-provider-integration)
-9. [Database Connectivity Testing](#database-connectivity-testing)
-10. [Secure Credential Management](#secure-credential-management)
-11. [Migration and Schema Management](#migration-and-schema-management)
-12. [Queue Management System](#queue-management-system)
-13. [Enhanced Input Validation Utilities](#enhanced-input-validation-utilities)
-14. [Branch-Aware Indexing System](#branch-aware-indexing-system)
-15. [Performance Considerations](#performance-considerations)
-16. [Troubleshooting Guide](#troubleshooting-guide)
-17. [Conclusion](#conclusion)
-18. [Appendices](#appendices)
+6. [Branch-Aware Indexing System](#branch-aware-indexing-system)
+7. [Enhanced Conversation and Plan Persistence](#enhanced-conversation-and-plan-persistence)
+8. [LLM Provider Management System](#llm-provider-management-system)
+9. [Code Enrichment Feature](#code-enrichment-feature)
+10. [Git Integration and Branch Management](#git-integration-and-branch-management)
+11. [Dependency Analysis](#dependency-analysis)
+12. [Performance Considerations](#performance-considerations)
+13. [Troubleshooting Guide](#troubleshooting-guide)
+14. [Conclusion](#conclusion)
+15. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Storage System responsible for PostgreSQL-backed data persistence in the extension. The system has undergone significant architectural changes to become PostgreSQL-centric, eliminating XML-based diff processing infrastructure and transitioning to a unified PostgreSQL-first approach. The system now provides robust, scalable storage for agent runs, debug sessions, bundle metadata, branch-aware incremental indexing state, conversation threads, message history, memory entries, and batch processing jobs. It includes PostgreSQL connection pooling, migration management, transaction support, comprehensive data models for collaborative conversation management and batch processing workflows, and secure credential management for multiple database providers.
-
-**Updated** Enhanced with unified connection string retrieval logic from VS Code settings, improved timeout mechanisms, streamlined initialization process, and new settings-based configuration approach.
+This document describes the Storage System responsible for local data persistence in the extension. It covers the SQLite database implementation powered by sql.js, the database schema for bundles, file decorations, application state, and branch-aware indexing with enhanced conversation/plan persistence. The system now includes comprehensive LLM provider management and code enrichment features with PostgreSQL database integration. The system provides CRUD operations, transactions, migrations, and comprehensive data models for bundles, indexing state, LLM providers, and collaborative conversation management. It also documents synchronization patterns, caching strategies, performance optimizations, backup and restore procedures, data export capabilities, migration between versions, maintenance procedures, troubleshooting, and privacy considerations.
 
 ## Project Structure
-The storage system now centers around PostgreSQL-backed repositories with enhanced connection management and secure secret handling. The extension initializes PostgreSQL connection pools during activation and integrates PostgreSQL repositories with background indexing, agent runs, bundle management, conversation services, plan management, and branch maintenance operations. The system includes comprehensive secret management through VS Code Secrets API and enhanced database connectivity testing.
+The storage system centers around a comprehensive DatabaseService that encapsulates initialization, schema creation, migrations, and persistence of the SQLite database file. The extension activates the service early and integrates it with background indexing, agent runs, bundle management, conversation services, plan management, branch maintenance operations, LLM provider management, and code enrichment features with Git integration.
 
 ```mermaid
 graph TB
 subgraph "Extension Activation"
-EXT["extension.ts<br/>Initialize PostgreSQL Pool<br/>Load Secret Connections"]
+EXT["extension.ts<br/>Initialize DatabaseService + Services"]
 END
-subgraph "PostgreSQL Storage Layer"
-PG["PostgreSQL Pool<br/>Connection Management<br/>Transaction Support"]
-MIG["Migration System<br/>schema_migrations<br/>Idempotent Migrations"]
+subgraph "Storage Layer"
+DB["DatabaseService<br/>sql.js + SQLite file<br/>Branch-aware Schema"]
+MIG["MigrationService<br/>Switch provider + reset state"]
+BMS["BranchMaintenanceService<br/>Clean stale branches<br/>Git integration"]
 END
-subgraph "Settings-Based Configuration"
-SC["VS Code Settings<br/>repomix.chat.postgresConnectionString<br/>Precedence over Secrets"]
-END
-subgraph "Secret Management"
-SM["VS Code Secrets API<br/>Multi-provider Support<br/>Secure Storage"]
-SI["SecretInput Component<br/>Password Input<br/>Masked Display"]
-END
-subgraph "Conversation Storage"
-TR["ThreadRepository<br/>chat_threads"]
-MR["MessageRepository<br/>chat_messages<br/>Compression Tracking"]
-MEM["MemoryRepository<br/>chat_memory<br/>Source Tracking"]
-AR["ArchitectureRepository<br/>repo_architecture"]
-BR["BatchRepository<br/>batch_jobs<br/>Status Tracking"]
-END
-subgraph "Legacy Storage"
-DB["DatabaseService<br/>SQLite + Branch-aware<br/>File-based Persistence"]
-END
-subgraph "Vector DB Providers"
-PINE["Pinecone Adapter<br/>API Key Management"]
-QDR["Qdrant Adapter<br/>Connection Testing"]
-FACT["Factory<br/>Provider Selection<br/>Credential Validation"]
+subgraph "Indexing"
+RIO["RepoEmbeddingOrchestrator<br/>Background re-embedding<br/>Branch-aware"]
+WAT["RepoIndexMonitor<br/>File watcher + debounce"]
+GS["GitService<br/>Branch detection + management"]
 END
 subgraph "Bundles"
 BM["BundleManager<br/>.repomix/bundles.json"]
 BDP["BundleDataProvider<br/>VS Code Tree View"]
 BFD["BundleFileDecorationProvider<br/>File decorations"]
 END
-subgraph "Queue Management"
-MQ["MessageQueue<br/>UUID Entry IDs<br/>Priority Queuing"]
-GE["GraphExecutor<br/>AbortController Support<br/>Cancellation"]
+subgraph "Conversations & Plans"
+CS["ConversationService<br/>JSON file storage<br/>Thread persistence"]
+PS["PlanService<br/>.repomix/plans directory<br/>Surgical editing"]
 END
-subgraph "Input Validation"
-PV["Path Validation<br/>Traversal Prevention"]
-RFV["Remote File Validation<br/>Security Checks"]
-GDV["Git Diff Validation<br/>Critical File Tracking"]
+subgraph "LLM Provider Management"
+LPM["LLMProviderManager<br/>Provider orchestration<br/>Rate limiting + usage tracking"]
+TYPES["LLM Types & Interfaces<br/>Provider capabilities<br/>Usage statistics"]
 END
-EXT --> PG
-EXT --> SC
-EXT --> SM
+subgraph "Code Enrichment"
+ER["enrichmentRepository<br/>PostgreSQL integration<br/>Symbol summarization"]
+ELS["enrichmentLLMService<br/>LLM integration<br/>Summary generation"]
+ERCLI["enrich-repo CLI<br/>Batch enrichment<br/>Provider configuration"]
+END
 EXT --> DB
 EXT --> RIO
 EXT --> BM
 EXT --> BDP
 EXT --> BFD
-EXT --> MQ
-EXT --> GE
-PG --> TR
-PG --> MR
-PG --> MEM
-PG --> AR
-PG --> BR
-SC --> PG
-SM --> SI
-SM --> PINE
-SM --> QDR
-SM --> FACT
-MIG --> PG
-DB --> PV
-DB --> RFV
-DB --> GDV
+EXT --> CS
+EXT --> PS
+EXT --> BMS
+EXT --> GS
+EXT --> LPM
+EXT --> TYPES
+EXT --> ER
+EXT --> ELS
+EXT --> ERCLI
+RIO --> DB
+RIO --> GS
+MIG --> DB
+WAT --> DB
+BMS --> DB
+BMS --> GS
+LPM --> TYPES
+ER --> ELS
 ```
 
 **Diagram sources**
-- [extension.ts](file://src/extension.ts#L84-L108)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L58)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L92)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L51)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L14-L15)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L24-L47)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [extension.ts:50-200](file://src/extension.ts#L50-L200)
+- [databaseService.ts:112-293](file://src/core/storage/databaseService.ts#L112-L293)
+- [repoEmbeddingOrchestrator.ts:36-64](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L36-L64)
+- [migrationService.ts:7-46](file://src/core/indexing/migrationService.ts#L7-L46)
+- [bundleManager.ts:6-30](file://src/core/bundles/bundleManager.ts#L6-L30)
+- [bundleDataProvider.ts:18-46](file://src/core/bundles/bundleDataProvider.ts#L18-L46)
+- [bundleFileDecorationProvider.ts:4-29](file://src/core/bundles/bundleFileDecorationProvider.ts#L4-L29)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [planService.ts:10-24](file://src/services/planService.ts#L10-L24)
+- [BranchMaintenanceService.ts:6-32](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
+- [GitService.ts:29-48](file://src/git/GitService.ts#L29-L48)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [types.ts:82-134](file://src/core/llm/types.ts#L82-L134)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
+- [enrich-repo.ts:1-289](file://scripts/enrich-repo.ts#L1-L289)
 
 **Section sources**
-- [extension.ts](file://src/extension.ts#L84-L108)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L14-L15)
+- [extension.ts:50-200](file://src/extension.ts#L50-L200)
+- [databaseService.ts:112-293](file://src/core/storage/databaseService.ts#L112-L293)
 
 ## Core Components
-- **PostgreSQL Client**: Manages connection pooling, retry logic, and migration verification with robust error handling and connection lifecycle management.
-- **ThreadRepository**: Manages conversation threads with full CRUD operations, status tracking, and PostgreSQL-native transaction support.
-- **MessageRepository**: Handles message persistence with compression tracking, pagination support, and efficient retrieval patterns.
-- **MemoryRepository**: Provides memory management with scope-based organization, expiration handling, and PostgreSQL-native JSONB support.
-- **ArchitectureRepository**: Stores repository architecture snapshots with TTL management and PostgreSQL-specific data types.
-- **BatchRepository**: Manages batch processing jobs with status tracking, metadata persistence, and PostgreSQL-native JSONB payloads.
-- **DatabaseService**: Legacy SQLite-based service with enhanced branch-aware schema for backward compatibility and migration support.
+- **DatabaseService**: Initializes sql.js, manages branch-aware schema creation and migrations, persists the SQLite file, and exposes CRUD and indexing APIs with branch-specific operations.
 - **BundleManager**: Manages bundle metadata stored in .repomix/bundles.json.
 - **BundleDataProvider**: VS Code TreeDataProvider that builds and refreshes the bundle explorer UI.
 - **BundleFileDecorationProvider**: Provides file decorations for bundle files.
-- **RepoEmbeddingOrchestrator**: Coordinates incremental embedding with PostgreSQL transaction support and branch-aware operations.
+- **RepoEmbeddingOrchestrator**: Coordinates incremental embedding with branch-aware operations and interacts with DatabaseService for state.
 - **MigrationService**: Switches vector DB providers and resets local index state.
 - **ConversationService**: Manages conversation threads and message persistence in JSON files with comprehensive thread lifecycle management.
 - **PlanService**: Handles plan file management with surgical editing capabilities and safe file naming.
 - **BranchMaintenanceService**: Cleans up stale branches and their associated data using Git integration.
 - **GitService**: Provides Git repository access, branch detection, and branch change notifications.
-- **SecretInput Component**: Enhanced password input component supporting multiple secret types with masked display and secure saving.
-- **ConfigController**: Centralized controller managing secret storage, PostgreSQL connection management, and database provider configuration.
-- **MessageQueue**: Enhanced queue system with UUID-based entry ID generation and priority queuing.
-- **GraphExecutor**: Executes chat graphs with AbortController support for cancellation and graceful error handling.
-- **Path Validation Utility**: Prevents path traversal attacks by validating output file paths within workspace boundaries.
-- **Remote File Reader**: Validates file selections for security, preventing path traversal and ensuring safe file operations.
-- **Git Diff Validator**: Validates critical file changes during fingerprint validation to maintain data integrity.
+- **LLMProviderManager**: Central orchestrator for LLM providers with rate limiting, usage tracking, and provider lifecycle management.
+- **enrichmentRepository**: PostgreSQL-based storage for code enrichment data with symbol summarization and metadata.
+- **enrichmentLLMService**: LLM integration service for generating AI-powered code summaries.
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L153)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L321)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L243)
-- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L26-L105)
-- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L45-L237)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L112-L1865)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [databaseService.ts:112-1817](file://src/core/storage/databaseService.ts#L112-L1817)
+- [bundleManager.ts:6-116](file://src/core/bundles/bundleManager.ts#L6-L116)
+- [bundleDataProvider.ts:18-324](file://src/core/bundles/bundleDataProvider.ts#L18-L324)
+- [bundleFileDecorationProvider.ts:4-29](file://src/core/bundles/bundleFileDecorationProvider.ts#L4-L29)
+- [repoEmbeddingOrchestrator.ts:36-64](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L36-L64)
+- [migrationService.ts:7-46](file://src/core/indexing/migrationService.ts#L7-L46)
+- [conversationService.ts:18-157](file://src/services/conversationService.ts#L18-L157)
+- [planService.ts:10-95](file://src/services/planService.ts#L10-L95)
+- [BranchMaintenanceService.ts:6-32](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
+- [GitService.ts:29-48](file://src/git/GitService.ts#L29-L48)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
 
 ## Architecture Overview
-The extension initializes PostgreSQL connection pools during activation with comprehensive error handling and retry logic. PostgreSQL repositories provide robust, scalable persistence for conversation threads, messages, memory entries, and batch jobs with full transaction support. The system maintains backward compatibility while leveraging PostgreSQL's advanced features like JSONB, arrays, and proper data typing. Background indexing uses PostgreSQL transactions for consistency, and bundle management continues with file-based storage for backward compatibility. Enhanced secret management through VS Code Secrets API provides secure storage for multiple database providers.
-
-**Updated** Enhanced with unified connection string retrieval logic from VS Code settings, improved timeout mechanisms, and streamlined initialization process.
+The extension initializes DatabaseService during activation. Background indexing uses a file watcher and RepoEmbeddingOrchestrator to maintain an incremental index per branch with Git integration. Bundles are stored in a JSON file under the workspace's .repomix directory. The bundle tree view and file decorations are provided via dedicated providers. Enhanced conversation and plan services provide collaborative persistence with separate file-based storage systems. Branch maintenance services coordinate with Git to clean up stale branches and their data. The LLMProviderManager orchestrates multiple LLM providers with rate limiting and usage tracking. Code enrichment features integrate with PostgreSQL for symbol summarization and injection during compression.
 
 ```mermaid
 sequenceDiagram
 participant Ext as "extension.ts"
-participant PG as "PostgreSQL Pool"
-participant SM as "Secret Manager"
-participant CC as "ConfigController"
-Ext->>PG : initPool(connectionString)<br/>runMigrations()
-Ext->>SM : Load secret connections
-Ext->>CC : Initialize controller
-CC->>SM : checkPostgresConnection()
-SM-->>CC : postgresConnectionStatus
-CC->>PG : Test connection
-PG-->>CC : Connection verified
-Note over Ext,PG : Extension activation complete
+participant DB as "DatabaseService"
+participant RIO as "RepoEmbeddingOrchestrator"
+participant BM as "BundleManager"
+participant BDP as "BundleDataProvider"
+participant BFD as "BundleFileDecorationProvider"
+participant CS as "ConversationService"
+participant PS as "PlanService"
+participant GS as "GitService"
+participant LPM as "LLMProviderManager"
+Ext->>DB : new DatabaseService(context)<br/>initialize()
+Ext->>BM : new BundleManager(cwd)<br/>initialize()
+Ext->>BDP : new BundleDataProvider(BM)
+Ext->>BFD : new BundleFileDecorationProvider(BDP)
+Ext->>RIO : new RepoEmbeddingOrchestrator(DB)
+Ext->>CS : new ConversationService(context)
+Ext->>PS : new PlanService(context)
+Ext->>GS : new GitService()
+Ext->>LPM : new LLMProviderManager()<br/>initialize(config)
+Note over Ext,DB : Extension activation complete
 ```
 
 **Diagram sources**
-- [extension.ts](file://src/extension.ts#L84-L108)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L220)
+- [extension.ts:50-200](file://src/extension.ts#L50-L200)
+- [databaseService.ts:112-293](file://src/core/storage/databaseService.ts#L112-L293)
+- [bundleManager.ts:13-30](file://src/core/bundles/bundleManager.ts#L13-L30)
+- [bundleDataProvider.ts:28-46](file://src/core/bundles/bundleDataProvider.ts#L28-L46)
+- [bundleFileDecorationProvider.ts:10-29](file://src/core/bundles/bundleFileDecorationProvider.ts#L10-L29)
+- [repoEmbeddingOrchestrator.ts:36-64](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L36-L64)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [planService.ts:10-24](file://src/services/planService.ts#L10-L24)
+- [GitService.ts:29-48](file://src/git/GitService.ts#L29-L48)
+- [LLMProviderManager.ts:26-72](file://src/core/llm/LLMProviderManager.ts#L26-L72)
 
 ## Detailed Component Analysis
 
-### PostgreSQL Connection Management
-The PostgreSQL client provides comprehensive connection management with robust error handling and retry logic:
+### DatabaseService
+Responsibilities:
+- Initialize sql.js with dynamic WASM resolution.
+- Ensure storage directory exists and load/create the SQLite file.
+- Create branch-aware tables and indexes, run migrations.
+- Persist the database to disk after writes.
+- Provide CRUD and indexing APIs for agent runs, debug runs, repo files, and branch-aware incremental indexing state.
 
-**Unified Connection String Retrieval**:
-- Settings-based configuration with `repomix.chat.postgresConnectionString` taking precedence over secrets
-- Backward compatibility maintained through VS Code Secrets API fallback
-- Streamlined initialization process with non-blocking background pool creation
+Enhanced with branch-aware schema design supporting multiple branches per repository with comprehensive migration support.
 
-**Connection Pool Configuration**:
-- Max connections: 10 concurrent connections
-- Idle timeout: 30 seconds
-- Connection timeout: 10 seconds
-- Automatic pool recovery on connection failures
+Key branch-aware tables and indexes:
+- **agent_runs**: stores agent run history with JSON-serialized files and timestamps.
+- **debug_runs**: stores recent runs for debugging with optional repo_name.
+- **repo_files**: stores repository file lists for batch embedding.
+- **repo_indexing_progress**: tracks indexing progress per file with status, timestamps, and branch-specific entries.
+- **repo_file_state**: tracks incremental indexing state with status, hashes, commit information, and branch-specific entries.
+- **index_history**: stores indexing events for debugging with branch awareness.
+- **repo_blueprints**: stores architectural analysis data with branch context.
+- **indexing_pause_checkpoint**: tracks pause/resume state per repository.
+- **Indexes**: optimized queries on timestamps, repo_id, status, branch_name, and composite keys.
 
-**Timeout Mechanisms**:
-- Configurable timeout protection during initialization (10-second default)
-- Graceful degradation when operations exceed timeout limits
-- User-friendly error notifications with actionable guidance
+Branch-aware operations:
+- All primary keys now include `(repo_id, branch_name, file_path)` for uniqueness.
+- Migration system automatically converts existing data to branch-aware schema.
+- New methods support branch-specific filtering and operations.
+- Enhanced cleanup procedures for stale branches.
 
-**Retry Logic**:
-- Automatic retry for retryable connection errors (timeouts, connection terminated, refused connections)
-- 250ms delay between retry attempts
-- Comprehensive error logging for failed connections
+Transactions and batching:
+- Batch inserts for repo_files use explicit transactions.
+- UPSERTs for repo_file_state ensure idempotent state updates with branch context.
 
-**Migration Management**:
-- schema_migrations table for tracking applied migrations
-- Idempotent migrations that can be safely re-applied
-- Individual table existence checks for partial failure recovery
-- Migration verification endpoint for health checks
+Migrations:
+- Adds branch_name to existing tables with automatic data conversion.
+- Creates branch-aware unique indexes for repo_indexing_progress and repo_file_state.
+- Adds new columns for commit_sha, is_merged, and last_synced_at in repo_file_state.
 
-**Connection Lifecycle**:
-- Lazy initialization with promise-based pool creation
-- Graceful pool shutdown on extension deactivation
-- Error event handling for unexpected connection issues
-
-**Enhanced Connection Testing**:
-- Separate temporary pool for connection string validation
-- Non-invasive testing without affecting global pool state
-- Detailed error reporting for connection failures
+Persistence:
+- Export/import via Buffer and writeFileSync to a SQLite file in global storage.
 
 ```mermaid
 classDiagram
-class PostgresClient {
--pool : Pool
--poolPromise : Promise~Pool~
-+initPool(connectionString) Promise~Pool~
-+getPool() Pool
-+closePool() Promise~void~
-+queryWithRetry(text, values) Promise~QueryResult~
-+verifyMigration() Promise~MigrationStatus~
-+testConnection() Promise~ConnectionResult~
-+runMigrations(p) Promise~void~
-+checkTablesExist(client) Promise~TableStatus~
-+recordMigration(client, version) Promise~void~
-+testConnectionString(connectionString) Promise~ConnectionTestResult~
-}
-class MigrationSystem {
--version : string
-+MIGRATION_001_INITIAL : string
-+MIGRATION_002_MEMORY_SOURCE : string
-+TABLE_STATEMENTS : object
-+runMigrations(p) Promise~void~
-+checkTablesExist(client) Promise~TableStatus~
-+recordMigration(client, version) Promise~void~
+class DatabaseService {
+-db : Database
+-SQL : any
+-dbPath : string
+-isInitialized : boolean
++initialize() Promise~void~
++saveDebugRun(files, repoName) Promise~number~
++getDebugRuns(repoName?) Promise~DebugRun[]~
++deleteDebugRun(id) Promise~void~
++saveAgentRun(run) Promise~void~
++getAgentRunById(id) Promise~AgentRunHistory|null~
++getAgentRunHistory(limit) Promise~AgentRunHistory[]~
++saveRepoFilesBatch(repoId, filePaths) Promise~void~
++clearRepoFiles(repoId) Promise~void~
++getRepoFileCount(repoId) Promise~number~
++getRepoFiles(repoId) Promise~string[]~
++initializeIndexingProgress(repoId, filePaths, branchName) Promise~void~
++markFileProcessing(repoId, filePath, branchName) Promise~void~
++markFileCompleted(repoId, filePath, branchName) Promise~void~
++markFileFailed(repoId, filePath, error, branchName) Promise~void~
++getPendingFiles(repoId, branchName) Promise~string[]~
++getCompletedFilesCount(repoId, branchName) Promise~number~
++getIndexingStatus(repoId, branchName) Promise~object~
++clearIndexingProgress(repoId, branchName) Promise~void~
++markRepoFilesPending(repoId, filePaths, branchName) Promise~void~
++getPendingRepoFiles(repoId, branchName) Promise~string[]~
++markRepoFileIndexed(repoId, filePath, hash, branchName, commitSha?) Promise~void~
++markRepoFileDeleted(repoId, filePath, branchName) Promise~void~
++getAllRepoFileStates(repoId, branchName) Promise~Map~
++getTrackedBranches(repoId) Promise~string[]~
++clearBranchData(repoId, branchName) Promise~void~
++dispose() void
+-createTables() Promise~void~
+-runMigrations() Promise~void~
+-migrateRepoIndexingProgressToBranchAware() Promise~void~
+-migrateRepoFileStateToBranchAware() Promise~void~
+-saveDatabase() Promise~void~
 }
 ```
 
 **Diagram sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
+- [databaseService.ts:112-1817](file://src/core/storage/databaseService.ts#L112-L1817)
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L198-L280)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
-- [extension.ts](file://src/extension.ts#L84-L108)
+- [databaseService.ts:112-293](file://src/core/storage/databaseService.ts#L112-L293)
+- [databaseService.ts:295-487](file://src/core/storage/databaseService.ts#L295-L487)
+- [databaseService.ts:489-667](file://src/core/storage/databaseService.ts#L489-L667)
+- [databaseService.ts:759-941](file://src/core/storage/databaseService.ts#L759-L941)
+- [databaseService.ts:1089-1255](file://src/core/storage/databaseService.ts#L1089-L1255)
+- [databaseService.ts:1766-1807](file://src/core/storage/databaseService.ts#L1766-L1807)
 
-### Enhanced Secret Management System
-The system now includes comprehensive secret management through VS Code Secrets API with support for multiple database providers:
+### Bundle Data Provider Pattern
+The bundle system uses a classic VS Code TreeDataProvider pattern:
+- BundleManager reads/writes .repomix/bundles.json.
+- BundleDataProvider constructs a hierarchical tree from bundle file lists, resolves file existence, and lazily scans directories.
+- BundleFileDecorationProvider decorates files that belong to the active bundle.
 
-**Supported Secret Types**:
-- Google API Key (Gemini)
-- Pinecone API Key
-- Qdrant API Key
-- Anthropic API Key
-- PostgreSQL Connection String
+```mermaid
+sequenceDiagram
+participant BM as "BundleManager"
+participant BDP as "BundleDataProvider"
+participant FS as "VS Code FileSystem"
+participant BFD as "BundleFileDecorationProvider"
+BM->>BM : initialize()<br/>ensure .repomix/bundles.json
+BDP->>BM : getAllBundles()
+BM-->>BDP : { bundles }
+BDP->>BDP : _buildTreeRoots()
+BDP->>FS : stat()/readDirectory() for lazy scan
+BFD->>BDP : getTerminalFileUris()
+BDP-->>BFD : Set<uri>
+```
 
-**SecretInput Component Features**:
-- Password input with masked display (••••••••••••)
-- Real-time secret existence checking
-- Secure saving with VS Code Secrets API
-- Clear button for removing stored secrets
-- Visual feedback for saved/cleared states
-
-**Security Implementation**:
-- All secrets stored in VS Code's secure secret storage
-- No plaintext secrets in configuration files
-- Masked display prevents accidental exposure
-- Separate storage keys for each provider type
-
-**Section sources**
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-
-### Vector Database Provider Integration
-The system supports multiple vector database providers with comprehensive credential management and validation:
-
-**Supported Providers**:
-- Pinecone: Cloud vector database with API key authentication
-- Qdrant: Open-source vector database with optional API key
-- Google: Gemini embeddings with API key authentication
-- Anthropic: Claude embeddings with API key authentication
-
-**Provider Factory**:
-- Centralized provider selection and instantiation
-- Credential validation before adapter creation
-- Per-repository configuration management
-- Seamless provider switching with migration support
-
-**Connection Testing**:
-- Provider-specific connection validation
-- Credential verification before use
-- Error handling for authentication failures
-- Graceful fallback for missing credentials
+**Diagram sources**
+- [bundleManager.ts:13-63](file://src/core/bundles/bundleManager.ts#L13-L63)
+- [bundleDataProvider.ts:69-98](file://src/core/bundles/bundleDataProvider.ts#L69-L98)
+- [bundleDataProvider.ts:167-192](file://src/core/bundles/bundleDataProvider.ts#L167-L192)
+- [bundleFileDecorationProvider.ts:12-24](file://src/core/bundles/bundleFileDecorationProvider.ts#L12-L24)
 
 **Section sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L24-L47)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L27)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L360-L395)
+- [bundleManager.ts:13-116](file://src/core/bundles/bundleManager.ts#L13-L116)
+- [bundleDataProvider.ts:18-324](file://src/core/bundles/bundleDataProvider.ts#L18-L324)
+- [bundleFileDecorationProvider.ts:4-29](file://src/core/bundles/bundleFileDecorationProvider.ts#L4-L29)
+- [types.ts:3-37](file://src/core/bundles/types.ts#L3-L37)
 
-### Database Connectivity Testing
-The system includes comprehensive connectivity testing for all supported database providers:
+### Data Models
+- **AgentRunHistory**: structured record of agent runs with JSON-serialized file lists and optional bundle/query identifiers.
+- **DebugRun**: lightweight record of recent runs for debugging.
+- **Bundle**: metadata for a user-defined bundle including files, tags, and timestamps.
+- **BundleMetadata**: container for bundles keyed by id.
+- **WebviewBundle**: extended bundle model for webview presentation.
+- **Thread**: conversation thread metadata with timestamps and token counts.
+- **ThreadMessage**: individual message with role, content, and optional tool calls.
+- **Conversation**: complete conversation thread with message history.
+- **LLMProvider**: interface for LLM providers with capabilities, rate limits, and lifecycle management.
+- **ModelInfo**: metadata about model specifications and capabilities.
+- **UsageStatistics**: tracking of provider usage, costs, and error metrics.
 
-**PostgreSQL Testing**:
-- Connection string validation and parsing
-- Database reachability verification
-- Schema migration status checking
-- Connection status reporting to UI
+Enhanced with conversation and plan data models for collaborative features, and LLM provider management data models.
 
-**Vector Database Testing**:
-- Provider-specific connection attempts
-- Collection/index existence verification
-- Authentication credential validation
-- Network connectivity testing
+```mermaid
+erDiagram
+AGENT_RUNS {
+text id PK
+integer timestamp
+text query
+text files
+integer file_count
+text output_path
+integer success
+text error
+integer duration
+text bundle_id
+text query_id
+datetime created_at
+}
+DEBUG_RUNS {
+integer id PK
+integer timestamp
+text files
+text repo_name
+}
+REPO_FILES {
+integer id PK
+text repo_id
+text file_path
+datetime created_at
+}
+REPO_INDEXING_PROGRESS {
+text repo_id PK
+text branch_name PK
+text file_path PK
+text status
+integer started_at
+integer completed_at
+text error_message
+datetime created_at
+}
+REPO_FILE_STATE {
+text repo_id PK
+text branch_name PK
+text file_path PK
+text status
+text last_indexed_hash
+integer last_indexed_at
+text commit_sha
+integer is_merged
+integer last_synced_at
+integer updated_at
+text error
+}
+THREADS {
+text id PK
+text title
+integer createdAt
+integer updatedAt
+integer totalTokens
+text preview
+}
+CONVERSATIONS {
+text id PK
+text messages
+}
+LLM_PROVIDERS {
+text id PK
+text name
+text capabilities
+text model_info
+text rate_limits
+datetime created_at
+}
+USAGE_STATISTICS {
+text provider PK
+integer total_requests
+integer total_tokens_prompt
+integer total_tokens_completion
+integer total_tokens_total
+float estimated_cost_usd
+datetime last_request_time
+integer errors_count
+text last_error
+datetime last_error_time
+}
+```
 
-**Testing Infrastructure**:
-- ConfigController manages all testing operations
-- Message schemas define testing protocols
-- Real-time status updates to webview
-- Error handling and user feedback
-
-**Section sources**
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L99-L101)
-- [messageSchemas.ts](file://src/webview/messageSchemas.ts#L334-L339)
-
-### ThreadRepository
-Manages conversation threads with full CRUD operations and PostgreSQL-native features:
-
-**Thread Management**:
-- UUID primary keys with PostgreSQL-generated defaults
-- Repository-scoped thread organization with repo_id
-- Status tracking (active, archived, deleted) with proper constraints
-- Automatic timestamp management (created_at, updated_at)
-- Preview generation for thread listings
-
-**Advanced Features**:
-- Thread pagination with cursor-based navigation
-- Repository-scoped thread listing with updated_at ordering
-- Atomic thread updates with selective field updates
-- Status-based filtering for active thread retrieval
-
-**Data Integrity**:
-- PostgreSQL CHECK constraints for status values
-- Proper UUID handling with native PostgreSQL UUID type
-- Automatic title normalization and length validation
-
-**Section sources**
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L153)
-
-### MessageRepository
-Handles message persistence with advanced compression tracking and pagination:
-
-**Message Management**:
-- UUID primary keys with PostgreSQL-generated defaults
-- Thread relationship with cascading deletes
-- Role-based validation (user, assistant, system)
-- Timestamp conversion between milliseconds and PostgreSQL TIMESTAMPTZ
-
-**Compression Integration**:
-- is_compressed flag for tracking compressed messages
-- original_content storage for compression recovery
-- compressed_into foreign key linking to summary messages
-- compression_metadata JSONB for compression analytics
-
-**Pagination and Retrieval**:
-- Cursor-based pagination with timestamp and ID ordering
-- Page size limits (1-500 messages per request)
-- Efficient retrieval of uncompressed messages for prompt building
-- Summary message identification through metadata flags
-
-**Section sources**
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L321)
-
-### MemoryRepository
-Provides comprehensive memory management with scope-based organization:
-
-**Memory Scopes**:
-- Session scope for thread-specific memory
-- Repository scope for repository-wide memory
-- Global scope for system-wide memory
-- Proper scope_id handling for each scope type
-
-**Advanced Features**:
-- Expiration handling with expires_at timestamps
-- Embedding vector storage for semantic memory
-- Source tracking (user vs auto-generated) with validation
-- Keyword search across key and value fields
-
-**Data Integrity**:
-- Unique constraint on (scope, scope_id, key) combination
-- Proper JSONB handling for complex memory values
-- Automatic timestamp updates on modifications
-
-**Section sources**
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L41-L243)
-
-### ArchitectureRepository
-Stores repository architecture snapshots with TTL management:
-
-**Architecture Management**:
-- Markdown tree representation for repository structure
-- Folder explanations with JSONB storage
-- Git commit tracking for version control integration
-- TTL-based expiration with automatic cleanup
-
-**Data Persistence**:
-- Upsert operations with conflict resolution
-- Expiration-based cleanup for stale architecture data
-- Token usage tracking for cost estimation
-- Repository-specific architecture snapshots
+**Diagram sources**
+- [databaseService.ts:161-261](file://src/core/storage/databaseService.ts#L161-L261)
+- [chat.ts:1-35](file://src/types/chat.ts#L1-L35)
+- [types.ts:82-134](file://src/core/llm/types.ts#L82-L134)
 
 **Section sources**
-- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L26-L105)
+- [databaseService.ts:7-110](file://src/core/storage/databaseService.ts#L7-L110)
+- [databaseService.ts:161-261](file://src/core/storage/databaseService.ts#L161-L261)
+- [chat.ts:1-35](file://src/types/chat.ts#L1-L35)
+- [types.ts:82-134](file://src/core/llm/types.ts#L82-L134)
 
-### DatabaseService (Legacy)
-Maintains backward compatibility with SQLite-based storage:
+### Synchronization and Caching Strategies
+- **Background indexing pipeline**:
+  - File watcher detects changes and queues them with a debounce.
+  - DatabaseService marks files as pending for re-indexing with branch context.
+  - RepoEmbeddingOrchestrator fetches pending files and performs delete-then-upsert to keep vector DB consistent.
+  - Indexed state is recorded with content hash to optimize future re-indexing.
+- **Startup synchronization**:
+  - On activation, orchestrator compares disk state with repo_file_state and queues changes for reprocessing.
+- **Branch-aware operations**:
+  - All indexing operations respect current branch context.
+  - Branch maintenance service cleans up stale branches and their data.
+- **Caching**:
+  - In-memory maps for pending files and terminal file URIs in providers.
+  - Database-backed caches for indexing progress and state.
+  - Conversation service maintains in-memory thread cache for performance.
+- **LLM Provider Caching**:
+  - Provider instances cached in LLMProviderManager for reuse.
+  - Rate limiting queues maintain per-provider concurrency control.
+  - Usage statistics cached for performance monitoring.
 
-**Enhanced with Branch Awareness**:
-- Branch-aware table schemas with unique constraints
-- Migration system for converting to branch-aware format
-- Enhanced indexing with branch-specific operations
-- Transaction support for consistency
-- Improved error handling with non-fatal migration failures
+Enhanced with branch-aware synchronization and maintenance procedures, plus LLM provider management caching.
 
-**Legacy Features**:
-- SQLite file persistence with automatic backup
-- Comprehensive indexing state tracking
-- Blueprint storage for architectural analysis
-- Pause checkpoint management for resumable indexing
+```mermaid
+flowchart TD
+Start(["File Change Detected"]) --> Queue["Queue in RepoIndexMonitor<br/>Debounce"]
+Queue --> MarkPending["DatabaseService.markRepoFilesPending(repoId, paths, branchName)"]
+MarkPending --> FetchPending["RepoEmbeddingOrchestrator.getPendingRepoFiles(repoId, branchName)"]
+FetchPending --> Exists{"File exists?"}
+Exists --> |No| DeleteVectors["Adapter.deleteVectorsForFile(repoId, filePath, branchName)"]
+DeleteVectors --> MarkDeleted["DatabaseService.markRepoFileDeleted(repoId, filePath, branchName)"]
+Exists --> |Yes| DeleteVectors2["Adapter.deleteVectorsForFile(repoId, filePath, branchName)"]
+DeleteVectors2 --> Embed["embedAndUpsertFile(..., branchName)"]
+Embed --> MarkIndexed["DatabaseService.markRepoFileIndexed(repoId, filePath, hash, branchName)"]
+MarkDeleted --> Done(["Done"])
+MarkIndexed --> Done
+```
 
-**Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L112-L1865)
-
-### Queue Management System
-The system now includes an enhanced queue management system with UUID-based entry ID generation:
-
-**UUID-Based Entry IDs**:
-- Entry IDs generated using `q_${Date.now()}_${randomUUID()}`
-- Eliminates timestamp and random string combination
-- Provides better uniqueness guarantees and collision resistance
-- Maintains chronological ordering through timestamp prefix
-
-**Priority Queuing**:
-- Force priority inserts at the front of the queue
-- Normal priority appends to the end of the queue
-- Priority-based processing with forced entries taking precedence
-
-**Enhanced Queue Operations**:
-- Complete status tracking with timestamps (createdAt, startedAt, completedAt)
-- Error handling with detailed error messages
-- History trimming with configurable maxHistorySize
-- Serialization/deserialization for persistence across restarts
-
-**Graph Execution Integration**:
-- AbortController support for cancellation
-- Graceful error handling with AbortError class
-- Integration with PostgreSQL connection pool
-- Thread-specific execution with proper isolation
-
-**Section sources**
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [types.ts](file://src/chat/queue/types.ts#L18-L28)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
-
-## PostgreSQL Connection Management
-
-### Unified Connection String Retrieval
-The system now implements a unified connection string retrieval mechanism that prioritizes VS Code settings over secrets:
-
-**Settings-Based Precedence**:
-- Primary source: `repomix.chat.postgresConnectionString` in VS Code settings
-- Secondary source: VS Code Secrets API for backward compatibility
-- Streamlined configuration process with immediate effect
-
-**Enhanced Initialization Process**:
-- Non-blocking background pool creation during extension activation
-- Configurable timeout protection (10-second default) for initialization
-- Graceful degradation when initialization exceeds timeout limits
-- User-friendly error notifications with actionable guidance
-
-**Connection Testing Improvements**:
-- Separate temporary pool for connection string validation
-- Non-invasive testing without affecting global pool state
-- Detailed error reporting for connection failures
-- Immediate feedback on connection string validity
+**Diagram sources**
+- [repoEmbeddingOrchestrator.ts:168-177](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L168-L177)
+- [databaseService.ts:1089-1255](file://src/core/storage/databaseService.ts#L1089-L1255)
 
 **Section sources**
-- [extension.ts](file://src/extension.ts#L84-L108)
-- [extension.ts](file://src/extension.ts#L141-L171)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L503-L562)
+- [extension.ts:145-200](file://src/extension.ts#L145-L200)
+- [repoEmbeddingOrchestrator.ts:168-177](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L168-L177)
+- [databaseService.ts:1089-1255](file://src/core/storage/databaseService.ts#L1089-L1255)
+- [BranchMaintenanceService.ts:12-32](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
 
-### Connection Pool Configuration
-The PostgreSQL client implements robust connection management with configurable pool parameters:
+### Backup and Restore Procedures
+- **Backup**:
+  - Copy the SQLite file from the extension's global storage directory to a safe location.
+  - The database file path is resolved from the extension context's global storage URI.
+- **Restore**:
+  - Stop the extension.
+  - Replace the existing SQLite file with the backed-up file.
+  - Restart the extension.
+- **Data export**:
+  - Export agent runs and debug runs via the database service methods.
+  - Export bundle metadata from .repomix/bundles.json.
+  - Export conversation threads and messages from JSON files.
+  - Export plan files from .repomix/plans directory.
+- **LLM Provider Configuration**:
+  - Export LLM provider settings from VS Code configuration.
+  - Backup enrichment data from PostgreSQL database if using code enrichment features.
 
-**Pool Parameters**:
-- max: 10 concurrent connections for balanced resource usage
-- idleTimeoutMillis: 30000ms for efficient connection reuse
-- connectionTimeoutMillis: 10000ms for responsive connection establishment
-- Automatic pool recovery on connection failures
-
-**Connection Lifecycle**:
-- Lazy initialization with promise-based pool creation
-- Graceful pool shutdown on extension deactivation
-- Error event handling for unexpected connection issues
-- Retry logic for transient connection failures
-
-### Migration System
-The system includes comprehensive migration management with schema tracking:
-
-**Migration Tracking**:
-- schema_migrations table for recording applied migrations
-- Idempotent migrations that can be safely re-applied
-- Individual table existence checks for partial failure recovery
-- Migration verification endpoint for health monitoring
-
-**Migration Process**:
-- Initial migration creates all required tables
-- Subsequent migrations add new features incrementally
-- Transactional migration application with rollback support
-- Proper error handling and logging for migration failures
+Enhanced with conversation and plan export capabilities, plus LLM provider configuration backup.
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L198-L280)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
-- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L1-L87)
-- [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql#L1-L21)
+- [databaseService.ts:118-123](file://src/core/storage/databaseService.ts#L118-L123)
+- [databaseService.ts:745-751](file://src/core/storage/databaseService.ts#L745-L751)
+- [bundleManager.ts:55-63](file://src/core/bundles/bundleManager.ts#L55-L63)
+- [conversationService.ts:114-120](file://src/services/conversationService.ts#L114-L120)
+- [planService.ts:43-53](file://src/services/planService.ts#L43-L53)
 
-## Enhanced Secret Management System
+### Migration Between Versions
+- **Schema migrations**:
+  - DatabaseService checks and adds missing columns (e.g., repo_name in debug_runs).
+  - Automatic migration from legacy schema to branch-aware schema with data preservation.
+  - Creation of branch-aware unique indexes for repo_indexing_progress and repo_file_state.
+- **Provider migration**:
+  - MigrationService switches vector DB providers and resets local index state by clearing repo_files for the current repo.
+- **Branch migration**:
+  - Automatic conversion of existing single-branch data to branch-aware format.
+  - Backfill of DEFAULT_BRANCH_NAME for existing records.
+- **LLM Provider Migration**:
+  - New provider configurations integrated into LLMProviderManager.
+  - Usage statistics migration for historical provider data.
 
-### Secret Storage Architecture
-The system implements a centralized secret management approach using VS Code's Secrets API:
-
-**Storage Keys**:
-- repomix.agent.googleApiKey: Google API Key
-- repomix.agent.pineconeApiKey: Pinecone API Key
-- repomix.agent.qdrantApiKey: Qdrant API Key
-- repomix.chat.anthropicApiKey: Anthropic API Key
-- repomix.chat.postgresConnectionString: PostgreSQL Connection String
-
-**Component Integration**:
-- SecretInput component provides UI for secret management
-- ConfigController handles all secret operations
-- Real-time status updates to webview interface
-- Secure masking of stored secrets
-
-**Security Features**:
-- All secrets encrypted at rest
-- No plaintext secrets in logs or UI
-- Separate storage for each provider type
-- Automatic secret clearing on deletion
+Enhanced with comprehensive branch-aware migration support and LLM provider management integration.
 
 **Section sources**
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
+- [databaseService.ts:295-487](file://src/core/storage/databaseService.ts#L295-L487)
+- [migrationService.ts:17-46](file://src/core/indexing/migrationService.ts#L17-L46)
+- [GitService.ts](file://src/git/GitService.ts#L6)
+- [LLMProviderManager.ts:26-72](file://src/core/llm/LLMProviderManager.ts#L26-L72)
 
-### Vector Database Provider Integration
-The system supports multiple vector database providers with comprehensive credential management:
+### Data Privacy and Security
+- **Secrets**:
+  - API keys are retrieved from VS Code SecretStorage and not persisted in the database.
+- **Sensitive fields**:
+  - No sensitive fields are stored in the SQLite tables.
+  - Conversation and plan data is stored in separate JSON files for better isolation.
+- **Data retention**:
+  - Old agent output files older than seven days are cleaned up automatically.
+  - Conversation threads are managed with automatic cleanup policies.
+- **LLM Provider Security**:
+  - Provider credentials handled through VS Code SecretStorage.
+  - Usage statistics anonymized for privacy compliance.
+  - Code enrichment data stored separately from core application data.
 
-**Provider Configuration**:
-- Pinecone: Requires API key and index selection
-- Qdrant: Supports both self-hosted and cloud instances
-- Google: Gemini embeddings with API key authentication
-- Anthropic: Claude embeddings with API key authentication
-
-**Credential Validation**:
-- Provider-specific credential requirements
-- Real-time validation before adapter creation
-- Error handling for authentication failures
-- Graceful degradation for missing credentials
-
-**Factory Pattern**:
-- Centralized provider selection logic
-- Dynamic adapter instantiation
-- Per-repository configuration management
-- Seamless provider switching capabilities
+Enhanced privacy controls for conversation and plan data, plus LLM provider credential management.
 
 **Section sources**
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L24-L47)
-- [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L27)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L360-L395)
-
-## Database Connectivity Testing
-
-### Testing Framework
-The system includes comprehensive connectivity testing for all supported database providers:
-
-**PostgreSQL Testing**:
-- Connection string validation and parsing
-- Database reachability verification
-- Schema migration status checking
-- Connection status reporting to UI
-
-**Vector Database Testing**:
-- Provider-specific connection attempts
-- Collection/index existence verification
-- Authentication credential validation
-- Network connectivity testing
-
-**Testing Infrastructure**:
-- ConfigController manages all testing operations
-- Message schemas define testing protocols
-- Real-time status updates to webview
-- Error handling and user feedback
-
-**Section sources**
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L99-L101)
-- [messageSchemas.ts](file://src/webview/messageSchemas.ts#L334-L339)
-
-## Secure Credential Management
-
-### Multi-Provider Secret Handling
-The system implements secure credential management for multiple database providers:
-
-**Secret Types**:
-- API Keys: Pinecone, Qdrant, Google, Anthropic
-- Connection Strings: PostgreSQL
-- Authentication Tokens: Various providers
-
-**Storage Security**:
-- VS Code Secrets API encryption
-- Provider-specific storage keys
-- No plaintext credential persistence
-- Secure masking in UI components
-
-**Management Interface**:
-- SecretInput component for credential entry
-- Real-time validation and feedback
-- Clear button for credential removal
-- Status indicators for credential presence
-
-**Integration Points**:
-- ConfigController centralizes all secret operations
-- Provider factories validate credentials before use
-- Connection managers handle credential lifecycle
-- UI components provide seamless user experience
-
-**Section sources**
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L1-L156)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-
-## Enhanced Conversation and Plan Persistence
-
-### Conversation Service
-The conversation service now integrates with PostgreSQL-backed repositories for enhanced persistence:
-
-**Thread Management**:
-- PostgreSQL-backed thread creation with UUID generation
-- Repository-scoped thread organization with proper indexing
-- Status tracking (active, archived, deleted) with validation
-- Automatic preview generation and token counting
-
-**Message Persistence**:
-- PostgreSQL-backed message storage with compression tracking
-- Cursor-based pagination for efficient message retrieval
-- Compression-aware message filtering for prompt building
-- Summary message support for compressed conversation history
-
-**Data Storage**:
-- PostgreSQL tables for structured conversation data
-- JSONB support for flexible message metadata
-- Proper timestamp handling with TIMESTAMPTZ
-- Automatic thread metadata updates on message operations
-
-### Plan Service
-The plan service maintains file-based storage while integrating with PostgreSQL for batch processing:
-
-**File Management**:
-- Plan files stored in .repomix/plans directory
-- Safe file naming with sanitized IDs
-- Surgical editing capabilities with exact text matching
-- Ambiguity detection for precise replacements
-
-**Batch Integration**:
-- PostgreSQL-backed batch job management
-- Status tracking for batch processing workflows
-- Metadata persistence for batch job details
-- Integration with conversation threads for context
-
-**Section sources**
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L46-L153)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L82-L321)
-- [conversationService.ts](file://src/services/conversationService.ts#L18-L157)
-- [planService.ts](file://src/services/planService.ts#L10-L95)
-
-## Reactive Context Compression
-
-### Compression Integration
-The system implements reactive context compression with PostgreSQL-backed tracking:
-
-**Compression Tracking**:
-- is_compressed flag for individual message compression status
-- original_content storage for compression recovery
-- compressed_into foreign key linking compressed messages to summaries
-- compression_metadata JSONB for analytics and recovery data
-
-**Context Management**:
-- Token-aware compression with configurable thresholds
-- History summarization for reducing context size
-- File compression for large code contexts
-- Reactive compression triggered when token limits are exceeded
-
-**Message Filtering**:
-- Efficient retrieval of uncompressed messages for prompt building
-- Summary message identification through metadata flags
-- Proper handling of compressed message chains
-- Recovery mechanisms for compressed content
-
-**Section sources**
-- [compressContext.ts](file://src/chat/nodes/compressContext.ts#L1-L75)
-- [contextManager.ts](file://src/chat/compression/contextManager.ts#L22-L92)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L223-L321)
-
-## Batch Processing System
-
-### Batch Repository
-The batch processing system provides comprehensive job management with PostgreSQL-backed persistence:
-
-**Batch Job Management**:
-- UUID primary keys with PostgreSQL-generated defaults
-- Status tracking (draft, pending, submitted, processing, completed, failed, cancelled)
-- Package type validation (plan, code_change, code_review)
-- Metadata persistence for job details and analytics
-
-**Job Lifecycle**:
-- Draft job creation with prompt payload storage
-- Submission tracking with batch API integration
-- Status monitoring and completion handling
-- Error tracking and recovery mechanisms
-
-**Data Persistence**:
-- JSONB payloads for flexible job configuration
-- Timestamp tracking for job lifecycle management
-- Thread association for conversation context
-- Cost tracking for billing and analytics
-
-**Section sources**
-- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L45-L237)
-- [batchManager.ts](file://src/chat/batch/batchManager.ts#L293-L329)
-- [batchPoller.ts](file://src/chat/batch/batchPoller.ts)
-- [batchTypes.ts](file://src/chat/batch/types.ts#L64-L85)
-
-## Enhanced Input Validation Utilities
-
-### Path Validation
-The system includes comprehensive path validation to prevent security vulnerabilities:
-
-**Path Traversal Prevention**:
-- Validates output file paths against workspace root
-- Resolves absolute paths and checks containment
-- Prevents traversal outside workspace boundaries
-- Throws security violations for unsafe paths
-
-**Security Implementation**:
-- Uses path.relative for reliable containment checking
-- Handles Windows drive separation correctly
-- Prevents absolute path injection attacks
-- Comprehensive error messaging for security violations
-
-**Section sources**
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-
-### Remote File Validation
-The system validates file selections for security and safety:
-
-**File Security Checks**:
-- Validates that all files are strings
-- Prevents path traversal attempts with '..' detection
-- Blocks absolute paths outside workspace
-- Ensures safe file operations
-
-**Security Features**:
-- Input sanitization for file paths
-- Path boundary validation
-- Workspace root containment enforcement
-- Comprehensive error reporting for invalid inputs
-
-**Section sources**
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-
-### Git Diff Validation
-The system validates critical file changes during fingerprint operations:
-
-**Critical File Tracking**:
-- Identifies critical files for validation
-- Compares current and stored commit SHAs
-- Detects changes in critical files
-- Prevents blueprint invalidation from unauthorized changes
-
-**Validation Process**:
-- Checks if repository is a git repository
-- Retrieves current commit SHA
-- Compares with stored commit for validation
-- Filters changes to critical files only
-
-**Section sources**
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [extension.ts:170-176](file://src/extension.ts#L170-L176)
+- [extension.ts:750-771](file://src/extension.ts#L750-L771)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
 
 ## Branch-Aware Indexing System
 
@@ -924,249 +608,374 @@ The system includes comprehensive migration procedures:
 - Improved performance through selective branch operations
 
 **Section sources**
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L376-L500)
-- [BranchMaintenanceService.ts](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
-- [GitService.ts](file://src/git/GitService.ts#L51-L55)
+- [databaseService.ts:196-227](file://src/core/storage/databaseService.ts#L196-L227)
+- [databaseService.ts:365-487](file://src/core/storage/databaseService.ts#L365-L487)
+- [databaseService.ts:1766-1807](file://src/core/storage/databaseService.ts#L1766-L1807)
+- [BranchMaintenanceService.ts:6-32](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
+- [GitService.ts:51-55](file://src/git/GitService.ts#L51-L55)
 
-## Migration and Schema Management
+## Enhanced Conversation and Plan Persistence
 
-### Migration System
-The PostgreSQL migration system provides comprehensive schema evolution:
+### Conversation Service
+Provides comprehensive conversation management with the following capabilities:
 
-**Migration Tracking**:
-- schema_migrations table for recording applied migrations
-- Version-based migration identification
-- Idempotent migration application
-- Migration verification and health checking
+**Thread Management**:
+- `getThreads()`: Retrieves all conversation threads with sorting by update time
+- `createThread(initialTitle)`: Creates new conversation threads with automatic message storage
+- `renameThread(threadId, title)`: Updates thread titles and timestamps
+- `deleteThread(threadId)`: Removes threads and associated message files
 
-**Migration Process**:
-- Initial migration creates all required tables
-- Subsequent migrations add new features incrementally
-- Transactional migration application with rollback support
-- Individual table existence checks for partial failure recovery
+**Message Persistence**:
+- `saveMessage(threadId, message)`: Appends messages to conversation files
+- Automatic thread metadata updates (preview, timestamps, token counts)
+- Support for user and assistant roles with tool call integration
 
-**Migration Verification**:
-- verifyMigration endpoint for health checks
-- Missing table detection and reporting
-- Migration status validation
-- Connection testing with version information
+**Data Storage**:
+- Threads index stored in `threads.json` with JSON serialization
+- Individual conversations stored as separate `.json` files in `conversations/` directory
+- Automatic directory creation and file management
 
-**Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L198-L280)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
-- [001_initial_schema.sql](file://src/chat/db/migrations/001_initial_schema.sql#L1-L87)
-- [002_compression_schema.sql](file://src/chat/db/migrations/002_compression_schema.sql#L1-L21)
+### Plan Service
+Handles plan file management with advanced editing capabilities:
 
-## Queue Management System
+**File Management**:
+- `loadPlan(threadId)`: Reads plan content from `.repomix/plans/` directory
+- `updatePlan(threadId, content)`: Writes plan content with sanitization
+- `getPlanPath(threadId)`: Generates safe file paths with sanitized IDs
 
-### Enhanced Queue Architecture
-The system now features an improved queue management system with UUID-based entry ID generation:
+**Advanced Editing**:
+- `updatePlanPart(threadId, targetText, replacementText)`: Surgical replacement with exact matching
+- Whitespace-sensitive editing with validation
+- Ambiguity detection and error reporting for precise replacements
 
-**UUID-Based Entry Generation**:
-- Entry IDs created using `q_${Date.now()}_${randomUUID()}`
-- Eliminates reliance on timestamp and random string combinations
-- Provides superior uniqueness guarantees and collision resistance
-- Maintains chronological order through timestamp prefix
+**Data Storage**:
+- Plans stored as Markdown files in `.repomix/plans/` directory
+- Automatic workspace root detection and directory creation
+- Sanitized file naming to prevent security issues
 
-**Priority-Based Processing**:
-- Force priority entries inserted at queue front
-- Normal priority entries appended to queue end
-- Priority-based execution with forced entries taking precedence
-- Graceful handling of priority conflicts
+### Integration Benefits
+**Collaborative Features**:
+- Separate storage layers prevent data conflicts
+- Conversation threads support team collaboration
+- Plan editing enables precise project planning updates
+- File-based storage provides version control compatibility
 
-**Enhanced Queue Operations**:
-- Complete status tracking with detailed timestamps
-- Error handling with comprehensive error messages
-- History trimming with configurable retention limits
-- Serialization/deserialization for persistence across restarts
-
-**Graph Execution Integration**:
-- AbortController support for graceful cancellation
-- AbortError class for proper error handling
-- Integration with PostgreSQL connection pool
-- Thread isolation for concurrent executions
+**Performance Optimizations**:
+- Lightweight JSON serialization for conversations
+- Efficient file I/O for plan operations
+- Minimal memory footprint for large conversation histories
+- Direct file access reduces database overhead
 
 **Section sources**
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [types.ts](file://src/chat/queue/types.ts#L18-L28)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
+- [conversationService.ts:18-157](file://src/services/conversationService.ts#L18-L157)
+- [planService.ts:10-95](file://src/services/planService.ts#L10-L95)
+- [chat.ts:1-35](file://src/types/chat.ts#L1-L35)
+
+## LLM Provider Management System
+
+### LLMProviderManager
+Central orchestrator for managing multiple LLM providers with comprehensive features:
+
+**Provider Orchestration**:
+- `initialize(config)`: Initializes all configured providers with rate limiting and usage tracking
+- `getProvider(providerId)`: Retrieves specific provider instance with validation
+- `getProvidersForCapability(capability)`: Filters providers by specific capabilities
+- `executeWithRetry(providerId, operation, options)`: Executes operations with automatic retry and rate limiting
+
+**Rate Limiting and Usage Tracking**:
+- Per-provider rate limiting queues prevent API throttling
+- Usage statistics tracking for cost monitoring and analytics
+- Automatic retry logic with exponential backoff for transient failures
+
+**Provider Capabilities**:
+- Supports multiple LLM providers (Gemini, Ollama, LM Studio, OpenRouter)
+- Dynamic provider discovery and registration
+- Capability-based routing for specialized operations
+
+### LLM Types and Interfaces
+Comprehensive type system for LLM provider management:
+
+**LLMProvider Interface**:
+- `generateText()`: Text generation with optional generation options
+- `generateStructured()`: Structured output generation with Zod schema validation
+- `embedText()`: Single text embedding
+- `embedTexts()`: Batch text embedding
+- `getModelInfo()`: Provider model information
+- `getRateLimits()`: Rate limit and quota information
+
+**UsageStatistics**:
+- `totalRequests`: Total number of requests
+- `totalTokens`: Token usage breakdown (prompt, completion, total)
+- `estimatedCostUsd`: Estimated cost in USD
+- `errors`: Error tracking with timestamps
+
+**Section sources**
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [types.ts:82-134](file://src/core/llm/types.ts#L82-L134)
+- [compatibilityShim.ts:52-72](file://src/core/llm/compatibilityShim.ts#L52-L72)
+
+## Code Enrichment Feature
+
+### PostgreSQL Integration
+The code enrichment feature integrates with PostgreSQL for persistent storage of AI-generated summaries:
+
+**Database Schema**:
+- `code_enrichments` table stores symbol-level summaries with unique constraints
+- Supports function, method, class, interface, and type symbol types
+- Includes source code location metadata (line_start, line_end)
+- Git commit tracking for cache invalidation
+
+**Repository Operations**:
+- `enrichmentRepository`: Handles CRUD operations for enrichment data
+- Symbol extraction using Tree-sitter parsing
+- Batch insertion for performance optimization
+
+**LLM Integration**:
+- `enrichmentLLMService`: Manages LLM provider selection and configuration
+- Supports multiple providers (Gemini, Ollama, LM Studio, OpenRouter)
+- Structured prompt engineering for consistent summary generation
+
+### CLI and Web Integration
+**Command Line Interface**:
+- `enrich-repo.ts`: Batch enrichment processing with provider configuration
+- Support for custom file patterns and dry-run mode
+- Provider-specific configuration via command-line arguments
+
+**Web UI Integration**:
+- VS Code settings for enabling enrichment and selecting providers
+- Real-time configuration updates through ConfigController
+- Integration with compression pipeline for enriched output
+
+### Testing and Validation
+**Comprehensive Testing Suite**:
+- Database schema verification and migration testing
+- Symbol extraction validation with Tree-sitter
+- LLM summary generation testing with optional API keys
+- Integration testing with compression pipeline
+
+**Troubleshooting**:
+- Database connection validation
+- Tree-sitter WASM file availability checking
+- LLM provider connectivity testing
+- Cache invalidation and git commit tracking
+
+**Section sources**
+- [ENRICHMENT_README.md:1-124](file://ENRICHMENT_README.md#L1-L124)
+- [ENRICHMENT_TESTS.md:1-163](file://ENRICHMENT_TESTS.md#L1-L163)
+- [enrich-repo.ts:1-289](file://scripts/enrich-repo.ts#L1-L289)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
+
+## Git Integration and Branch Management
+
+### GitService Integration
+The system provides comprehensive Git integration for branch management:
+
+**Branch Detection**:
+- `getCurrentBranch(repoRoot)`: Detects current Git branch with fallback to DEFAULT_BRANCH_NAME
+- `getCurrentCommitSha(repoRoot)`: Retrieves current commit SHA for version tracking
+- `getLocalBranches(repoRoot)`: Lists all local branches with API fallback to CLI
+- `getAllBranches(repoRoot)`: Combines local and remote branches with error handling
+
+**Event Handling**:
+- `onBranchChange(repoRoot, callback)`: Monitors branch changes with disposable subscriptions
+- Automatic branch change notifications trigger synchronization and cleanup
+
+**Integration Benefits**:
+- Real-time branch detection prevents indexing conflicts
+- Commit SHA tracking enables version-aware operations
+- Branch change events trigger automatic synchronization
+- Fallback mechanisms ensure reliability across VS Code versions
+
+### Branch Maintenance Service
+Coordinates cleanup of stale branches and their associated data:
+
+**Stale Branch Detection**:
+- Compares tracked branches with actual Git branches
+- Identifies branches that no longer exist in the repository
+- Triggers cleanup for orphaned branch data
+
+**Cleanup Operations**:
+- Vector DB cleanup for deleted branches (when supported)
+- Database cleanup using `clearBranchData` method
+- Error handling for failed cleanup attempts
+
+**Section sources**
+- [GitService.ts:29-48](file://src/git/GitService.ts#L29-L48)
+- [GitService.ts:51-55](file://src/git/GitService.ts#L51-L55)
+- [GitService.ts:110-136](file://src/git/GitService.ts#L110-L136)
+- [BranchMaintenanceService.ts:12-32](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+
+## Dependency Analysis
+- DatabaseService depends on sql.js and VS Code workspace/secrets APIs.
+- RepoEmbeddingOrchestrator depends on DatabaseService and vector DB adapters.
+- MigrationService depends on DatabaseService and global state/secrets.
+- BundleManager depends on file system APIs.
+- Providers depend on managers and VS Code Tree/FileDecoration APIs.
+- ConversationService and PlanService depend on file system APIs and VS Code context.
+- BranchMaintenanceService coordinates between DatabaseService and GitService.
+- GitService provides repository access and branch change notifications.
+- LLMProviderManager depends on LLM provider implementations and configuration.
+- enrichmentRepository depends on PostgreSQL connection and enrichmentLLMService.
+- enrichmentLLMService depends on LLM provider manager and configuration.
+
+Enhanced with new service dependencies for enhanced persistence, LLM provider management, and code enrichment features.
+
+```mermaid
+graph LR
+DB["DatabaseService"] <- --> EXT["extension.ts"]
+RIO["RepoEmbeddingOrchestrator"] --> DB
+RIO --> GS["GitService"]
+MIG["MigrationService"] --> DB
+BM["BundleManager"] --> BDP["BundleDataProvider"]
+BDP --> BFD["BundleFileDecorationProvider"]
+CMD["runRepomixOnSelectedFiles.ts"] --> DB
+CS["ConversationService"] --> FS["File System"]
+PS["PlanService"] --> FS
+BMS["BranchMaintenanceService"] --> DB
+BMS --> GS
+GS --> EXT
+LPM["LLMProviderManager"] --> TYPES["LLM Types"]
+ER["enrichmentRepository"] --> ELS["enrichmentLLMService"]
+ERCLI["enrich-repo CLI"] --> ER
+ERCLI --> ELS
+```
+
+**Diagram sources**
+- [extension.ts:50-200](file://src/extension.ts#L50-L200)
+- [databaseService.ts:112-293](file://src/core/storage/databaseService.ts#L112-L293)
+- [repoEmbeddingOrchestrator.ts:36-64](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L36-L64)
+- [migrationService.ts:7-12](file://src/core/indexing/migrationService.ts#L7-L12)
+- [bundleManager.ts:6-16](file://src/core/bundles/bundleManager.ts#L6-L16)
+- [bundleDataProvider.ts:18-29](file://src/core/bundles/bundleDataProvider.ts#L18-L29)
+- [bundleFileDecorationProvider.ts:4-10](file://src/core/bundles/bundleFileDecorationProvider.ts#L4-L10)
+- [runRepomixOnSelectedFiles.ts:30-87](file://src/commands/runRepomixOnSelectedFiles.ts#L30-L87)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [planService.ts:10-24](file://src/services/planService.ts#L10-L24)
+- [BranchMaintenanceService.ts:6-32](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
+- [GitService.ts:29-48](file://src/git/GitService.ts#L29-L48)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [types.ts:82-134](file://src/core/llm/types.ts#L82-L134)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
+- [enrich-repo.ts:1-289](file://scripts/enrich-repo.ts#L1-L289)
+
+**Section sources**
+- [extension.ts:50-200](file://src/extension.ts#L50-L200)
+- [runRepomixOnSelectedFiles.ts:30-87](file://src/commands/runRepomixOnSelectedFiles.ts#L30-L87)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [planService.ts:10-24](file://src/services/planService.ts#L10-L24)
+- [BranchMaintenanceService.ts:6-32](file://src/core/indexing/BranchMaintenanceService.ts#L6-L32)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [enrichmentRepository.ts](file://src/core/indexing/enrichmentRepository.ts)
+- [enrichmentLLMService.ts](file://src/core/indexing/enrichmentLLMService.ts)
 
 ## Performance Considerations
-- **Connection Pooling**:
-  - PostgreSQL pool with 10 concurrent connections for optimal throughput
-  - Connection timeout of 10 seconds for responsive operation
-  - Idle timeout of 30 seconds for efficient resource utilization
-- **Timeout Protection**:
-  - Configurable timeout limits (10 seconds default) for initialization operations
-  - Graceful degradation when operations exceed timeout thresholds
-  - User-friendly error notifications with actionable guidance
-- **Transaction Management**:
-  - Message operations wrapped in transactions for consistency
-  - Batch job updates use atomic operations
-  - Thread updates support selective field updates
-- **Indexing Strategy**:
-  - PostgreSQL indexes on frequently queried columns
-  - Composite indexes for thread and timestamp queries
-  - Specialized indexes for compression tracking
-- **Pagination**:
-  - Cursor-based pagination for efficient message retrieval
-  - Page size limits (1-500 messages) for memory efficiency
-  - Optimized queries with proper ordering
-- **Compression Efficiency**:
-  - Reactive compression reduces context size dynamically
-  - Efficient retrieval of uncompressed messages for prompts
-  - Metadata storage for compression analytics
+- **Transactions**:
+  - Batch inserts for repo_files are wrapped in BEGIN/COMMIT to reduce overhead.
+  - Branch-aware operations use transactional migrations to prevent data loss.
+- **Indexes**:
+  - Timestamp and composite indexes improve query performance for history and progress tracking.
+  - Branch-aware indexes optimize queries with repo_id, branch_name, and file_path filters.
+- **Concurrency**:
+  - Background embedding uses conservative concurrency to balance responsiveness.
+  - Branch maintenance operations are designed to minimize performance impact.
+  - LLMProviderManager uses per-provider rate limiting queues for optimal throughput.
+- **Debounce**:
+  - File watcher debounces rapid saves to batch re-indexing work.
+  - Conversation and plan operations use efficient file I/O patterns.
+- **Hash-based optimization**:
+  - Content hash stored per file enables skipping unchanged files in future re-indexing.
+  - Branch-specific hash tracking prevents unnecessary re-processing across branches.
 - **Git Integration**:
-  - Branch change detection with event listeners
-  - Cleanup operations scheduled with timeouts
-  - Stale branch detection and removal
-- **Secret Management Performance**:
-  - VS Code Secrets API optimized for frequent access
-  - Cached secret status for UI responsiveness
-  - Asynchronous secret operations to avoid blocking UI
-- **Queue Performance**:
-  - UUID-based entry IDs eliminate collision risks
-  - Priority queuing improves response time for critical operations
-  - History trimming prevents memory accumulation
-  - AbortController support prevents resource leaks
-- **Input Validation Performance**:
-  - Path validation optimized for workspace containment checks
-  - Remote file validation with minimal overhead
-  - Git diff validation cached for performance
-- **Database Migration Performance**:
-  - Transactional migrations prevent data corruption
-  - Non-fatal migration errors allow graceful degradation
-  - Branch-aware schema optimization reduces query complexity
-- **Settings-Based Configuration Performance**:
-  - Unified connection string retrieval reduces configuration overhead
-  - Non-blocking initialization improves extension startup time
-  - Streamlined connection testing minimizes user wait time
+  - Branch change detection uses efficient event listeners with disposable subscriptions.
+  - Cleanup operations are scheduled with timeouts to avoid blocking extension activation.
+- **LLM Provider Optimization**:
+  - Provider instances cached for reuse across operations.
+  - Batch processing for multiple symbol enrichment operations.
+  - Connection pooling for PostgreSQL database operations.
+
+Enhanced with branch-aware performance optimizations, LLM provider efficiency considerations, and code enrichment performance strategies.
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L299-L316)
-- [extension.ts](file://src/extension.ts#L60-L82)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L165-L212)
-- [compressContext.ts](file://src/chat/nodes/compressContext.ts#L36-L75)
-- [GitService.ts](file://src/git/GitService.ts#L110-L136)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L55-L72)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [databaseService.ts:674-691](file://src/core/storage/databaseService.ts#L674-L691)
+- [databaseService.ts:275-287](file://src/core/storage/databaseService.ts#L275-L287)
+- [repoEmbeddingOrchestrator.ts:113-115](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L113-L115)
+- [conversationService.ts:18-37](file://src/services/conversationService.ts#L18-L37)
+- [planService.ts:19-24](file://src/services/planService.ts#L19-L24)
+- [GitService.ts:110-136](file://src/git/GitService.ts#L110-L136)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
 
 ## Troubleshooting Guide
-- **PostgreSQL Connection Issues**:
-  - Verify connection string in Repomix Runner settings (`repomix.chat.postgresConnectionString`)
-  - Check PostgreSQL server availability and network connectivity
-  - Review connection pool errors and retry attempts
-  - Use testConnection endpoint for diagnostic information
-  - Check VS Code Secrets storage for corrupted connection strings
-  - Utilize separate connection testing for validation without affecting global pool
-- **Migration Failures**:
-  - Check schema_migrations table for applied migrations
-  - Verify table existence with verifyMigration endpoint
-  - Review migration logs for specific error details
-  - Manual migration execution if automatic migration fails
-  - Validate PostgreSQL connection before running migrations
-- **Secret Management Issues**:
-  - Verify secrets are properly stored in VS Code Secrets
-  - Check SecretInput component for masked display issues
-  - Review ConfigController error logs for secret operations
-  - Ensure proper secret keys are used for each provider type
-- **Vector Database Provider Issues**:
-  - Verify provider-specific credentials are stored correctly
-  - Check provider factory for credential validation errors
-  - Review connection testing results for authentication failures
-  - Validate network connectivity for hosted providers
-- **Timeout and Initialization Issues**:
-  - Check timeout configuration for initialization operations
-  - Verify graceful degradation behavior when operations exceed limits
-  - Review error notifications for actionable guidance
-  - Ensure non-blocking initialization doesn't affect extension functionality
-- **Transaction Errors**:
-  - Message operations use automatic transaction rollback
-  - Batch job updates support atomic operations
-  - Thread updates handle partial failures gracefully
-- **Compression Issues**:
-  - Verify compression tracking columns exist
-  - Check compression metadata for recovery data
-  - Review compression analytics in metadata
-- **Performance Issues**:
-  - Monitor connection pool utilization
-  - Check query performance with proper indexing
-  - Review pagination limits and cursor usage
-- **Data Integrity**:
-  - Verify unique constraints for thread and memory entries
-  - Check foreign key relationships for referential integrity
-  - Review transaction isolation levels
-- **Queue Management Issues**:
-  - Verify UUID-based entry ID generation
-  - Check priority queuing behavior
-  - Review history trimming configuration
-  - Validate AbortController integration
-- **Input Validation Issues**:
-  - Verify path traversal prevention for output files
-  - Check remote file validation for security
-  - Review Git diff validation for critical file changes
-- **Branch-Aware Indexing Issues**:
-  - Verify branch_name column exists in indexing tables
-  - Check branch-specific queries for proper filtering
-  - Review migration status for branch-aware schema
-  - Validate branch cleanup operations
+- **Database initialization failures**:
+  - If loading the SQLite file fails, the service falls back to a new in-memory database and persists a fresh file.
+- **Migration errors**:
+  - Non-fatal migration checks log and continue if table/column checks fail.
+  - Branch-aware migrations use transactional rollback to prevent partial conversions.
+- **Corruption**:
+  - If corruption occurs, back up the database file, then delete it so a new one is created on next initialization.
+- **Provider switch issues**:
+  - Use MigrationService to switch providers; it resets local index state for the current repo.
+- **Branch conflicts**:
+  - Use BranchMaintenanceService to clean up stale branches and their data.
+  - Check `getTrackedBranches()` to identify orphaned branch data.
+- **Conversation/plan issues**:
+  - Verify file permissions in global storage and workspace directories.
+  - Check JSON file integrity for corrupted conversation data.
+- **Git integration issues**:
+  - Verify VS Code Git extension is installed and activated.
+  - Check branch change notifications with manual branch detection fallback.
+- **LLM Provider issues**:
+  - Verify provider credentials in VS Code SecretStorage.
+  - Check provider availability and rate limit status.
+  - Review usage statistics for error patterns.
+- **Code Enrichment issues**:
+  - Verify PostgreSQL connection and database schema.
+  - Check Tree-sitter WASM file availability.
+  - Validate LLM provider configuration and API keys.
+  - Review enrichment cache and git commit tracking.
+
+Enhanced with troubleshooting procedures for branch-aware operations, LLM provider management, and code enrichment features.
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L461-L486)
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L370-L486)
-- [extension.ts](file://src/extension.ts#L60-L82)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L138-L144)
-- [compressContext.ts](file://src/chat/nodes/compressContext.ts#L43-L50)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-- [SecretInput.tsx](file://src/webview/components/ai-chat/SecretInput.tsx#L74-L91)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L190-L192)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L22-L30)
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [databaseService.ts:144-152](file://src/core/storage/databaseService.ts#L144-L152)
+- [databaseService.ts:316-320](file://src/core/storage/databaseService.ts#L316-L320)
+- [migrationService.ts:33-46](file://src/core/indexing/migrationService.ts#L33-L46)
+- [BranchMaintenanceService.ts:12-32](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [extension.ts:750-771](file://src/extension.ts#L750-L771)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [ENRICHMENT_README.md:102-124](file://ENRICHMENT_README.md#L102-L124)
 
 ## Conclusion
-The Storage System has evolved into a comprehensive PostgreSQL-centric architecture with enhanced security and connectivity management. The system includes sophisticated connection management with unified connection string retrieval from VS Code settings, improved timeout mechanisms with configurable protection, streamlined initialization process with non-blocking operations, comprehensive migration support with schema tracking, advanced secret management through VS Code Secrets API, and comprehensive database connectivity testing. The integration of PostgreSQL repositories with transaction support ensures data consistency and reliability. The system maintains backward compatibility with legacy SQLite storage while leveraging PostgreSQL's advanced features for enhanced performance and scalability. The addition of secure credential management for multiple database providers, comprehensive connection testing, and enhanced secret handling demonstrates the system's capability to handle complex, real-world scenarios with enterprise-grade security and reliability. The newly added input validation utilities provide comprehensive security measures against path traversal, file injection, and critical file modification attacks, making the system production-ready for enterprise deployment.
+The Storage System leverages sql.js to provide robust, local persistence for agent runs, debug sessions, bundle metadata, and branch-aware incremental indexing state. The DatabaseService abstracts schema, migrations, transactions, and persistence with comprehensive branch support. Enhanced conversation and plan services provide collaborative features with separate file-based storage. The bundle data provider pattern integrates seamlessly with VS Code's UI. Background indexing and startup synchronization ensure efficient, accurate search results with strong privacy controls and straightforward backup/restore procedures. Branch maintenance services provide automated cleanup of stale data, while conversation and plan services enable collaborative development workflows. Git integration ensures reliable branch management and automatic cleanup of stale branches. The LLMProviderManager provides centralized management of multiple LLM providers with rate limiting and usage tracking. Code enrichment features integrate with PostgreSQL for persistent storage of AI-generated summaries, enhancing compressed output with contextual information. These enhancements collectively provide a comprehensive, extensible storage foundation for modern AI-assisted development workflows.
 
 ## Appendices
 
 ### API Surface Summary
-- **PostgreSQL Connection**: initPool, getPool, closePool, queryWithRetry, verifyMigration, testConnection, testConnectionString
-- **Thread Management**: createThread, getThreads, getThread, updateThread, renameThread, archiveThread, deleteThread
-- **Message Management**: saveMessage, getMessages, getMessagesPage, deleteMessage, getUncompressedMessages, markMessagesAsCompressed, saveSummaryMessage, getSummaryMessages
-- **Memory Management**: createMemory, getMemoryById, listMemoryByScope, updateMemory, deleteMemory, searchByKeyword, deleteAllByScope, existsByKey
-- **Architecture Management**: upsertArchitecture, getArchitectureByRepoId, deleteArchitectureByRepoId
-- **Batch Management**: createBatchJob, getBatchJob, updateBatchJob, getPendingBatches, getBatchesByStatus, deleteBatchJob
-- **Legacy SQLite**: saveAgentRun, getAgentRunHistory, saveRepoFilesBatch, initializeIndexingProgress, markRepoFileIndexed, getTrackedBranches, clearBranchData
-- **Migration Management**: runMigrations, verifyMigration, checkTablesExist, recordMigration
-- **Secret Management**: checkSecret, saveSecret, handleCheckPostgresConnection, handleSavePostgresConnection, handleDeletePostgresConnection
-- **Vector Database**: getVectorDbAdapterForRepo, provider factory, credential validation
-- **Connectivity Testing**: testQdrantConnection, provider-specific connection testing
-- **Queue Management**: enqueue, dequeue, complete, cancel, cancelAll, getStatus, serialize, deserialize
-- **Graph Execution**: execute, stop, getCurrentlyExecuting
-- **Input Validation**: validateOutputFilePath, remote file validation, git diff validation
+- **Agent runs**: saveAgentRun, getAgentRunById, getAgentRunHistory
+- **Debug runs**: saveDebugRun, getDebugRuns, deleteDebugRun
+- **Repo files**: saveRepoFilesBatch, clearRepoFiles, getRepoFileCount, getRepoFiles
+- **Indexing progress**: initializeIndexingProgress, markFileProcessing, markFileCompleted, markFileFailed, getPendingFiles, getCompletedFilesCount, getIndexingStatus, clearIndexingProgress
+- **Incremental state**: markRepoFilesPending, getPendingRepoFiles, markRepoFileIndexed, markRepoFileDeleted, getAllRepoFileStates
+- **Branch operations**: getTrackedBranches, clearBranchData
+- **Lifecycle**: initialize, saveDatabase, dispose
+- **Conversation management**: getThreads, createThread, saveMessage, renameThread, deleteThread, exportThread
+- **Plan management**: loadPlan, updatePlan, updatePlanPart, getPlanPath
+- **Git integration**: getCurrentBranch, getCurrentCommitSha, getLocalBranches, getAllBranches, onBranchChange
+- **Branch maintenance**: cleanupStaleBranches
+- **LLM Provider Management**: initialize, getProvider, getProvidersForCapability, executeWithRetry, getDefaultEmbeddingProvider, dispose
+- **Code Enrichment**: generateAndStoreEnrichment, retrieveEnrichments, configureProvider, batchProcessSymbols
+
+Enhanced with comprehensive API surface for branch-aware operations, LLM provider management, and code enrichment services.
 
 **Section sources**
-- [postgresClient.ts](file://src/chat/db/postgresClient.ts#L286-L316)
-- [threadRepository.ts](file://src/chat/db/threadRepository.ts#L49-L152)
-- [messageRepository.ts](file://src/chat/db/messageRepository.ts#L85-L320)
-- [memoryRepository.ts](file://src/chat/db/memoryRepository.ts#L48-L242)
-- [architectureRepository.ts](file://src/chat/db/architectureRepository.ts#L29-L104)
-- [batchRepository.ts](file://src/chat/db/batchRepository.ts#L158-L212)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L579-L680)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L759-L941)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1089-L1255)
-- [databaseService.ts](file://src/core/storage/databaseService.ts#L1766-L1807)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L163-L206)
-- [ConfigController.ts](file://src/webview/controllers/ConfigController.ts#L210-L247)
-- [factory.ts](file://src/core/indexing/vectorDb/factory.ts#L24-L47)
-- [messageSchemas.ts](file://src/webview/messageSchemas.ts#L334-L339)
-- [messageQueue.ts](file://src/chat/queue/messageQueue.ts#L48-L131)
-- [graphExecutor.ts](file://src/chat/queue/graphExecutor.ts#L37-L86)
-- [pathValidation.ts](file://src/utils/pathValidation.ts#L1-L25)
-- [remoteFileReader.ts](file://src/core/files/remoteFileReader.ts#L83-L97)
-- [gitDiffValidator.ts](file://src/fingerprint/validation/gitDiffValidator.ts#L143-L182)
+- [databaseService.ts:489-667](file://src/core/storage/databaseService.ts#L489-L667)
+- [databaseService.ts:759-941](file://src/core/storage/databaseService.ts#L759-L941)
+- [databaseService.ts:1089-1255](file://src/core/storage/databaseService.ts#L1089-L1255)
+- [databaseService.ts:1766-1807](file://src/core/storage/databaseService.ts#L1766-L1807)
+- [conversationService.ts:39-157](file://src/services/conversationService.ts#L39-L157)
+- [planService.ts:31-95](file://src/services/planService.ts#L31-L95)
+- [GitService.ts:51-55](file://src/git/GitService.ts#L51-L55)
+- [BranchMaintenanceService.ts:12-32](file://src/core/indexing/BranchMaintenanceService.ts#L12-L32)
+- [LLMProviderManager.ts:1-186](file://src/core/llm/LLMProviderManager.ts#L1-L186)
+- [ENRICHMENT_README.md:64-124](file://ENRICHMENT_README.md#L64-L124)

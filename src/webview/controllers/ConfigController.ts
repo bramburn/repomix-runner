@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import type { ExtensionContext } from 'vscode';
 import { BaseController } from './BaseController.js';
-import { getRepoId } from '../../utils/repoIdentity.js';
+import { getRepoId, safeCollectionName } from '../../utils/repoIdentity.js';
 import { MigrationService } from '../../core/indexing/migrationService.js';
 import { DatabaseService } from '../../core/storage/databaseService.js';
 import { IndexingController } from './IndexingController.js';
-import { getVectorDbAdapterForRepo } from '../../core/indexing/vectorDb/factory.js';
+import { getVectorDbAdapterForRepo, getEmbeddingConfig } from '../../core/indexing/vectorDb/factory.js';
 import { BlueprintService, initBlueprintService, getBlueprintService } from '../../fingerprint/blueprintService.js';
 import { embeddingService } from '../../core/indexing/embeddingService.js';
 
@@ -82,11 +82,11 @@ export class ConfigController extends BaseController {
         return true;
       case 'setQdrantConfig':
         // Ensure inputs are strings
-        await this.handleSetQdrantConfig(String(message.url), String(message.collection));
+        await this.handleSetQdrantConfig(String(message.url));
         return true;
 
       case 'testQdrantConnection':
-        await this.handleTestQdrantConnection(message.url, message.collection, message.apiKey);
+        await this.handleTestQdrantConnection(message.url, message.apiKey);
         return true;
 
       case 'getVectorDbCollectionInfo':
@@ -308,23 +308,18 @@ export class ConfigController extends BaseController {
 
   private async handleGetQdrantConfig() {
     const url = (this.extensionContext.globalState.get('repomix.qdrant.url') as string) ?? '';
-    const collection =
-      (this.extensionContext.globalState.get('repomix.qdrant.collection') as string) ?? '';
-    this.context.postMessage({ command: 'qdrantConfig', url, collection });
+    this.context.postMessage({ command: 'qdrantConfig', url });
   }
 
-  private async handleSetQdrantConfig(url: string, collection: string) {
+  private async handleSetQdrantConfig(url: string) {
     // Explicitly validate strings to prevent bad state
     const nextUrl = url || '';
-    const nextCollection = collection || '';
 
     await this.extensionContext.globalState.update('repomix.qdrant.url', nextUrl);
-    await this.extensionContext.globalState.update('repomix.qdrant.collection', nextCollection);
 
     this.context.postMessage({
       command: 'qdrantConfig',
       url: nextUrl,
-      collection: nextCollection,
     });
     vscode.window.showInformationMessage('Qdrant settings saved.');
   }
@@ -339,152 +334,50 @@ export class ConfigController extends BaseController {
     }
   }
 
-  private async handleTestQdrantConnection(url: string, collection: string, apiKey?: string) {
+  private async handleTestQdrantConnection(url: string, apiKey?: string) {
     console.log('[ConfigController] === Qdrant Test Connection Handler Started ===');
     console.log('[ConfigController] Received URL:', url);
-    console.log('[ConfigController] Received collection:', collection);
     console.log('[ConfigController] Received apiKey present:', !!apiKey);
-    console.log('[ConfigController] Received apiKey length:', apiKey?.length);
 
     // FIX: Retrieve API Key from secrets if not provided in the message
-    if (!apiKey) {
-      console.log('[ConfigController] API Key missing in message payload. Attempting to retrieve from secrets...');
-      apiKey = await this.extensionContext.secrets.get(SECRET_QDRANT);
-
-      if (apiKey) {
-        console.log('[ConfigController] API Key successfully retrieved from secrets (length:', apiKey.length, ')');
-      } else {
-        console.warn('[ConfigController] API Key not found in secrets. Connection will be attempted without authentication.');
+    let finalApiKey = apiKey;
+    if (!finalApiKey) {
+      finalApiKey = await this.extensionContext.secrets.get(SECRET_QDRANT);
+      if (finalApiKey) {
+        console.log('[ConfigController] Using API key from Secrets Storage');
       }
     }
 
     try {
       // Step 1: Validate URL format
-      console.log('[ConfigController] Step 1: Validating URL format...');
       if (!this.validateQdrantUrl(url)) {
-        console.error('[ConfigController] URL validation FAILED');
         throw new Error('Invalid URL format. Must be a valid http:// or https:// URL');
       }
-      console.log('[ConfigController] URL validation PASSED');
 
       // Step 2: Import QdrantClient
-      console.log('[ConfigController] Step 2: Importing @qdrant/js-client-rest...');
       const { QdrantClient } = await import('@qdrant/js-client-rest');
-      console.log('[ConfigController] QdrantClient imported successfully');
 
-      // Step 3: Build client config
-      console.log('[ConfigController] Step 3: Building client config...');
-      const clientConfig: any = {
-        url,
-        timeout: 30000
-      };
+      // Step 3: Create client
+      const client = new QdrantClient({
+        url: url,
+        apiKey: finalApiKey,
+        timeout: 10000,
+        checkCompatibility: false
+      });
 
-      if (apiKey) {
-        clientConfig.apiKey = apiKey;
-        console.log('[ConfigController] API key added to config (first 8 chars):', apiKey.substring(0, 8) + '...');
-      } else {
-        console.warn('[ConfigController] No API key provided - connection may fail for hosted instances');
-      }
-
-      console.log('[ConfigController] Client config built:', JSON.stringify({ url: clientConfig.url, timeout: clientConfig.timeout, hasApiKey: !!clientConfig.apiKey }));
-
-      // Step 4: Create client
-      console.log('[ConfigController] Step 4: Creating QdrantClient instance...');
-      const client = new QdrantClient(clientConfig);
-      console.log('[ConfigController] QdrantClient instance created');
-
-      // Step 5: Test connection by listing collections
-      console.log('[ConfigController] Step 5: Calling client.getCollections()...');
-      const response = await client.getCollections();
-      console.log('[ConfigController] getCollections() succeeded!');
-      // console.log('[ConfigController] Response status:', response.status ? response.status : 'no status field');
-      console.log('[ConfigController] Collections found:', response.collections?.length || 0);
-      console.log('[ConfigController] Collection names:', response.collections?.map((c: any) => c.name) || []);
-
-      const exists = response.collections.some((c: any) => c.name === collection);
-      console.log('[ConfigController] Collection "' + collection + '" exists:', exists);
-
-      // Get current embedding provider dimension
-      const config = vscode.workspace.getConfiguration();
-      const embeddingProvider = config.get<string>('repomix.embedding.provider') || 'lmstudio';
-      let expectedDim = 768; // Default for LM Studio
-
-      if (embeddingProvider === 'ollama') {
-        expectedDim = config.get<number>('repomix.ollama.dimension') || 768;
-      } else if (embeddingProvider === 'lmstudio') {
-        expectedDim = config.get<number>('repomix.lmstudio.dimension') || 768;
-      }
-
-      console.log(`[ConfigController] Current embedding provider: ${embeddingProvider}, expected dimension: ${expectedDim}`);
-
-      // Step 6: Create collection if it doesn't exist
-      if (!exists) {
-        console.log('[ConfigController] Step 6: Creating collection "' + collection + '" with ' + expectedDim + ' dimensions...');
-        await client.createCollection(collection, {
-          vectors: {
-            size: expectedDim,
-            distance: 'Cosine'
-          }
-        });
-        console.log('[ConfigController] Collection created successfully');
-
-        const resultMessage = `Connected to Qdrant and created collection "${collection}" with ${expectedDim} dimensions for ${embeddingProvider}`;
-        console.log('[ConfigController] Sending success result:', resultMessage);
-        this.context.postMessage({
-          command: 'qdrantConnectionResult',
-          success: true,
-          message: resultMessage
-        });
-        vscode.window.showInformationMessage(resultMessage);
-      } else {
-        // Collection exists - validate dimension compatibility
-        console.log('[ConfigController] Collection exists, checking dimension compatibility...');
-        
-        try {
-          const collectionInfo = await client.getCollection(collection);
-          const vectorsConfig = collectionInfo.config?.params?.vectors;
-          let collectionDim: number | undefined;
-          
-          if (typeof vectorsConfig === 'object' && vectorsConfig !== null && 'size' in vectorsConfig) {
-            collectionDim = (vectorsConfig as { size: number }).size;
-          }
-          
-          if (collectionDim !== undefined) {
-            console.log(`[ConfigController] Collection dimension: ${collectionDim}, expected: ${expectedDim}`);
-            
-            if (collectionDim !== expectedDim) {
-              const warningMessage = 
-                `⚠️ Dimension Mismatch: Collection "${collection}" has ${collectionDim} dimensions ` +
-                `but your ${embeddingProvider} provider produces ${expectedDim} dimensions. ` +
-                `Indexing will fail. Please recreate the collection or change your embedding provider.`;
-              
-              console.warn('[ConfigController]', warningMessage);
-              this.context.postMessage({
-                command: 'qdrantConnectionResult',
-                success: false,
-                error: warningMessage
-              });
-              vscode.window.showWarningMessage(warningMessage, 'Open Settings').then(choice => {
-                if (choice === 'Open Settings') {
-                  vscode.commands.executeCommand('repomixRunner.openSettings');
-                }
-              });
-              return;
-            }
-          }
-        } catch (dimError) {
-          console.warn('[ConfigController] Could not validate collection dimension:', dimError);
-        }
-        
-        const resultMessage = `Connected to Qdrant. Collection "${collection}" already exists with ${expectedDim} dimensions.`;
-        console.log('[ConfigController] Sending success result:', resultMessage);
-        this.context.postMessage({
-          command: 'qdrantConnectionResult',
-          success: true,
-          message: resultMessage
-        });
-        vscode.window.showInformationMessage(resultMessage);
-      }
+      // Step 4: Test connection by listing collections
+      console.log('[ConfigController] Testing basic connectivity...');
+      await client.getCollections();
+      
+      const resultMessage = `Successfully connected to Qdrant at ${url}`;
+      console.log('[ConfigController] Connection successful:', resultMessage);
+      
+      this.context.postMessage({
+        command: 'qdrantConnectionResult',
+        success: true,
+        message: resultMessage
+      });
+      vscode.window.showInformationMessage(resultMessage);
       console.log('[ConfigController] === Qdrant Test Connection Completed Successfully ===');
 
     } catch (error: unknown) {
@@ -503,11 +396,7 @@ export class ConfigController extends BaseController {
 
       console.error('[ConfigController] === Qdrant Test Connection Failed ===');
       console.error('[ConfigController] Error message:', errorMessage);
-      console.error('[ConfigController] Error name:', error instanceof Error ? error.name : 'unknown');
-      console.error('[ConfigController] Full error:', error);
-      console.error('[ConfigController] Stack trace:', error instanceof Error ? error.stack : 'no stack');
 
-      console.error('[ConfigController] Sending failure result to webview...');
       this.context.postMessage({
         command: 'qdrantConnectionResult',
         success: false,
@@ -526,15 +415,15 @@ export class ConfigController extends BaseController {
       }
 
       const provider = (this.extensionContext.globalState.get('repomix.vectorDb.provider') as string) ?? 'qdrant';
-
-      let collectionName: string | null = null;
-
-      collectionName = this.extensionContext.globalState.get('repomix.qdrant.collection') as string || null;
+      const repoId = await getRepoId(workspaceFolders[0].uri.fsPath);
+      const { dimension } = getEmbeddingConfig();
+      const safeRepoId = safeCollectionName(repoId);
+      const collectionName = `${safeRepoId}-${dimension}`;
 
       this.context.postMessage({
         command: 'vectorDbCollectionInfo',
         provider,
-        info: collectionName ? { name: collectionName } : null
+        info: { name: collectionName }
       });
     } catch (error) {
       console.error('Failed to get collection info:', error);
