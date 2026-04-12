@@ -23,11 +23,11 @@
 
 ## Update Summary
 **Changes Made**
-- Removed Pinecone provider support from vector database architecture
-- Enhanced Qdrant adapter with comprehensive dimension validation and improved error handling
-- Streamlined vector database operations to focus on Qdrant as the primary provider
-- Updated state restoration system documentation to reflect current implementation
-- Revised configuration guidance to emphasize Qdrant-only setup
+- Enhanced state restoration system with comprehensive `hydrate` message command for consolidated state restoration
+- Improved SearchTab state persistence and restoration mechanisms with comprehensive UI state management
+- Updated vector database operations focusing on Qdrant as primary provider with enhanced dimension validation
+- Added documentation of the new state hydration flow and comprehensive error handling
+- Streamlined architecture to focus exclusively on Qdrant provider for simplified operations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,13 +45,13 @@
 ## Introduction
 This document describes the Indexing and Search System that powers semantic search over repositories. It covers the vector database integration architecture, the file embedding pipeline from text chunking through embedding generation to vector storage, repository indexing and incremental updates, monitoring mechanisms, provider abstractions for embeddings and vector databases, semantic search capabilities, query expansion, and operational concerns such as retries, migrations, and error handling in distributed indexing scenarios.
 
-**Updated** The system now focuses exclusively on Qdrant as the vector database provider, with enhanced dimension validation and comprehensive error handling for reliable semantic search operations.
+**Updated** The system now focuses exclusively on Qdrant as the vector database provider, with enhanced dimension validation and comprehensive error handling for reliable semantic search operations. The state restoration system has been significantly enhanced with a consolidated `hydrate` message command that provides seamless continuity of indexing operations after application restarts.
 
 ## Project Structure
 The indexing and search system is organized around a cohesive set of modules under the core indexing subsystem:
 - Repository indexing: enumerating files and writing them to the local database
 - File embedding pipeline: reading, chunking, embedding, batching, and upserting vectors
-- Vector database adapters: Qdrant-focused provider-agnostic interface
+- Vector database adapters: Qdrant-focused provider-agnostic interface with enhanced validation
 - Embedding providers: abstraction for Ollama
 - Orchestration: coordinating repository-wide and incremental embedding
 - Monitoring: collecting file changes and debouncing re-indexing
@@ -132,8 +132,8 @@ HW --> RS
 - [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
 - [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
 - [queryExpansion.ts:1-64](file://src/core/indexing/queryExpansion.ts#L1-L64)
-- [SearchTab.tsx:1-1217](file://src/webview/components/SearchTab.tsx#L1-L1217)
-- [RepomixWebviewProvider.ts:1-308](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
+- [SearchTab.tsx:1-1481](file://src/webview/components/SearchTab.tsx#L1-L1481)
+- [RepomixWebviewProvider.ts:1-410](file://src/webview/RepomixWebviewProvider.ts#L1-L410)
 
 ## Core Components
 - Repository indexer: discovers files via globbing with ignore patterns, writes them to the local database in batches, and logs timing metrics.
@@ -143,7 +143,7 @@ HW --> RS
 - Orchestrator: coordinates full repository embedding and incremental updates, supports concurrency, progress callbacks, abort signals, and statistics.
 - Monitor: collects file changes with a debounce mechanism, persists pending state, and triggers incremental embedding.
 - Utilities: exponential backoff retry, batching helpers, migration service for switching providers safely, and query expansion for semantic variants.
-- **State Management**: comprehensive state persistence and restoration system ensuring UI continuity across application restarts.
+- **State Management**: comprehensive state persistence and restoration system ensuring UI continuity across application restarts through consolidated hydration.
 
 **Section sources**
 - [repoIndexer.ts:28-121](file://src/core/indexing/repoIndexer.ts#L28-L121)
@@ -162,7 +162,7 @@ HW --> RS
 ## Architecture Overview
 The system integrates file discovery, chunking, embedding, and vector storage with a focus on reliability and scalability. It supports embedding providers and Qdrant as the primary vector database provider, with a factory selecting the appropriate adapter based on persisted extension state. Incremental updates are handled via a monitor that queues changes and triggers targeted re-embedding.
 
-**Updated** The architecture now focuses exclusively on Qdrant with enhanced dimension validation and comprehensive error handling for reliable semantic search operations.
+**Updated** The architecture now focuses exclusively on Qdrant with enhanced dimension validation and comprehensive error handling for reliable semantic search operations. The state restoration system provides seamless continuity through consolidated hydration.
 
 ```mermaid
 sequenceDiagram
@@ -606,15 +606,15 @@ HW --> RS
 - [retryService.ts:1-71](file://src/core/indexing/retryService.ts#L1-L71)
 - [migrationService.ts:1-63](file://src/core/indexing/migrationService.ts#L1-L63)
 - [queryExpansion.ts:1-64](file://src/core/indexing/queryExpansion.ts#L1-L64)
-- [SearchTab.tsx:1-1217](file://src/webview/components/SearchTab.tsx#L1-L1217)
-- [RepomixWebviewProvider.ts:1-308](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
+- [SearchTab.tsx:1-1481](file://src/webview/components/SearchTab.tsx#L1-L1481)
+- [RepomixWebviewProvider.ts:1-410](file://src/webview/RepomixWebviewProvider.ts#L1-L410)
 
 **Section sources**
 - [repoEmbeddingOrchestrator.ts:1-655](file://src/core/indexing/repoEmbeddingOrchestrator.ts#L1-L655)
 - [fileEmbeddingPipeline.ts:1-469](file://src/core/indexing/fileEmbeddingPipeline.ts#L1-L469)
 - [vectorDb/factory.ts:1-62](file://src/core/indexing/vectorDb/factory.ts#L1-L62)
-- [SearchTab.tsx:1-1217](file://src/webview/components/SearchTab.tsx#L1-L1217)
-- [RepomixWebviewProvider.ts:1-308](file://src/webview/RepomixWebviewProvider.ts#L1-L308)
+- [SearchTab.tsx:1-1481](file://src/webview/components/SearchTab.tsx#L1-L1481)
+- [RepomixWebviewProvider.ts:1-410](file://src/webview/RepomixWebviewProvider.ts#L1-L410)
 
 ## Performance Considerations
 - Concurrency controls: tune max concurrent files, embedding batches, and upsert batches to balance throughput and provider rate limits.
@@ -650,7 +650,7 @@ HW --> RS
 ## Conclusion
 The Indexing and Search System provides a robust, extensible framework for repository-wide semantic search. Its modular design separates concerns across indexing, embedding, orchestration, and vector storage, while offering provider abstraction and operational safeguards such as retries, migrations, and incremental updates. The enhanced state restoration functionality ensures seamless continuity of indexing operations through comprehensive state hydration and persistence mechanisms. By tuning concurrency, chunking, and batching parameters, teams can achieve scalable and responsive search experiences tailored to their environments.
 
-**Updated** The system now focuses exclusively on Qdrant as the vector database provider, with enhanced dimension validation and comprehensive error handling for reliable semantic search operations.
+**Updated** The system now focuses exclusively on Qdrant as the vector database provider, with enhanced dimension validation and comprehensive error handling for reliable semantic search operations. The state restoration system provides seamless continuity through consolidated hydration, minimizing UI flicker and maintaining user context across application restarts.
 
 ## Appendices
 

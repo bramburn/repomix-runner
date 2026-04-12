@@ -19,7 +19,8 @@
       "Bash(git -C /Users/bramburn/dev/repomix-runner log --all --full-history --oneline -- scripts/package-local.mjs)",
       "mcp__plugin_mempalace_mempalace__mempalace_diary_write",
       "Bash(git -C /Users/bramburn/dev/repomix-runner show d709bcc:scripts/package-local.mjs)",
-      "Bash(git -C /Users/bramburn/dev/repomix-runner show f410d04:scripts/package-local.mjs)"
+      "Bash(git -C /Users/bramburn/dev/repomix-runner show f410d04:scripts/package-local.mjs)",
+      "Bash(npx vitest:*)"
     ]
   }
 }

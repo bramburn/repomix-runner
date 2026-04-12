@@ -23,15 +23,17 @@
 - [switchLLMProvider.ts](file://src/commands/switchLLMProvider.ts)
 - [migrationService.ts](file://src/core/indexing/migrationService.ts)
 - [qdrantAdapter.ts](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts)
+- [factory.ts](file://src/core/indexing/vectorDb/factory.ts)
+- [repoIdentity.ts](file://src/utils/repoIdentity.ts)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added new LLM provider settings categories including OpenRouter support
-- Introduced enrichment configuration options for AI-powered code enrichment
-- Updated settings UI to focus on Qdrant setup and new configuration categories
-- Enhanced LLM provider management with rate limiting and usage tracking
-- Removed Pinecone-specific configurations and dependencies
+- Updated Qdrant configuration to use automated collection naming based on repository context and embedding dimensions
+- Removed manual collection selection mechanism and dropdown interface
+- Simplified vector database setup process with automatic collection generation
+- Enhanced collection naming safety with repository identity sanitization
+- Streamlined configuration management approach for improved user experience
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -48,7 +50,7 @@
 ## Introduction
 This document explains the Configuration Management system used by the extension. It covers how VS Code settings and repomix.config.json files combine to form a unified configuration, the precedence rules, inheritance patterns, and override mechanisms. It also documents the configuration schema validation, supported properties, default values, environment-specific behavior (workspace vs user settings, per-project overrides, global defaults), and practical examples for common scenarios such as custom output directories, bundle definitions, and AI provider settings. Finally, it describes the configuration loading process, validation errors, troubleshooting steps, migration guidance, and consistency practices across team environments.
 
-**Updated** The system now includes enhanced LLM provider management with OpenRouter support, enrichment configuration options, and streamlined vector database setup focused on Qdrant.
+**Updated** The system now includes simplified Qdrant configuration with automated collection naming, removing the need for manual collection selection and streamlining the vector database setup process.
 
 ## Project Structure
 The configuration system spans several modules:
@@ -59,6 +61,7 @@ The configuration system spans several modules:
 - Webview settings and embedding provider configuration
 - CLI flag compatibility checks
 - LLM provider management and enrichment services
+- **Updated** Automated Qdrant collection management with repository-based naming
 
 ```mermaid
 graph TB
@@ -66,8 +69,10 @@ subgraph "VS Code Settings"
 PJSON["package.json<br/>contributes.configuration"]
 ENDPOINT["LLM Provider Settings<br/>OpenRouter Support"]
 ENRICH["Enrichment Configuration<br/>AI-Powered Code Enhancement"]
+QDRANT["Qdrant Configuration<br/>Automated Collection Naming"]
 ENDPOINT --> PJSON
 ENRICH --> PJSON
+QDRANT --> PJSON
 end
 subgraph "Config Files"
 RCFG["repomix.config.json"]
@@ -79,6 +84,7 @@ end
 subgraph "Workspace Context"
 GCWD["getCwd.ts"]
 GOFS["getOpenFiles.ts"]
+REPOID["repoIdentity.ts<br/>safeCollectionName()"]
 end
 subgraph "Bundles"
 BMGR["bundleManager.ts"]
@@ -90,16 +96,21 @@ SETAB["SettingsTab.tsx<br/>Enhanced Provider UI"]
 EMB["embeddingService.ts"]
 CCTL["ConfigController.ts<br/>Enrichment Handlers"]
 LLM["LLMProviderManager.ts<br/>Rate Limiting & Tracking"]
+QFACT["factory.ts<br/>Auto Collection Generation"]
+QADAPT["qdrantAdapter.ts<br/>Collection Management"]
 end
 PJSON --> CLDR
 RCFG --> CLDR
 GCWD --> CLDR
 GOFS --> CLDR
+REPOID --> QFACT
 CLDR --> BMGR
 BTYP --> GFNM
 SETAB --> CCTL
 CCTL --> EMB
 CCTL --> LLM
+CCTL --> QFACT
+QFACT --> QADAPT
 ```
 
 **Diagram sources**
@@ -109,12 +120,15 @@ CCTL --> LLM
 - [package.json:30-284](file://package.json#L30-L284)
 - [getCwd.ts:8-17](file://src/config/getCwd.ts#L8-L17)
 - [getOpenFiles.ts:4-12](file://src/config/getOpenFiles.ts#L4-L12)
+- [repoIdentity.ts:46-58](file://src/utils/repoIdentity.ts#L46-L58)
 - [bundleManager.ts](file://src/core/bundles/bundleManager.ts)
 - [types.ts:3-12](file://src/core/bundles/types.ts#L3-L12)
 - [generateOutputFilename.ts:4-38](file://src/utils/generateOutputFilename.ts#L4-L38)
 - [SettingsTab.tsx:450-479](file://src/webview/components/SettingsTab.tsx#L450-L479)
 - [embeddingService.ts:17-46](file://src/core/indexing/embeddingService.ts#L17-L46)
 - [ConfigController.ts:696-734](file://src/webview/controllers/ConfigController.ts#L696-L734)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
+- [qdrantAdapter.ts:12-43](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L43)
 - [LLMProviderManager.ts:68-186](file://src/core/llm/LLMProviderManager.ts#L68-L186)
 - [types.ts:136-189](file://src/core/llm/types.ts#L136-L189)
 
@@ -133,6 +147,7 @@ CCTL --> LLM
 - Output filename generation integrates bundle names and configuration paths.
 - LLM provider management handles multiple AI providers with rate limiting and usage tracking.
 - Enrichment configuration enables AI-powered code enhancement during compression.
+- **Updated** Automated Qdrant collection management generates collection names based on repository identity and embedding dimensions.
 
 **Section sources**
 - [configSchema.ts:15-165](file://src/config/configSchema.ts#L15-L165)
@@ -143,9 +158,10 @@ CCTL --> LLM
 - [generateOutputFilename.ts:4-38](file://src/utils/generateOutputFilename.ts#L4-L38)
 - [LLMProviderManager.ts:68-186](file://src/core/llm/LLMProviderManager.ts#L68-L186)
 - [types.ts:136-189](file://src/core/llm/types.ts#L136-L189)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
 
 ## Architecture Overview
-The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides. The system now includes enhanced LLM provider management and enrichment capabilities.
+The configuration pipeline reads VS Code settings, optionally loads a repomix.config.json file, merges them with defaults, and validates the final configuration. The merge respects a strict precedence order and supports runtime overrides. The system now includes enhanced LLM provider management, enrichment capabilities, and **automated Qdrant collection management** that eliminates manual collection selection.
 
 ```mermaid
 sequenceDiagram
@@ -155,7 +171,8 @@ participant FS as "File System"
 participant Loader as "configLoader.mergeConfigs()"
 participant Schema as "configSchema"
 participant LLM as "LLMProviderManager"
-participant Output as "MergedConfig"
+participant QFactory as "VectorDB Factory"
+participant QAdapter as "QdrantAdapter"
 User->>VSCode : "Open settings / run command"
 VSCode-->>Loader : "repomixRunnerConfigDefault"
 Loader->>FS : "readRepomixFileConfig(cwd)"
@@ -163,6 +180,10 @@ FS-->>Loader : "RepomixConfigFile or void"
 Loader->>Schema : "merge and validate"
 Schema->>LLM : "initialize with LLM config"
 LLM-->>Schema : "providers ready"
+Schema->>QFactory : "getVectorDbAdapterForRepo()"
+QFactory->>QFactory : "generate collection name from repoId + dimension"
+QFactory->>QAdapter : "create with auto-generated collection"
+QAdapter-->>Schema : "adapter ready"
 Schema-->>Output : "MergedConfig"
 Output-->>User : "Effective configuration applied"
 ```
@@ -171,6 +192,8 @@ Output-->>User : "Effective configuration applied"
 - [configLoader.ts:145-229](file://src/config/configLoader.ts#L145-L229)
 - [configSchema.ts:138-149](file://src/config/configSchema.ts#L138-L149)
 - [LLMProviderManager.ts:68-186](file://src/core/llm/LLMProviderManager.ts#L68-L186)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
+- [qdrantAdapter.ts:12-43](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L43)
 
 ## Detailed Component Analysis
 
@@ -227,6 +250,7 @@ Supported properties include:
 - **New** enrichment: enabled, llmProvider (supports gemini, ollama, lmstudio, openrouter)
 - **New** llm: defaultProvider, embeddingProvider, rateLimit.enabled, usageTracking.enabled
 - **Updated** embedding: provider (ollama, lmstudio), ollama.*, lmstudio.*
+- **Updated** vectorDb: provider (qdrant), auto-generated collection naming
 - version: boolean
 
 Defaults are declared in the default schema and enforced by Zod parsing.
@@ -248,6 +272,7 @@ Practical effects:
 - useBundleNameAsOutputName affects generated output filenames for bundles.
 - **New** enrichment.enabled toggles AI-powered code enhancement during compression.
 - **New** llm.defaultProvider and llm.embeddingProvider set global LLM preferences.
+- **Updated** vectorDb.provider is fixed to 'qdrant' with auto-generated collection names.
 
 **Section sources**
 - [package.json:30-284](file://package.json#L30-L284)
@@ -338,6 +363,52 @@ Enhance --> Normal
 - [SettingsTab.tsx:176-178](file://src/webview/components/SettingsTab.tsx#L176-L178)
 - [configSchema.ts:127-130](file://src/config/configSchema.ts#L127-L130)
 
+### Automated Qdrant Configuration and Collection Management
+**Updated** The system now features automated Qdrant collection management that eliminates manual collection selection and streamlines the configuration process.
+
+#### Auto-Generated Collection Naming
+- Collection names are automatically generated based on repository identity and embedding dimensions
+- Uses `safeCollectionName()` to sanitize repository names for database compatibility
+- Collection format: `{safeRepoId}-{dimension}` (e.g., `my-repo-768`)
+- Repository identity is derived from workspace path with fallback to folder name
+
+#### Simplified Configuration Process
+- Users only need to configure Qdrant URL and optional API key
+- Manual collection selection interface has been removed
+- Collections are created automatically on first upsert operation
+- Dimension validation ensures embedding provider compatibility
+
+#### Collection Management Features
+- Automatic collection creation with proper vector dimensions
+- Dimension mismatch detection and error reporting
+- Safe collection name generation preventing database conflicts
+- Hosted instance API key validation for cloud deployments
+- Collection existence verification with dimension matching
+
+```mermaid
+flowchart TD
+UserConfig["Qdrant URL + Optional API Key"] --> Factory["VectorDB Factory"]
+Factory --> RepoId["Get Repository Identity"]
+RepoId --> SafeName["safeCollectionName()"]
+SafeName --> DimCheck["Get Embedding Dimension"]
+DimCheck --> AutoName["Generate: {safeRepoId}-{dimension}"]
+AutoName --> Adapter["Create QdrantAdapter"]
+Adapter --> Upsert["First Upsert Operation"]
+Upsert --> CreateCol["Auto-Create Collection"]
+CreateCol --> Ready["Collection Ready for Use"]
+```
+
+**Diagram sources**
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
+- [repoIdentity.ts:46-58](file://src/utils/repoIdentity.ts#L46-L58)
+- [qdrantAdapter.ts:53-105](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L53-L105)
+
+**Section sources**
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
+- [repoIdentity.ts:42-58](file://src/utils/repoIdentity.ts#L42-L58)
+- [qdrantAdapter.ts:12-43](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L43)
+- [qdrantAdapter.ts:53-105](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L53-L105)
+
 ### Practical Examples
 
 - Custom output directory with useTargetAsOutput:
@@ -359,6 +430,12 @@ Enhance --> Normal
   - Select llmProvider as 'openrouter' for cloud-based AI enhancements.
   - Leverage AI-generated summaries during compression operations.
 
+- **Updated** Simplified Qdrant configuration:
+  - Set qdrant URL in Settings tab (e.g., http://localhost:6333 for local or cloud URL)
+  - Optionally add API key for hosted instances
+  - Collection name is auto-generated as `{safeRepoId}-{dimension}`
+  - No manual collection selection required
+
 - **Updated** Vector database setup:
   - Focus on Qdrant configuration with URL, collection, and API key.
   - Simplified from previous Pinecone-centric setup.
@@ -373,6 +450,7 @@ Note: These examples describe behaviors implemented by the configuration system 
 - [ConfigController.ts:696-734](file://src/webview/controllers/ConfigController.ts#L696-L734)
 - [migrationService.ts:17-59](file://src/core/indexing/migrationService.ts#L17-L59)
 - [qdrantAdapter.ts:1-436](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L1-L436)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
 
 ### Configuration Loading Process
 - getCwd determines the workspace root used as cwd for resolving paths.
@@ -380,6 +458,7 @@ Note: These examples describe behaviors implemented by the configuration system 
 - readRepomixFileConfig attempts to locate and parse repomix.config.json, stripping comments before parsing.
 - mergeConfigs performs the precedence-based merge and validates the final configuration.
 - **Updated** LLM provider configuration is extracted and passed to LLMProviderManager for initialization.
+- **Updated** Vector database configuration uses auto-generated collection names based on repository identity.
 
 ```mermaid
 flowchart TD
@@ -389,18 +468,24 @@ B --> D["mergeConfigs(cwd, file?, vscode, override?, configPath?)"]
 C --> D
 D --> E["Extract LLM Config"]
 E --> F["LLMProviderManager.initialize()"]
-F --> G["Return validated MergedConfig"]
+F --> G["Extract VectorDB Config"]
+G --> H["getVectorDbAdapterForRepo()"]
+H --> I["Auto-generate Collection Name"]
+I --> J["Create QdrantAdapter"]
+J --> K["Return validated MergedConfig"]
 ```
 
 **Diagram sources**
 - [getCwd.ts:8-17](file://src/config/getCwd.ts#L8-L17)
 - [configLoader.ts:99-229](file://src/config/configLoader.ts#L99-L229)
 - [compatibilityShim.ts:52-72](file://src/core/llm/compatibilityShim.ts#L52-L72)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
 
 **Section sources**
 - [getCwd.ts:8-17](file://src/config/getCwd.ts#L8-L17)
 - [configLoader.ts:99-229](file://src/config/configLoader.ts#L99-L229)
 - [compatibilityShim.ts:52-72](file://src/core/llm/compatibilityShim.ts#L52-L72)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
 
 ### CLI Flags Compatibility
 CLI flags builder validates whether configuration keys are supported by CLI. Some keys (like runner.configPath, include, and version) are not mapped to CLI flags and will produce warnings if present in the configuration.
@@ -417,6 +502,7 @@ The configuration system exhibits clear separation of concerns:
 - UI components manage provider configuration and compatibility checks.
 - **Updated** LLM provider manager handles multiple AI providers with rate limiting and usage tracking.
 - **New** Enrichment service provides AI-powered code enhancement capabilities.
+- **Updated** VectorDB factory manages automated collection naming and Qdrant adapter creation.
 
 ```mermaid
 graph LR
@@ -428,6 +514,8 @@ BTYP["types.ts"] --> GFNM["generateOutputFilename.ts"]
 SETAB["SettingsTab.tsx"] --> CCTL["ConfigController.ts"]
 CCTL --> EMB["embeddingService.ts"]
 CCTL --> LLM["LLMProviderManager.ts"]
+CCTL --> QFACT["factory.ts"]
+QFACT --> QADAPT["qdrantAdapter.ts"]
 LLM --> COMPAT["compatibilityShim.ts"]
 ```
 
@@ -444,6 +532,8 @@ LLM --> COMPAT["compatibilityShim.ts"]
 - [embeddingService.ts:17-46](file://src/core/indexing/embeddingService.ts#L17-L46)
 - [LLMProviderManager.ts:68-186](file://src/core/llm/LLMProviderManager.ts#L68-L186)
 - [compatibilityShim.ts:52-72](file://src/core/llm/compatibilityShim.ts#L52-L72)
+- [factory.ts:48-78](file://src/core/indexing/vectorDb/factory.ts#L48-L78)
+- [qdrantAdapter.ts:12-43](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L12-L43)
 
 **Section sources**
 - [configLoader.ts:145-229](file://src/config/configLoader.ts#L145-L229)
@@ -458,6 +548,8 @@ LLM --> COMPAT["compatibilityShim.ts"]
 - **Updated** Enable rate limiting for external LLM providers to prevent API throttling.
 - **New** Monitor usage tracking to optimize API costs and resource utilization.
 - **New** Consider enrichment complexity when enabling AI-powered code enhancement.
+- **Updated** Automated collection naming reduces configuration overhead and potential errors.
+- **Updated** Single collection per repository reduces database management complexity.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -486,6 +578,11 @@ Common issues and resolutions:
   - Resolution: Verify enrichment.enabled and llmProvider settings match available providers.
   - Reference: [ConfigController.ts:1433-1455](file://src/webview/controllers/ConfigController.ts#L1433-L1455)
 
+- **Updated** Qdrant collection configuration issues:
+  - Symptom: Collection not found or dimension mismatch errors.
+  - Resolution: Verify Qdrant URL and API key; ensure embedding dimension matches collection configuration.
+  - Reference: [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77), [qdrantAdapter.ts:53-105](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L53-L105)
+
 - **Updated** Vector database provider switching:
   - Symptom: Migration failures or credential validation errors.
   - Resolution: Ensure Qdrant URL and collection are configured; verify API key if required.
@@ -510,10 +607,11 @@ Common issues and resolutions:
 - [ConfigController.ts:1433-1455](file://src/webview/controllers/ConfigController.ts#L1433-L1455)
 - [migrationService.ts:48-59](file://src/core/indexing/migrationService.ts#L48-L59)
 - [qdrantAdapter.ts:22-25](file://src/core/indexing/vectorDb/providers/qdrantAdapter.ts#L22-L25)
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
 - [cliFlagsBuilder.ts:168-214](file://src/core/cli/cliFlagsBuilder.ts#L168-L214)
 
 ## Conclusion
-The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. It supports environment-specific behavior, per-bundle overrides, and enhanced provider configuration for AI indexing. **Updated** The system now includes comprehensive LLM provider management with OpenRouter support, enrichment configuration options, and streamlined vector database setup focused on Qdrant. By following the documented precedence, defaults, and troubleshooting steps, teams can maintain consistent and reliable configurations across diverse development environments.
+The configuration system combines VS Code settings and repomix.config.json with a clear precedence model, robust schema validation, and helpful defaults. It supports environment-specific behavior, per-bundle overrides, and enhanced provider configuration for AI indexing. **Updated** The system now includes comprehensive LLM provider management with OpenRouter support, enrichment configuration options, and **automated Qdrant collection management** that eliminates manual collection selection and streamlines the vector database setup process. By following the documented precedence, defaults, and troubleshooting steps, teams can maintain consistent and reliable configurations across diverse development environments.
 
 ## Appendices
 
@@ -537,6 +635,7 @@ Highest to lowest:
 - **New** enrichment: enabled defaults to false; llmProvider defaults to gemini.
 - **New** llm: defaultProvider defaults to gemini; embeddingProvider defaults to lmstudio; rateLimit.enabled defaults to true; usageTracking.enabled defaults to true.
 - **Updated** embedding: provider defaults to lmstudio; ollama.url defaults to http://localhost:11434; ollama.model defaults to nomic-embed-text; ollama.dimension defaults to 768; lmstudio.baseUrl defaults to http://192.168.0.49:1234/v1; lmstudio.apiKey defaults to ''; lmstudio.model defaults to ''; lmstudio.dimension defaults to 768.
+- **Updated** vectorDb: provider defaults to 'qdrant'; collection is auto-generated as `{safeRepoId}-{dimension}`.
 
 **Section sources**
 - [configSchema.ts:60-101](file://src/config/configSchema.ts#L60-L101)
@@ -560,6 +659,11 @@ Highest to lowest:
   - Enable enrichment for AI-powered code enhancement.
   - Select appropriate LLM provider for enrichment tasks.
   - Monitor usage tracking to optimize costs.
+- **Updated** Qdrant migration:
+  - Remove manual collection configuration from settings.
+  - Ensure Qdrant URL and API key are properly configured.
+  - Allow auto-generated collection names to handle collection management.
+  - Verify embedding dimension matches collection configuration.
 
 **Section sources**
 - [repomix.config.json:1-43](file://repomix.config.json#L1-L43)
@@ -567,3 +671,5 @@ Highest to lowest:
 - [goToConfigFile.ts:10-69](file://src/commands/goToConfigFile.ts#L10-L69)
 - [migrationService.ts:17-59](file://src/core/indexing/migrationService.ts#L17-L59)
 - [ConfigController.ts:1433-1455](file://src/webview/controllers/ConfigController.ts#L1433-L1455)
+- [factory.ts:69-77](file://src/core/indexing/vectorDb/factory.ts#L69-L77)
+- [repoIdentity.ts:46-58](file://src/utils/repoIdentity.ts#L46-L58)

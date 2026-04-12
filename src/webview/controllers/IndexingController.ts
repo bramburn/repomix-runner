@@ -269,7 +269,12 @@ export class IndexingController extends BaseController {
       const cwd = getCwd();
       const repoId = await getRepoId(cwd);
 
+      // Clear local SQLite database
       await this.databaseService.clearRepoFiles(repoId);
+
+      // Delete vectors from Qdrant
+      const { adapter } = await getVectorDbAdapterForRepo(this.extensionContext, repoId);
+      await adapter.deleteRepo({ repoId });
 
       this.context.postMessage({
         command: 'repoIndexDeleted'
@@ -304,6 +309,16 @@ export class IndexingController extends BaseController {
     try {
       const cwd = getCwd();
       const repoId = await getRepoId(cwd);
+
+      // If indexing is blocked (dimension mismatch), the SQLite data is stale -
+      // clear it and return 0 so the UI shows a consistent state with Qdrant.
+      const isBlocked = !!this.extensionContext.globalState.get('repomix.indexingBlocked');
+      if (isBlocked) {
+        await this.databaseService.clearRepoFiles(repoId);
+        this.context.postMessage({ command: 'repoIndexCount', count: 0 });
+        return;
+      }
+
       const count = await this.databaseService.getRepoFileCount(repoId);
 
       this.context.postMessage({

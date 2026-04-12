@@ -30,6 +30,7 @@
 - Enhanced SearchTab with new quick-action buttons (Select All Code, Clear All, Reset Defaults) for improved filter management
 - Improved categorized filter system with logical organization (Languages, Data & Documents, System & Configuration)
 - Simplified SettingsTab by removing Qdrant collection name field, focusing on URL and API key configuration
+- Added documentation of the new qdrantConnectionStatus state management system and real-time Qdrant connection status indicators
 - Enhanced file filter management with better user experience and accessibility
 
 ## Table of Contents
@@ -496,6 +497,8 @@ Key responsibilities:
 ### SettingsTab: Comprehensive Configuration Management
 The SettingsTab component provides extensive configuration management for vector databases, embedding providers, and token budgeting. The component features a simplified interface with streamlined Qdrant configuration and comprehensive validation and error handling.
 
+**Updated** Simplified by removing Qdrant collection name field, focusing on URL and API key configuration
+
 Key configuration sections:
 - **Vector Database Configuration**: Qdrant connection management with URL and API key handling (collection name field removed)
 - **Embedding Provider Configuration**: Support for Ollama and LM Studio with model discovery and dimension testing
@@ -560,6 +563,7 @@ Key enhancements:
   - Data & Documents: YAML, JSON, XML, Markdown
   - System & Configuration: Config files, Mobile projects, Known extensionless files
 - **Improved User Experience**: Better visual organization with grid layouts and clear categorization
+- **Real-time Qdrant Connection Status**: New qdrantConnectionStatus state management system with live indicators
 
 ```mermaid
 flowchart TD
@@ -594,9 +598,20 @@ The SearchTab implements a comprehensive file type filtering system with support
 - Catch-all mode for bypassing filters
 - Real-time filter validation and feedback
 
+### Qdrant Connection Status Management
+The SearchTab now includes a sophisticated qdrantConnectionStatus state management system that provides real-time feedback on Qdrant connectivity:
+
+- **State Management**: Tracks connection status (connected, error, checking)
+- **Visual Indicators**: Color-coded status display with contextual messaging
+- **Real-time Updates**: Live status updates during connection testing
+- **Error Handling**: Detailed error messages for troubleshooting
+- **Integration**: Seamless integration with existing indexing workflow
+
 **Section sources**
 - [SearchTab.tsx:35-61](file://src/webview/components/SearchTab.tsx#L35-L61)
 - [SearchTab.tsx:230-236](file://src/webview/components/SearchTab.tsx#L230-L236)
+- [SearchTab.tsx:190-193](file://src/webview/components/SearchTab.tsx#L190-L193)
+- [SearchTab.tsx:927-950](file://src/webview/components/SearchTab.tsx#L927-L950)
 
 ## Dependency Analysis
 The webview depends on:
@@ -650,6 +665,7 @@ CCTRL --> QDRANT["@qdrant/js-client-rest"]
 - Database optimization: AgentController uses efficient database queries for history and run management.
 - Message batching: RepomixWebviewProvider batches controller initialization and message handling.
 - Filter optimization: SearchTab uses memoized filter calculations to improve performance with large result sets.
+- Real-time status updates: Qdrant connection status updates are optimized with minimal re-renders.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -662,6 +678,7 @@ Common issues and resolutions:
 - Embedding provider configuration: Ensure Ollama/LM Studio servers are accessible and models are properly configured.
 - Settings persistence: Verify VS Code secrets storage is available and configuration changes are properly saved.
 - Filter performance: Large filter sets may impact search performance; use the quick-action buttons to optimize filter configurations.
+- Qdrant connection status errors: The new qdrantConnectionStatus system provides detailed error messages for troubleshooting connection issues.
 
 **Section sources**
 - [RepomixWebviewProvider.ts:110-116](file://src/webview/RepomixWebviewProvider.ts#L110-L116)
@@ -675,4 +692,4 @@ The Webview Interface employs a clear separation of concerns: React components r
 
 The recent enhancements to the SearchTab with quick-action buttons and improved categorization system, along with the simplified SettingsTab configuration, demonstrate the system's commitment to user experience and streamlined functionality. The removal of the Qdrant collection name field in favor of URL-based configuration reduces complexity while maintaining essential functionality. The enhanced filter management system provides developers with powerful tools for precise code exploration and analysis, supporting the core mission of the Repomix Runner Plus extension to provide intelligent code search and analysis capabilities.
 
-The simplified interface now provides a focused developer experience with integrated agent functionality, comprehensive configuration management, and streamlined workflow processes. The enhanced SearchTab offers improved discoverability and control over file filtering, while the streamlined SettingsTab ensures that essential configuration options remain accessible without unnecessary complexity. These improvements contribute to better resource allocation and a more cohesive user experience centered around the core Repomix Runner Plus functionality.
+The new qdrantConnectionStatus state management system adds real-time visibility into Qdrant connectivity, improving the debugging experience and reducing configuration-related issues. The simplified interface now provides a focused developer experience with integrated agent functionality, comprehensive configuration management, and streamlined workflow processes. The enhanced SearchTab offers improved discoverability and control over file filtering, while the streamlined SettingsTab ensures that essential configuration options remain accessible without unnecessary complexity. These improvements contribute to better resource allocation and a more cohesive user experience centered around the core Repomix Runner Plus functionality.

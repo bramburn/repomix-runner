@@ -142,8 +142,32 @@ export class RepoEmbeddingOrchestrator {
           successfulFiles++;
           totalVectors += result.vectors;
           fileTimes.push({ file: result.filePath, time: result.time, vectors: result.vectors });
+
+          // Record embedding completion to index history
+          const completeEntry = {
+            timestamp: Date.now(),
+            repoId,
+            filePath: result.filePath,
+            eventType: 'embedding_complete' as const,
+            status: 'indexed' as const,
+            details: JSON.stringify({ vectors: result.vectors, durationMs: result.time, branchName })
+          };
+          await this.databaseService.addIndexHistoryEvent(completeEntry);
+          ExtensionServices.instance?.indexHistoryEventEmitter.fire(completeEntry);
         } else {
           errors.push({ filePath: result.filePath, error: result.error || 'Unknown error' });
+
+          // Record embedding failure to index history
+          const failedEntry = {
+            timestamp: Date.now(),
+            repoId,
+            filePath: result.filePath,
+            eventType: 'embedding_failed' as const,
+            status: 'failed' as const,
+            details: JSON.stringify({ error: result.error || 'Unknown error', branchName })
+          };
+          await this.databaseService.addIndexHistoryEvent(failedEntry);
+          ExtensionServices.instance?.indexHistoryEventEmitter.fire(failedEntry);
         }
       }
     } else {
@@ -182,6 +206,18 @@ export class RepoEmbeddingOrchestrator {
 
           const fileTime = Date.now() - fileStart;
           fileTimes.push({ file: filePath, time: fileTime, vectors: vectorCount });
+
+          // Record embedding completion to index history
+          const completeEntry = {
+            timestamp: Date.now(),
+            repoId,
+            filePath,
+            eventType: 'embedding_complete' as const,
+            status: 'indexed' as const,
+            details: JSON.stringify({ vectors: vectorCount, durationMs: fileTime, branchName })
+          };
+          await this.databaseService.addIndexHistoryEvent(completeEntry);
+          ExtensionServices.instance?.indexHistoryEventEmitter.fire(completeEntry);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           // If aborted, re-throw to signal caller
@@ -198,6 +234,18 @@ export class RepoEmbeddingOrchestrator {
           console.error(`[REPO_EMBEDDING_ORCHESTRATOR] Failed to embed ${filePath}: ${errorMsg}`);
           logger.both.error(`[RepoEmbeddingOrchestrator] Failed to embed ${filePath}: ${errorMsg}`);
           errors.push({ filePath, error: errorMsg });
+
+          // Record embedding failure to index history
+          const failedEntry = {
+            timestamp: Date.now(),
+            repoId,
+            filePath,
+            eventType: 'embedding_failed' as const,
+            status: 'failed' as const,
+            details: JSON.stringify({ error: errorMsg, branchName })
+          };
+          await this.databaseService.addIndexHistoryEvent(failedEntry);
+          ExtensionServices.instance?.indexHistoryEventEmitter.fire(failedEntry);
         }
       }
     }
